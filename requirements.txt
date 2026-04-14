@@ -1,0 +1,9 @@
+feedparser>=6.0
+requests>=2.31
+beautifulsoup4>=4.12
+vaderSentiment>=3.3
+transformers>=4.40
+torch>=2.2
+flask>=3.0
+yfinance>=0.2.40
+pandas>=2.0

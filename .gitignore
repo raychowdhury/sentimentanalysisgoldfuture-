@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Outputs (runtime data)
+outputs/
+
+# HuggingFace model cache
+.cache/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

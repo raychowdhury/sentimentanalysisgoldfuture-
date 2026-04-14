@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gold Bias Engine</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #0f172a;
+      color: #fff;
+      padding: 0 1.5rem;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+    }
+    .logo { font-size: 1rem; font-weight: 700; letter-spacing: -.02em; display: flex; align-items: center; gap: .5rem; }
+    .logo-gold { color: #fbbf24; }
+    .logo-sub { font-size: .65rem; font-weight: 400; color: #64748b; letter-spacing: .06em; text-transform: uppercase; }
+    .run-selector { display: flex; align-items: center; gap: .5rem; }
+    .run-selector label { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+    .run-selector select {
+      background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
+      padding: .3rem .65rem; border-radius: 6px; font-size: .75rem; cursor: pointer; outline: none;
+    }
+    .run-selector select:focus { border-color: #fbbf24; }
+
+    /* ── Layout ── */
+    main { max-width: 1440px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
+    .section-label {
+      font-size: .6rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: #94a3b8; margin-bottom: .65rem;
+    }
+    .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+    .divider { border: none; border-top: 1px solid #e2e8f0; margin: 1.25rem 0; }
+
+    /* ── Signal banner ── */
+    .signal-banner {
+      border-radius: 10px;
+      padding: 1.25rem 1.75rem;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .signal-banner.sig-strong-buy  { background: #14532d; color: #dcfce7; }
+    .signal-banner.sig-buy         { background: #166534; color: #dcfce7; }
+    .signal-banner.sig-hold        { background: #78350f; color: #fef3c7; }
+    .signal-banner.sig-sell        { background: #7f1d1d; color: #fee2e2; }
+    .signal-banner.sig-strong-sell { background: #450a0a; color: #fee2e2; }
+    .signal-banner.sig-unknown     { background: #1e293b; color: #e2e8f0; }
+    .sig-main { display: flex; align-items: baseline; gap: 1rem; }
+    .sig-label { font-size: 1.75rem; font-weight: 800; letter-spacing: -.03em; }
+    .sig-score { font-size: 1rem; font-weight: 600; opacity: .75; }
+    .sig-meta { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center; }
+    .sig-conf { display: flex; flex-direction: column; align-items: flex-end; gap: .15rem; }
+    .sig-conf-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .1em; opacity: .6; }
+    .sig-conf-val { font-size: .85rem; font-weight: 700; }
+    .sig-veto {
+      font-size: .7rem; background: rgba(0,0,0,.2); padding: .2rem .6rem;
+      border-radius: 999px; opacity: .8;
+    }
+
+    /* ── 2-col grids ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1rem; }
+
+    /* ── Score breakdown card ── */
+    .scores-card { padding: 1.25rem 1.5rem; }
+    .score-row { display: flex; align-items: center; gap: .65rem; margin-bottom: .6rem; }
+    .score-row:last-child { margin-bottom: 0; }
+    .score-row-label { width: 100px; font-size: .72rem; color: #64748b; font-weight: 600; flex-shrink: 0; }
+    .score-track-wrap { flex: 1; position: relative; }
+    .score-track {
+      height: 6px; background: #f1f5f9; border-radius: 3px; position: relative; overflow: hidden;
+    }
+    .score-center-line {
+      position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #cbd5e1; z-index: 1;
+    }
+    .score-fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+    .score-val { width: 32px; text-align: right; font-size: .8rem; font-weight: 700; flex-shrink: 0; }
+    .score-val.pos { color: #16a34a; }
+    .score-val.neg { color: #dc2626; }
+    .score-val.neu { color: #94a3b8; }
+    .score-total-row {
+      display: flex; align-items: center; justify-content: space-between;
+      border-top: 1px solid #f1f5f9; margin-top: .75rem; padding-top: .75rem;
+    }
+    .score-total-label { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+    .score-total-val { font-size: 1.3rem; font-weight: 800; letter-spacing: -.02em; }
+
+    /* ── Trade setup card ── */
+    .trade-card { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+    .trade-inner { display: flex; gap: 1.25rem; align-items: stretch; }
+    .price-ladder { width: 80px; flex-shrink: 0; position: relative; display: flex; flex-direction: column; }
+    .ladder-bar {
+      flex: 1;
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 180px;
+    }
+    .ladder-reward { background: rgba(22,163,74,.18); border: 1px solid rgba(22,163,74,.3); }
+    .ladder-risk   { background: rgba(220,38,38,.12);  border: 1px solid rgba(220,38,38,.25); }
+    .ladder-entry-line {
+      height: 2px;
+      background: #0f172a;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .ladder-entry-line::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: -3px;
+      transform: translateX(-50%);
+      width: 8px;
+      height: 8px;
+      background: #0f172a;
+      border-radius: 50%;
+    }
+    .trade-labels { flex: 1; display: flex; flex-direction: column; justify-content: space-between; font-size: .75rem; }
+    .trade-label-row { display: flex; flex-direction: column; gap: .1rem; }
+    .trade-lbl { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; }
+    .trade-price { font-size: .95rem; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+    .trade-delta { font-size: .7rem; }
+    .trade-delta.pos { color: #16a34a; }
+    .trade-delta.neg { color: #dc2626; }
+    .trade-rr-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #f8fafc; border-radius: 6px; padding: .5rem .75rem;
+      font-size: .75rem;
+    }
+    .trade-rr-val { font-size: 1rem; font-weight: 800; color: #0f172a; }
+    .trade-rr-badge {
+      font-size: .65rem; font-weight: 700; padding: .15rem .5rem; border-radius: 999px;
+      background: #dcfce7; color: #15803d;
+    }
+    .no-trade-box {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 2rem 1rem; text-align: center; gap: .5rem; flex: 1;
+    }
+    .no-trade-icon { font-size: 2rem; opacity: .3; }
+    .no-trade-label { font-size: .8rem; font-weight: 700; color: #64748b; }
+    .no-trade-note { font-size: .7rem; color: #94a3b8; }
+
+    /* ── Market snapshot ── */
+    .market-card { padding: 1.1rem 1.25rem; }
+    .mkt-name { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; margin-bottom: .25rem; }
+    .mkt-price { font-size: 1.5rem; font-weight: 800; letter-spacing: -.03em; color: #0f172a; line-height: 1; }
+    .mkt-5d { font-size: .75rem; font-weight: 600; margin-top: .25rem; }
+    .mkt-5d.pos { color: #16a34a; }
+    .mkt-5d.neg { color: #dc2626; }
+    .mkt-5d.neu { color: #94a3b8; }
+    .mkt-ema-row { display: flex; gap: 1rem; margin-top: .6rem; }
+    .mkt-ema { font-size: .7rem; color: #64748b; }
+    .mkt-ema span { font-weight: 600; color: #334155; }
+    .mkt-ema-pill {
+      display: inline-block; font-size: .6rem; font-weight: 700; padding: .1rem .4rem;
+      border-radius: 999px; margin-top: .35rem;
+    }
+    .mkt-above { background: #dcfce7; color: #15803d; }
+    .mkt-below { background: #fee2e2; color: #b91c1c; }
+    .mkt-na { background: #f1f5f9; color: #64748b; font-style: italic; text-align: center; padding: 1.5rem 0; font-size: .8rem; }
+
+    /* ── Reasoning card ── */
+    .reasoning-card { padding: 1.25rem 1.5rem; }
+    .reasoning-list { list-style: none; }
+    .reasoning-item {
+      display: flex; gap: .5rem; align-items: flex-start;
+      padding: .45rem 0; border-bottom: 1px solid #f8fafc;
+      font-size: .8rem; color: #334155; line-height: 1.45;
+    }
+    .reasoning-item:last-child { border-bottom: none; }
+    .reasoning-dot { font-size: .85rem; flex-shrink: 0; margin-top: 1px; color: #94a3b8; }
+
+    /* ── Sentiment stats cards ── */
+    .stat-card { padding: 1.1rem 1.4rem; }
+    .stat-label { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; margin-bottom: .4rem; }
+    .stat-value { font-size: 1.9rem; font-weight: 800; color: #0f172a; line-height: 1; letter-spacing: -.03em; }
+    .stat-sub { font-size: .68rem; color: #94a3b8; margin-top: .3rem; }
+    .score-pos { color: #16a34a; }
+    .score-neg { color: #dc2626; }
+    .score-neu { color: #64748b; }
+
+    /* ── Chart card ── */
+    .chart-card { padding: 1.25rem 1.5rem; }
+    .chart-wrap { position: relative; height: 210px; margin-top: .75rem; }
+
+    /* ── Headlines card ── */
+    .headlines-card { padding: 1.25rem 1.5rem; overflow: hidden; }
+    .hl-group-label {
+      font-size: .6rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; margin: .8rem 0 .3rem;
+    }
+    .hl-group-label:first-child { margin-top: 0; }
+    .hl-pos { color: #16a34a; }
+    .hl-neg { color: #dc2626; }
+    .hl-list { list-style: none; }
+    .hl-item {
+      display: flex; gap: .45rem; padding: .35rem 0;
+      border-bottom: 1px solid #f8fafc; font-size: .78rem; color: #334155; line-height: 1.35;
+    }
+    .hl-item:last-child { border-bottom: none; }
+    .hl-bullet { flex-shrink: 0; font-size: .8rem; margin-top: 1px; }
+    .no-headlines { font-size: .78rem; color: #94a3b8; font-style: italic; padding: .5rem 0; }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block; padding: .15rem .5rem; border-radius: 999px;
+      font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    }
+    .badge-positive { background: #dcfce7; color: #15803d; }
+    .badge-negative { background: #fee2e2; color: #b91c1c; }
+    .badge-neutral  { background: #f1f5f9; color: #475569; }
+
+    /* ── Table ── */
+    .table-card { padding: 1.25rem 1.5rem; }
+    .table-controls { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; gap: 1rem; }
+    .table-search {
+      padding: .3rem .65rem; border: 1px solid #e2e8f0; border-radius: 6px;
+      font-size: .75rem; outline: none; width: 220px; color: #334155;
+    }
+    .table-search:focus { border-color: #94a3b8; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .75rem; min-width: 860px; }
+    thead th {
+      text-align: left; padding: .5rem .65rem; background: #f8fafc; color: #64748b;
+      font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      border-bottom: 2px solid #e2e8f0; white-space: nowrap; cursor: pointer; user-select: none;
+    }
+    thead th:hover { background: #f1f5f9; }
+    thead th.sorted { color: #0f172a; }
+    .sort-icon { margin-left: 3px; color: #cbd5e1; font-style: normal; }
+    thead th.sorted .sort-icon { color: #fbbf24; }
+    tbody tr { border-bottom: 1px solid #f8fafc; }
+    tbody tr:hover { background: #fafafa; }
+    tbody tr.row-hidden { display: none; }
+    tbody td { padding: .55rem .65rem; vertical-align: top; color: #334155; }
+    .title-cell { max-width: 240px; }
+    .title-cell a { color: #1d4ed8; text-decoration: none; font-weight: 500; line-height: 1.3; }
+    .title-cell a:hover { text-decoration: underline; }
+    .title-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .query-pill { font-size: .6rem; color: #6366f1; background: #eef2ff; padding: .12rem .45rem; border-radius: 999px; }
+    .sub-score { font-size: .62rem; color: #94a3b8; margin-top: 2px; }
+    .mode-pill { font-size: .6rem; color: #64748b; background: #f1f5f9; padding: .12rem .45rem; border-radius: 999px; }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 5rem 2rem; }
+    .empty-state h2 { font-size: 1.1rem; color: #334155; margin-bottom: .5rem; }
+    .empty-state p { color: #64748b; font-size: .82rem; }
+    .empty-cmd {
+      margin-top: 1rem; display: inline-block; background: #0f172a; color: #e2e8f0;
+      padding: .55rem 1.1rem; border-radius: 8px;
+      font-family: 'SF Mono', 'Fira Code', monospace; font-size: .78rem;
+    }
+
+    /* ── Divider label ── */
+    .section-divider {
+      display: flex; align-items: center; gap: .75rem; margin: 1.25rem 0 1rem;
+    }
+    .section-divider-line { flex: 1; height: 1px; background: #e2e8f0; }
+    .section-divider-text { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #94a3b8; white-space: nowrap; }
+
+    /* ── Responsive ── */
+    @media (max-width: 980px) {
+      .grid-4 { grid-template-columns: 1fr 1fr; }
+      .grid-3 { grid-template-columns: 1fr 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      main { padding: 1rem 1rem 2rem; }
+    }
+    @media (max-width: 560px) {
+      .grid-4 { grid-template-columns: 1fr 1fr; }
+      .grid-3 { grid-template-columns: 1fr; }
+      .stat-value { font-size: 1.4rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    Gold<span class="logo-gold">Bias</span>Engine
+    <span class="logo-sub">XAUUSD · Sentiment + Signal</span>
+  </div>
+  {% if runs %}
+  <form class="run-selector" method="get" action="/">
+    <label for="run-sel">Run</label>
+    <select id="run-sel" name="run" onchange="this.form.submit()">
+      {% for r in runs %}
+      <option value="{{ r.timestamp }}" {% if r.timestamp == selected %}selected{% endif %}>
+        {{ r.label }}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</header>
+
+<main>
+
+{% if not signal and not sentiment %}
+<!-- ── Empty state ── -->
+<div class="card empty-state">
+  <h2>No results yet</h2>
+  <p>Run the scanner to generate output files in <code>outputs/</code></p>
+  <div class="empty-cmd">python main.py --signal --trade-setup</div>
+</div>
+
+{% else %}
+
+{# ════════════════════════════════════════════════════════
+   SIGNAL SECTION
+════════════════════════════════════════════════════════ #}
+{% if signal %}
+
+{% set sig = signal.signal | default("HOLD") %}
+{% set sig_class = {
+  "STRONG_BUY":  "sig-strong-buy",
+  "BUY":         "sig-buy",
+  "HOLD":        "sig-hold",
+  "SELL":        "sig-sell",
+  "STRONG_SELL": "sig-strong-sell"
+}.get(sig, "sig-unknown") %}
+
+{% set sig_icon = {
+  "STRONG_BUY":  "▲▲",
+  "BUY":         "▲",
+  "HOLD":        "●",
+  "SELL":        "▼",
+  "STRONG_SELL": "▼▼"
+}.get(sig, "—") %}
+
+{% set conf_dots = {
+  "HIGH":   "●●●",
+  "MEDIUM": "●●○",
+  "LOW":    "●○○"
+}.get(signal.confidence | default("LOW"), "○○○") %}
+
+<!-- Signal banner -->
+<div class="signal-banner {{ sig_class }}">
+  <div class="sig-main">
+    <div class="sig-label">{{ sig_icon }} {{ sig }}</div>
+    <div class="sig-score">Total score: {{ signal.total_score | default(0) | int | string | replace('-', '−') }}
+      {%- if signal.total_score | default(0) > 0 %}+{% endif %}{{ signal.total_score | default(0) }}</div>
+  </div>
+  <div class="sig-meta">
+    {% if signal.veto_applied %}
+    <div class="sig-veto">⚠ Veto applied — was {{ signal.raw_signal }}</div>
+    {% endif %}
+    <div class="sig-conf">
+      <div class="sig-conf-label">Confidence</div>
+      <div class="sig-conf-val">{{ signal.confidence | default("—") }} {{ conf_dots }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Score breakdown + Trade setup -->
+<div class="grid-2">
+
+  <!-- Score breakdown -->
+  <div class="card scores-card">
+    <div class="section-label">Score Breakdown</div>
+
+    {# Macro: score_bar(score, max_abs) #}
+    {% macro score_bar(score, max_abs=2) %}
+    {% set center = 50 %}
+    {% set unit = 50 / max_abs %}
+    {% if score | int > 0 %}
+      {% set fl = center %}
+      {% set fw = score | int * unit %}
+      {% set fc = "#16a34a" %}
+      {% set vc = "pos" %}
+    {% elif score | int < 0 %}
+      {% set fw = (score | int | abs) * unit %}
+      {% set fl = center - fw %}
+      {% set fc = "#dc2626" %}
+      {% set vc = "neg" %}
+    {% else %}
+      {% set fl = center %}
+      {% set fw = 0 %}
+      {% set fc = "transparent" %}
+      {% set vc = "neu" %}
+    {% endif %}
+    <div class="score-track">
+      <div class="score-center-line"></div>
+      {% if fw > 0 %}
+      <div class="score-fill" style="left:{{ fl }}%; width:{{ fw }}%; background:{{ fc }};"></div>
+      {% endif %}
+    </div>
+    {% endmacro %}
+
+    <div class="score-row">
+      <div class="score-row-label">Sentiment</div>
+      <div class="score-track-wrap">{{ score_bar(signal.sentiment_score | default(0)) }}</div>
+      {% set sv = signal.sentiment_score | default(0) | int %}
+      <div class="score-val {{ 'pos' if sv > 0 else 'neg' if sv < 0 else 'neu' }}">{{ '%+d' | format(sv) }}</div>
+    </div>
+
+    <div class="score-row">
+      <div class="score-row-label">DXY</div>
+      <div class="score-track-wrap">{{ score_bar(signal.dxy_score | default(0)) }}</div>
+      {% set dv = signal.dxy_score | default(0) | int %}
+      <div class="score-val {{ 'pos' if dv > 0 else 'neg' if dv < 0 else 'neu' }}">{{ '%+d' | format(dv) }}</div>
+    </div>
+
+    <div class="score-row">
+      <div class="score-row-label">US 10Y Yield</div>
+      <div class="score-track-wrap">{{ score_bar(signal.yield_score | default(0)) }}</div>
+      {% set yv = signal.yield_score | default(0) | int %}
+      <div class="score-val {{ 'pos' if yv > 0 else 'neg' if yv < 0 else 'neu' }}">{{ '%+d' | format(yv) }}</div>
+    </div>
+
+    <div class="score-row">
+      <div class="score-row-label">Gold Trend</div>
+      <div class="score-track-wrap">{{ score_bar(signal.gold_trend_score | default(0), 3) }}</div>
+      {% set gv = signal.gold_trend_score | default(0) | int %}
+      <div class="score-val {{ 'pos' if gv > 0 else 'neg' if gv < 0 else 'neu' }}">{{ '%+d' | format(gv) }}</div>
+    </div>
+
+    <div class="score-total-row">
+      <div class="score-total-label">Total Score</div>
+      {% set tv = signal.total_score | default(0) | int %}
+      <div class="score-total-val {{ 'score-pos' if tv > 0 else 'score-neg' if tv < 0 else 'score-neu' }}">{{ '%+d' | format(tv) }}</div>
+    </div>
+  </div>
+
+  <!-- Trade setup -->
+  <div class="card trade-card">
+    <div class="section-label">Trade Setup</div>
+
+    {% set trade = signal.get("trade_setup") %}
+    {% if trade and trade.trade_valid and trade_viz %}
+
+    <div class="trade-inner">
+      <!-- Price ladder -->
+      <div class="price-ladder">
+        <div class="ladder-bar">
+          {% if trade_viz.is_buy %}
+          <div class="ladder-reward" style="flex: {{ 100 - trade_viz.entry_pct }};"></div>
+          <div class="ladder-entry-line"></div>
+          <div class="ladder-risk"   style="flex: {{ trade_viz.entry_pct }};"></div>
+          {% else %}
+          <div class="ladder-risk"   style="flex: {{ 100 - trade_viz.entry_pct }};"></div>
+          <div class="ladder-entry-line"></div>
+          <div class="ladder-reward" style="flex: {{ trade_viz.entry_pct }};"></div>
+          {% endif %}
+        </div>
+      </div>
+      <!-- Labels -->
+      <div class="trade-labels">
+        <!-- Top label -->
+        <div class="trade-label-row">
+          <div class="trade-lbl">{{ "Take Profit" if trade_viz.is_buy else "Stop Loss" }}</div>
+          <div class="trade-price {{ 'score-pos' if trade_viz.is_buy else 'score-neg' }}">{{ trade_viz.top_label }}</div>
+          {% if trade_viz.is_buy %}
+          <div class="trade-delta pos">+{{ trade.reward_amount | fmt_price }}</div>
+          {% else %}
+          <div class="trade-delta neg">−{{ trade.risk_amount | fmt_price }}</div>
+          {% endif %}
+        </div>
+        <!-- Entry label -->
+        <div class="trade-label-row">
+          <div class="trade-lbl">Entry</div>
+          <div class="trade-price">{{ trade_viz.entry_label }}</div>
+          <div class="trade-delta neu" style="color:#94a3b8;">current price</div>
+        </div>
+        <!-- Bottom label -->
+        <div class="trade-label-row">
+          <div class="trade-lbl">{{ "Stop Loss" if trade_viz.is_buy else "Take Profit" }}</div>
+          <div class="trade-price {{ 'score-neg' if trade_viz.is_buy else 'score-pos' }}">{{ trade_viz.bottom_label }}</div>
+          {% if trade_viz.is_buy %}
+          <div class="trade-delta neg">−{{ trade.risk_amount | fmt_price }}</div>
+          {% else %}
+          <div class="trade-delta pos">+{{ trade.reward_amount | fmt_price }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="trade-rr-row">
+      <div>
+        <div style="font-size:.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.08em;">Risk / Reward</div>
+        <div class="trade-rr-val">1 : {{ trade.risk_reward_ratio }}</div>
+      </div>
+      <div class="trade-rr-badge">✓ Meets 1:{{ trade.minimum_required_rr | int }} minimum</div>
+    </div>
+
+    {% else %}
+    <div class="no-trade-box">
+      <div class="no-trade-icon">—</div>
+      <div class="no-trade-label">NO TRADE</div>
+      <div class="no-trade-note">
+        {% if trade %}
+          {{ trade.setup_note or "Setup conditions not met" }}
+        {% elif not signal.get("trade_setup") %}
+          Run with --trade-setup to generate levels
+        {% else %}
+          No valid setup available
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Market snapshot + Reasoning -->
+<div class="grid-2">
+
+  <!-- Market snapshot (3 instrument cards stacked vertically in a grid) -->
+  <div>
+    <div class="section-label">Market Snapshot</div>
+    {% set snap = signal.get("market_snapshot", {}) %}
+    <div class="grid-3" style="margin-bottom:0">
+      {% for key, label, unit in [("gold","Gold (GC=F)",""), ("dxy","DXY",""), ("yield_10y","US 10Y Yield","%")] %}
+      {% set ind = snap.get(key) %}
+      <div class="card market-card">
+        <div class="mkt-name">{{ label }}</div>
+        {% if ind %}
+          {% set ret = ind.get("return_5d_pct", 0) | float %}
+          <div class="mkt-price">{{ ind.current | fmt_price }}{{ unit }}</div>
+          <div class="mkt-5d {{ 'pos' if ret > 0.1 else 'neg' if ret < -0.1 else 'neu' }}">
+            {{ '▲' if ret > 0.1 else '▼' if ret < -0.1 else '●' }}
+            {{ ind.abs_change_5d | pct_change if key == 'yield_10y' else ind.return_5d_pct | pct_change }} 5d
+          </div>
+          <div class="mkt-ema-row">
+            <div class="mkt-ema">EMA20 <span>{{ ind.ema20 | fmt_price }}</span></div>
+            <div class="mkt-ema">EMA50 <span>{{ ind.ema50 | fmt_price }}</span></div>
+          </div>
+          {% if ind.current | float > ind.ema20 | float %}
+          <span class="mkt-ema-pill mkt-above">Above EMA20</span>
+          {% else %}
+          <span class="mkt-ema-pill mkt-below">Below EMA20</span>
+          {% endif %}
+        {% else %}
+          <div class="mkt-na">Data unavailable</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Reasoning -->
+  <div class="card reasoning-card">
+    <div class="section-label">Reasoning</div>
+    <ul class="reasoning-list">
+      {% for r in signal.get("reasoning", []) %}
+      <li class="reasoning-item">
+        <span class="reasoning-dot">·</span>
+        <span>{{ r }}</span>
+      </li>
+      {% endfor %}
+      {% if not signal.get("reasoning") %}
+      <li class="reasoning-item"><span class="reasoning-dot">·</span><span style="color:#94a3b8">No reasoning available.</span></li>
+      {% endif %}
+    </ul>
+  </div>
+</div>
+
+{% endif %}{# end if signal #}
+
+
+{# ════════════════════════════════════════════════════════
+   SENTIMENT SECTION
+════════════════════════════════════════════════════════ #}
+{% if sentiment %}
+{% set s = sentiment.summary %}
+{% set articles = sentiment.articles %}
+
+{% if signal %}
+<div class="section-divider">
+  <div class="section-divider-line"></div>
+  <div class="section-divider-text">Sentiment Analysis</div>
+  <div class="section-divider-line"></div>
+</div>
+{% endif %}
+
+<!-- Stats row -->
+<div class="grid-4">
+  <div class="card stat-card">
+    <div class="stat-label">Articles Fetched</div>
+    <div class="stat-value">{{ s.total_fetched }}</div>
+    <div class="stat-sub">{{ s.total_unique }} unique after dedup</div>
+  </div>
+  <div class="card stat-card">
+    <div class="stat-label">Analyzed</div>
+    <div class="stat-value">{{ s.total_analyzed }}</div>
+    <div class="stat-sub">{{ s.total_scraped }} body scraped · {{ s.total_failed }} title-only</div>
+  </div>
+  <div class="card stat-card">
+    <div class="stat-label">Avg Final Score</div>
+    {% if s.average_final_score is not none %}
+      {% set avg = s.average_final_score | float %}
+      <div class="stat-value {{ 'score-pos' if avg > 0.05 else 'score-neg' if avg < -0.05 else 'score-neu' }}">
+        {{ "%+.4f" | format(avg) }}
+      </div>
+    {% else %}
+      <div class="stat-value score-neu">—</div>
+    {% endif %}
+    <div class="stat-sub">combined across all articles</div>
+  </div>
+  <div class="card stat-card">
+    <div class="stat-label">Sentiment Split</div>
+    {% set fd = s.sentiment_distribution.get("final", {}) %}
+    <div class="stat-value" style="font-size:1.1rem; display:flex; gap:.75rem; margin-top:4px; align-items:baseline;">
+      <span class="score-pos">▲&nbsp;{{ fd.get("positive", 0) }}</span>
+      <span class="score-neu">●&nbsp;{{ fd.get("neutral", 0) }}</span>
+      <span class="score-neg">▼&nbsp;{{ fd.get("negative", 0) }}</span>
+    </div>
+    <div class="stat-sub">{{ s.text_mode }} mode · {{ s.models_used | join(", ") }}</div>
+  </div>
+</div>
+
+<!-- Chart + Headlines -->
+<div class="grid-2">
+  <div class="card chart-card">
+    <div class="section-label">Sentiment Distribution by Model</div>
+    <div class="chart-wrap"><canvas id="sentimentChart"></canvas></div>
+  </div>
+  <div class="card headlines-card">
+    <div class="section-label">Top Headlines</div>
+    {% if s.top_positive %}
+    <div class="hl-group-label hl-pos">▲ Most Positive</div>
+    <ul class="hl-list">
+      {% for h in s.top_positive %}
+      <li class="hl-item"><span class="hl-bullet" style="color:#16a34a">+</span><span>{{ h }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if s.top_negative %}
+    <div class="hl-group-label hl-neg">▼ Most Negative</div>
+    <ul class="hl-list">
+      {% for h in s.top_negative %}
+      <li class="hl-item"><span class="hl-bullet" style="color:#dc2626">−</span><span>{{ h }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if not s.top_positive and not s.top_negative %}
+    <p class="no-headlines">No strongly positive or negative headlines in this run.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Articles table -->
+<div class="card table-card">
+  <div class="table-controls">
+    <div class="section-label" style="margin:0">Articles <span style="color:#94a3b8; font-weight:400">({{ articles | length }})</span></div>
+    <input class="table-search" type="text" placeholder="Filter by title, source, query…" oninput="filterTable(this.value)">
+  </div>
+  <div class="table-wrap">
+    <table id="art-table">
+      <thead>
+        <tr>
+          <th onclick="sortTable(0)">Title <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(1)">Source <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(2)">Query <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(3)">Final <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(4)">Score <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(5)">VADER <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(6)">FinBERT <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(7)">Mode <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(8)">Body <i class="sort-icon">↕</i></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in articles %}
+        <tr data-search="{{ (a.title ~ ' ' ~ a.source ~ ' ' ~ a.query) | lower }}">
+          <td class="title-cell">
+            <a href="{{ a.url }}" target="_blank" rel="noopener" title="{{ a.title }}">
+              <div class="title-clamp">{{ a.title }}</div>
+            </a>
+          </td>
+          <td style="white-space:nowrap; color:#475569">{{ a.source or "—" }}</td>
+          <td><span class="query-pill">{{ a.query }}</span></td>
+          <td>
+            {% if a.final_label == "positive" %}<span class="badge badge-positive">positive</span>
+            {% elif a.final_label == "negative" %}<span class="badge badge-negative">negative</span>
+            {% else %}<span class="badge badge-neutral">neutral</span>{% endif %}
+          </td>
+          <td style="font-weight:600; white-space:nowrap;">
+            {% if a.final_score != "" %}
+              {% set fs = a.final_score | float %}
+              <span class="{{ 'score-pos' if fs > 0.05 else 'score-neg' if fs < -0.05 else 'score-neu' }}">
+                {{ "%+.4f" | format(fs) }}
+              </span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if a.vader_label %}
+              {% if a.vader_label == "positive" %}<span class="badge badge-positive">{{ a.vader_label }}</span>
+              {% elif a.vader_label == "negative" %}<span class="badge badge-negative">{{ a.vader_label }}</span>
+              {% else %}<span class="badge badge-neutral">{{ a.vader_label }}</span>{% endif %}
+              {% if a.vader_score != "" %}
+              <div class="sub-score">{{ "%+.3f" | format(a.vader_score | float) }}</div>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if a.finbert_label %}
+              {% if a.finbert_label == "positive" %}<span class="badge badge-positive">{{ a.finbert_label }}</span>
+              {% elif a.finbert_label == "negative" %}<span class="badge badge-negative">{{ a.finbert_label }}</span>
+              {% else %}<span class="badge badge-neutral">{{ a.finbert_label }}</span>{% endif %}
+              {% if a.finbert_confidence != "" %}
+              <div class="sub-score">conf {{ "%.3f" | format(a.finbert_confidence | float) }}</div>
+              {% endif %}
+            {% else %}<span style="color:#94a3b8">—</span>{% endif %}
+          </td>
+          <td><span class="mode-pill">{{ a.text_mode or "—" }}</span></td>
+          <td style="color:#94a3b8; text-align:right">
+            {% if a.body_length %}<span style="color:#16a34a; font-weight:600">{{ a.body_length }}</span>
+            {% else %}<span>0</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}{# end if sentiment #}
+{% endif %}{# end if not empty #}
+
+</main>
+
+{% if sentiment %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const dist = {{ sentiment.summary.sentiment_distribution | tojson }};
+  const modelColors = {
+    vader:   { bg: "rgba(59,130,246,.7)",  border: "#3b82f6" },
+    finbert: { bg: "rgba(139,92,246,.7)",  border: "#8b5cf6" },
+    final:   { bg: "rgba(251,191,36,.75)", border: "#fbbf24" },
+  };
+  const order  = ["vader","finbert","final"];
+  const active = order.filter(m => dist[m]);
+  const datasets = active.map(m => ({
+    label: m.charAt(0).toUpperCase() + m.slice(1),
+    data:  [dist[m].positive||0, dist[m].neutral||0, dist[m].negative||0],
+    backgroundColor: modelColors[m].bg,
+    borderColor:     modelColors[m].border,
+    borderWidth: 1.5,
+    borderRadius: 5,
+  }));
+  new Chart(document.getElementById("sentimentChart"), {
+    type: "bar",
+    data: { labels: ["Positive","Neutral","Negative"], datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12, padding: 14 }},
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}` }},
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 } }},
+        y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 }}, grid: { color: "#f1f5f9" }},
+      },
+    },
+  });
+})();
+
+let _sortCol = -1, _sortDir = 1;
+function sortTable(col) {
+  const table = document.getElementById("art-table");
+  const tbody = table.tBodies[0];
+  const rows  = Array.from(tbody.rows).filter(r => !r.classList.contains("row-hidden"));
+  _sortDir = (_sortCol === col) ? _sortDir * -1 : 1;
+  _sortCol = col;
+  rows.sort((a, b) => {
+    const av = a.cells[col].textContent.trim();
+    const bv = b.cells[col].textContent.trim();
+    const an = parseFloat(av.replace(/[^0-9.\-+]/g, ""));
+    const bn = parseFloat(bv.replace(/[^0-9.\-+]/g, ""));
+    if (!isNaN(an) && !isNaN(bn)) return (an - bn) * _sortDir;
+    return av.localeCompare(bv) * _sortDir;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+  table.querySelectorAll("thead th").forEach((th, i) => {
+    th.classList.toggle("sorted", i === col);
+    const ic = th.querySelector(".sort-icon");
+    if (ic) ic.textContent = (i === col) ? (_sortDir === 1 ? "↑" : "↓") : "↕";
+  });
+}
+function filterTable(q) {
+  q = q.toLowerCase().trim();
+  document.querySelectorAll("#art-table tbody tr").forEach(row => {
+    row.classList.toggle("row-hidden", q.length > 0 && !(row.dataset.search || "").includes(q));
+  });
+}
+</script>
+{% endif %}
+
+</body>
+</html>
