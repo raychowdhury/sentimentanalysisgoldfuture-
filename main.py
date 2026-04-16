@@ -60,6 +60,10 @@ def parse_args() -> argparse.Namespace:
         "--trade-setup", action="store_true",
         help="Compute trade entry / stop / take-profit levels (requires --signal)",
     )
+    p.add_argument(
+        "--timeframe", choices=["swing", "day"], default="swing",
+        help="Trading timeframe: 'swing' (multi-day, default) or 'day' (intraday bias)",
+    )
     return p.parse_args()
 
 
@@ -231,6 +235,7 @@ def run_signal(
     output_dir: str,
     timestamp: str,
     include_trade: bool,
+    timeframe: str = "swing",
 ) -> dict:
     """
     Fetch market data, compute scores, generate bias signal.
@@ -245,6 +250,7 @@ def run_signal(
     from signals import signal_engine, trade_setup as ts_mod
     from signals.risk_management import validate as rr_validate
 
+    tf = config.TIMEFRAME_PROFILES[timeframe]
     avg_score = sentiment_summary.get("average_final_score")
 
     # Data quality context passed to confidence + reasoning
@@ -258,12 +264,12 @@ def run_signal(
     }
 
     # ── Fetch market data ─────────────────────────────────────────────────────
-    logger.info("Fetching market data (DXY, US10Y, Gold)…")
-    raw_market = fetch_all()
+    logger.info(f"Fetching market data (DXY, US10Y, Gold) — timeframe={timeframe}…")
+    raw_market = fetch_all(lookback_days=tf["lookback_days"])
 
-    gold_ind  = compute_ind(raw_market.get("gold"),      name="gold")
-    dxy_ind   = compute_ind(raw_market.get("dxy"),       name="dxy")
-    yield_ind = compute_ind(raw_market.get("yield_10y"), name="yield_10y")
+    gold_ind  = compute_ind(raw_market.get("gold"),      name="gold",      tf=tf)
+    dxy_ind   = compute_ind(raw_market.get("dxy"),       name="dxy",       tf=tf)
+    yield_ind = compute_ind(raw_market.get("yield_10y"), name="yield_10y", tf=tf)
 
     for name, ind in [("gold", gold_ind), ("dxy", dxy_ind), ("yield_10y", yield_ind)]:
         if ind is None:
@@ -271,9 +277,9 @@ def run_signal(
             logger.warning(f"{name}: no indicators — score defaults to 0")
 
     # ── Score each factor ─────────────────────────────────────────────────────
-    dxy_score   = score_dxy(dxy_ind)
-    yld_score   = score_yield(yield_ind)
-    gold_score  = score_gold(gold_ind)
+    dxy_score   = score_dxy(dxy_ind,    tf=tf)
+    yld_score   = score_yield(yield_ind, tf=tf)
+    gold_score  = score_gold(gold_ind,   tf=tf)
 
     # ── Signal + veto ─────────────────────────────────────────────────────────
     sig = signal_engine.run(
@@ -295,6 +301,7 @@ def run_signal(
 
     output = {
         **sig,
+        "timeframe":        timeframe,
         "confidence":       confidence,
         "reasoning":        reasoning,
         "data_quality":     data_quality,
@@ -303,8 +310,8 @@ def run_signal(
 
     # ── Trade setup (optional) ────────────────────────────────────────────────
     if include_trade:
-        setup = ts_mod.compute(sig["signal"], gold_ind)
-        setup = rr_validate(setup)
+        setup = ts_mod.compute(sig["signal"], gold_ind, tf=tf)
+        setup = rr_validate(setup, tf=tf)
         output["trade_setup"] = setup
 
     # ── Save ──────────────────────────────────────────────────────────────────
@@ -337,4 +344,5 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
             timestamp=timestamp,
             include_trade=args.trade_setup,
+            timeframe=args.timeframe,
         )

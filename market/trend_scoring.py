@@ -16,11 +16,12 @@ from utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 
-def score_dxy(ind: dict | None) -> int:
+def score_dxy(ind: dict | None, tf: dict | None = None) -> int:
     """
     DXY rising → bearish for gold (negative score).
     DXY falling → bullish for gold (positive score).
 
+    tf – optional timeframe profile; overrides config thresholds when provided.
     Returns: -2 (strong headwind) … 0 (flat) … +2 (strong tailwind)
     """
     if ind is None:
@@ -34,8 +35,8 @@ def score_dxy(ind: dict | None) -> int:
 
     above_ema20 = current > ema20
     above_ema50 = current > ema50
-    strong      = config.DXY_STRONG_MOVE_PCT
-    mild        = config.DXY_MILD_MOVE_PCT
+    strong      = tf["dxy_strong_pct"] if tf else config.DXY_STRONG_MOVE_PCT
+    mild        = tf["dxy_mild_pct"]   if tf else config.DXY_MILD_MOVE_PCT
 
     if above_ema20 and above_ema50 and ret > strong:
         return -2
@@ -48,11 +49,12 @@ def score_dxy(ind: dict | None) -> int:
     return 0
 
 
-def score_yield(ind: dict | None) -> int:
+def score_yield(ind: dict | None, tf: dict | None = None) -> int:
     """
     Yields rising → bearish for gold (negative score).
     Uses absolute change in yield level (percentage points / basis-point proxy).
 
+    tf – optional timeframe profile; overrides config thresholds when provided.
     Returns: -2 … 0 … +2
     """
     if ind is None:
@@ -66,8 +68,8 @@ def score_yield(ind: dict | None) -> int:
 
     above_ema20 = current > ema20
     above_ema50 = current > ema50
-    strong      = config.YIELD_STRONG_MOVE
-    mild        = config.YIELD_MILD_MOVE
+    strong      = tf["yield_strong"] if tf else config.YIELD_STRONG_MOVE
+    mild        = tf["yield_mild"]   if tf else config.YIELD_MILD_MOVE
 
     if above_ema20 and above_ema50 and chg > strong:
         return -2
@@ -80,10 +82,11 @@ def score_yield(ind: dict | None) -> int:
     return 0
 
 
-def score_gold(ind: dict | None) -> int:
+def score_gold(ind: dict | None, tf: dict | None = None) -> int:
     """
     Gold trend score — the dominant factor.
 
+    tf – optional timeframe profile; overrides config thresholds when provided.
     Returns: -3 (strong downtrend) … 0 (sideways) … +3 (strong uptrend)
     """
     if ind is None:
@@ -97,8 +100,8 @@ def score_gold(ind: dict | None) -> int:
 
     above_ema20 = current > ema20
     above_ema50 = current > ema50
-    strong      = config.GOLD_STRONG_MOVE_PCT
-    mild        = config.GOLD_MILD_MOVE_PCT
+    strong      = tf["gold_strong_pct"] if tf else config.GOLD_STRONG_MOVE_PCT
+    mild        = tf["gold_mild_pct"]   if tf else config.GOLD_MILD_MOVE_PCT
 
     if above_ema20 and above_ema50 and ret > strong:
         return +3

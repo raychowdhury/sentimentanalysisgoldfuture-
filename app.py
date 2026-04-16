@@ -61,6 +61,18 @@ def pct_change(v):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _peek_timeframe(sig_path: str | None) -> str:
+    """Read the 'timeframe' field from a signal JSON without full loading."""
+    if not sig_path or not os.path.isfile(sig_path):
+        return "swing"
+    try:
+        with open(sig_path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("timeframe", "swing")
+    except Exception:
+        return "swing"
+
+
 def load_runs() -> list[dict]:
     """
     Pair sentiment_*.json and signal_*.json by shared timestamp.
@@ -84,8 +96,10 @@ def load_runs() -> list[dict]:
         except ValueError:
             label = ts
 
-        has_sent = ts in sent_map
-        has_sig  = ts in sig_map
+        has_sent  = ts in sent_map
+        has_sig   = ts in sig_map
+        sig_path  = sig_map.get(ts)
+        timeframe = _peek_timeframe(sig_path)
         tag = "signal+sentiment" if (has_sent and has_sig) else ("signal" if has_sig else "sentiment")
 
         runs.append({
@@ -94,7 +108,8 @@ def load_runs() -> list[dict]:
             "has_sent":   has_sent,
             "has_sig":    has_sig,
             "sent_path":  sent_map.get(ts),
-            "sig_path":   sig_map.get(ts),
+            "sig_path":   sig_path,
+            "timeframe":  timeframe,
         })
     return runs
 
@@ -152,17 +167,27 @@ def _trade_viz(trade: dict | None) -> dict | None:
 
 @app.route("/")
 def index():
-    runs = load_runs()
-    if not runs:
+    all_runs = load_runs()
+    if not all_runs:
         return render_template("index.html", runs=[], sentiment=None, signal=None,
-                               trade_viz=None, selected=None)
+                               trade_viz=None, selected=None, tf_filter="all")
 
-    valid = {r["timestamp"] for r in runs}
+    # Timeframe nav filter: all / swing / day
+    tf_filter = request.args.get("tf", "all")
+    if tf_filter not in ("all", "swing", "day"):
+        tf_filter = "all"
+
+    runs = all_runs if tf_filter == "all" else [r for r in all_runs if r["timeframe"] == tf_filter]
+    # Fall back to full list if filter yields nothing
+    if not runs:
+        runs = all_runs
+
+    valid    = {r["timestamp"] for r in runs}
     selected = request.args.get("run", runs[0]["timestamp"])
     if selected not in valid:
         selected = runs[0]["timestamp"]
 
-    run      = next(r for r in runs if r["timestamp"] == selected)
+    run       = next(r for r in runs if r["timestamp"] == selected)
     sentiment = _load_json(run["sent_path"])
     signal    = _load_json(run["sig_path"])
     viz       = _trade_viz(signal.get("trade_setup") if signal else None)
@@ -174,6 +199,7 @@ def index():
         signal=signal,
         trade_viz=viz,
         selected=selected,
+        tf_filter=tf_filter,
     )
 
 

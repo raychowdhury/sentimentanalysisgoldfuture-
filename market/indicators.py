@@ -18,18 +18,22 @@ def _ema(series: pd.Series, window: int) -> float:
     return float(series.ewm(span=window, adjust=False).mean().iloc[-1])
 
 
-def compute(df: pd.DataFrame | None, name: str = "") -> dict | None:
+def compute(df: pd.DataFrame | None, name: str = "", tf: dict | None = None) -> dict | None:
     """
     Compute key indicators from a daily OHLCV DataFrame.
 
+    tf  – optional timeframe profile dict from config.TIMEFRAME_PROFILES.
+          When provided, its ema_short / ema_long / return_window /
+          high_low_window values override the config constants.
+
     Returns a dict with:
         current          – latest close
-        ema20            – 20-period EMA of close
-        ema50            – 50-period EMA of close (uses available bars if < 50)
-        return_5d_pct    – percentage return over RETURN_WINDOW_DAYS
-        abs_change_5d    – absolute change over RETURN_WINDOW_DAYS (used for yield)
-        recent_high_14d  – 14-bar rolling high
-        recent_low_14d   – 14-bar rolling low
+        ema20            – short EMA of close  (window = tf["ema_short"])
+        ema50            – long  EMA of close  (window = tf["ema_long"])
+        return_5d_pct    – percentage return over return_window bars
+        abs_change_5d    – absolute change over return_window bars (yield)
+        recent_high_14d  – rolling high over high_low_window bars
+        recent_low_14d   – rolling low  over high_low_window bars
     Returns None if data is missing or too short to be useful.
     """
     if df is None or len(df) < 5:
@@ -37,20 +41,25 @@ def compute(df: pd.DataFrame | None, name: str = "") -> dict | None:
             logger.warning(f"{name}: insufficient data for indicators")
         return None
 
+    ema_short     = tf["ema_short"]     if tf else config.EMA_SHORT
+    ema_long      = tf["ema_long"]      if tf else config.EMA_LONG
+    return_window = tf["return_window"] if tf else config.RETURN_WINDOW_DAYS
+    hl_window     = tf["high_low_window"] if tf else 14
+
     close   = df["Close"]
     current = float(close.iloc[-1])
 
-    ema20 = _ema(close, config.EMA_SHORT)
-    ema50 = _ema(close, min(config.EMA_LONG, len(close)))
+    ema20 = _ema(close, ema_short)
+    ema50 = _ema(close, min(ema_long, len(close)))
 
     # n-day return
-    n = min(config.RETURN_WINDOW_DAYS, len(close) - 1)
+    n = min(return_window, len(close) - 1)
     base = float(close.iloc[-(n + 1)])
     return_pct = ((current - base) / base * 100) if base != 0 else 0.0
     abs_change = current - base   # absolute level change (meaningful for yield)
 
-    # 14-bar high / low
-    w = min(14, len(df))
+    # rolling high / low
+    w = min(hl_window, len(df))
     high_14 = float(df["High"].iloc[-w:].max())
     low_14  = float(df["Low"].iloc[-w:].min())
 

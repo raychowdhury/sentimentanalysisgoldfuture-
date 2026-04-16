@@ -31,6 +31,17 @@
     .logo { font-size: 1rem; font-weight: 700; letter-spacing: -.02em; display: flex; align-items: center; gap: .5rem; }
     .logo-gold { color: #fbbf24; }
     .logo-sub { font-size: .65rem; font-weight: 400; color: #64748b; letter-spacing: .06em; text-transform: uppercase; }
+
+    /* ── Timeframe nav tabs ── */
+    .tf-nav { display: flex; align-items: center; gap: .25rem; }
+    .tf-tab {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      padding: .3rem .75rem; border-radius: 6px; border: 1px solid transparent;
+      color: #64748b; text-decoration: none; transition: background .12s, color .12s;
+    }
+    .tf-tab:hover { background: #1e293b; color: #e2e8f0; }
+    .tf-tab.active { background: #fbbf24; color: #0f172a; border-color: #fbbf24; }
+
     .run-selector { display: flex; align-items: center; gap: .5rem; }
     .run-selector label { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
     .run-selector select {
@@ -38,6 +49,12 @@
       padding: .3rem .65rem; border-radius: 6px; font-size: .75rem; cursor: pointer; outline: none;
     }
     .run-selector select:focus { border-color: #fbbf24; }
+
+    /* ── Timeframe badge (on signal banner) ── */
+    .tf-badge {
+      font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+      padding: .15rem .55rem; border-radius: 999px; background: rgba(255,255,255,.15); color: inherit;
+    }
 
     /* ── Layout ── */
     main { max-width: 1440px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
@@ -302,8 +319,20 @@
     Gold<span class="logo-gold">Bias</span>Engine
     <span class="logo-sub">XAUUSD · Sentiment + Signal</span>
   </div>
+
+  <!-- Timeframe nav tabs -->
+  <nav class="tf-nav">
+    <a class="tf-tab {% if tf_filter == 'all' %}active{% endif %}"
+       href="/?tf=all">All</a>
+    <a class="tf-tab {% if tf_filter == 'swing' %}active{% endif %}"
+       href="/?tf=swing">Swing</a>
+    <a class="tf-tab {% if tf_filter == 'day' %}active{% endif %}"
+       href="/?tf=day">Day Trade</a>
+  </nav>
+
   {% if runs %}
   <form class="run-selector" method="get" action="/">
+    <input type="hidden" name="tf" value="{{ tf_filter }}">
     <label for="run-sel">Run</label>
     <select id="run-sel" name="run" onchange="this.form.submit()">
       {% for r in runs %}
@@ -362,6 +391,8 @@
     <div class="sig-label">{{ sig_icon }} {{ sig }}</div>
     <div class="sig-score">Total score: {{ signal.total_score | default(0) | int | string | replace('-', '−') }}
       {%- if signal.total_score | default(0) > 0 %}+{% endif %}{{ signal.total_score | default(0) }}</div>
+    {% set tf_label = {"day": "Day Trade", "swing": "Swing"}.get(signal.timeframe | default("swing"), "Swing") %}
+    <span class="tf-badge">{{ tf_label }}</span>
   </div>
   <div class="sig-meta">
     {% if signal.veto_applied %}
