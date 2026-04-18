@@ -11,7 +11,14 @@ import json
 import os
 from datetime import datetime
 
-from flask import Flask, abort, render_template, request
+from dotenv import load_dotenv
+load_dotenv()
+
+from flask import Flask, jsonify, render_template, request
+
+import config
+import scheduler as sched
+from sentiment import cache as sentiment_cache
 
 app = Flask(__name__)
 OUTPUT_DIR = "outputs"
@@ -121,6 +128,73 @@ def _load_json(path: str | None) -> dict | None:
         return json.load(f)
 
 
+def _load_latest_backtest(timeframe: str = "swing") -> dict | None:
+    """Newest backtest_{tf}_*.json → condensed summary for the dashboard.
+
+    Falls back to any timeframe when the requested one has no backtest yet,
+    so a fresh `day` run still shows the swing backtest proof.
+    """
+    paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, f"backtest_{timeframe}_*.json")),
+                   reverse=True)
+    if not paths:
+        paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, "backtest_*.json")),
+                       reverse=True)
+        if paths:
+            # Update timeframe label to whatever file we actually grabbed.
+            fn = os.path.basename(paths[0])
+            timeframe = fn.split("_")[1] if fn.startswith("backtest_") else timeframe
+    if not paths:
+        return None
+    data = _load_json(paths[0])
+    if not data:
+        return None
+    rep      = data.get("report", {})
+    overall  = rep.get("overall", {})
+    filename = os.path.basename(paths[0])
+    ts       = filename.removeprefix(f"backtest_{timeframe}_").removesuffix(".json")
+    try:
+        label = datetime.strptime(ts, "%Y%m%d_%H%M%S").strftime("%b %d, %Y %H:%M")
+    except ValueError:
+        label = ts
+    return {
+        "label":      label,
+        "days":       data.get("params", {}).get("days"),
+        "timeframe":  timeframe,
+        "overall":    overall,
+        "by_signal":  rep.get("by_signal", {}),
+        "by_regime":  rep.get("by_regime", {}),
+        "max_dd":     rep.get("max_drawdown_r"),
+    }
+
+
+def _engine_config(timeframe: str = "swing") -> dict:
+    """Risk gates + weights + partial-TP settings surfaced to the template."""
+    tf_profile = config.TIMEFRAME_PROFILES.get(timeframe, {})
+    return {
+        "long_only":          getattr(config, "LONG_ONLY",         False),
+        "sma200_gate":        getattr(config, "SMA200_GATE",       False),
+        "min_rr":             tf_profile.get("min_rr", getattr(config, "MIN_RR", None)),
+        "max_hold":           tf_profile.get("max_hold"),
+        "atr_stop_mult":      tf_profile.get("atr_stop_mult"),
+        "partial_tp_enabled": getattr(config, "PARTIAL_TP_ENABLED", False),
+        "partial_tp_r":       getattr(config, "PARTIAL_TP_R",       None),
+        "partial_tp_frac":    getattr(config, "PARTIAL_TP_FRACTION", None),
+        "trail_enabled":      getattr(config, "TRAIL_ENABLED",     False),
+        "weights":            getattr(config, "SCORE_WEIGHTS",     {}),
+    }
+
+
+def _macro_bullish(signal: dict | None) -> bool | None:
+    """True when gold > SMA200, False when below, None when unknown."""
+    if not signal:
+        return None
+    gold = (signal.get("market_snapshot") or {}).get("gold") or {}
+    cur, sma = gold.get("current"), gold.get("sma200")
+    if cur is None or sma is None:
+        return None
+    return cur > sma
+
+
 def _trade_viz(trade: dict | None) -> dict | None:
     """
     Pre-compute price ladder geometry for the template.
@@ -170,7 +244,11 @@ def index():
     all_runs = load_runs()
     if not all_runs:
         return render_template("index.html", runs=[], sentiment=None, signal=None,
-                               trade_viz=None, selected=None, tf_filter="all")
+                               trade_viz=None, selected=None, tf_filter="all",
+                               scheduler=sched.get_status(),
+                               scheduler_enabled=sched.is_enabled(),
+                               backtest=None, engine_cfg=_engine_config("swing"),
+                               macro_bullish=None, cache_days=0)
 
     # Timeframe nav filter: all / swing / day
     tf_filter = request.args.get("tf", "all")
@@ -192,6 +270,10 @@ def index():
     signal    = _load_json(run["sig_path"])
     viz       = _trade_viz(signal.get("trade_setup") if signal else None)
 
+    backtest_tf = signal.get("timeframe") if signal else "swing"
+    backtest    = _load_latest_backtest(backtest_tf or "swing")
+    cache_days  = len(sentiment_cache.load())
+
     return render_template(
         "index.html",
         runs=runs,
@@ -200,8 +282,34 @@ def index():
         trade_viz=viz,
         selected=selected,
         tf_filter=tf_filter,
+        scheduler=sched.get_status(),
+        scheduler_enabled=sched.is_enabled(),
+        backtest=backtest,
+        engine_cfg=_engine_config(signal.get("timeframe", "swing") if signal else "swing"),
+        macro_bullish=_macro_bullish(signal),
+        cache_days=cache_days,
     )
 
 
+# ── Scheduler API ─────────────────────────────────────────────────────────────
+
+@app.route("/api/status")
+def api_status():
+    """Return current scheduler / run state as JSON."""
+    return jsonify(sched.get_status())
+
+
+@app.route("/api/run", methods=["POST"])
+def api_run():
+    """Trigger an immediate pipeline run in the background."""
+    tf = request.json.get("timeframe") if request.is_json else None
+    started = sched.trigger_run(timeframe=tf)
+    if started:
+        return jsonify({"ok": True,  "message": "Run started"})
+    return jsonify({"ok": False, "message": "A run is already in progress"}), 409
+
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    if sched.is_enabled():
+        sched.init_scheduler()
+    app.run(debug=True, port=5001, use_reloader=False)

@@ -7,3 +7,7 @@ torch>=2.2
 flask>=3.0
 yfinance>=0.2.40
 pandas>=2.0
+APScheduler>=3.10
+anthropic>=0.40
+python-dotenv>=1.0
+googlenewsdecoder>=0.1.7

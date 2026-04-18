@@ -14,12 +14,16 @@ import argparse
 import os
 from datetime import datetime
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import config
 from news.article_scraper import scrape_article
 from news.dedup import deduplicate
 from news.rss_fetcher import fetch_articles
 from sentiment.aggregator import aggregate
 from sentiment.vader_analyzer import analyze as vader_analyze
+from utils import progress
 from utils.io_helpers import print_signal_summary, print_summary, save_csv, save_json
 from utils.logger import setup_logger
 from utils.text_cleaner import clean_text
@@ -103,6 +107,14 @@ def run_sentiment(
         from sentiment.finbert_analyzer import FinBERTAnalyzer
         finbert = FinBERTAnalyzer()
 
+    # Agent panel (LLM multi-persona). Opt-in via config.AGENT_PANEL_ENABLED.
+    agent_panel = None
+    if getattr(config, "AGENT_PANEL_ENABLED", False):
+        from sentiment.agent_panel import AgentPanel
+        agent_panel = AgentPanel()
+        if not agent_panel.ready:
+            agent_panel = None
+
     # Fetch RSS
     logger.info("Fetching gold/XAUUSD news from RSS feeds...")
     raw = fetch_articles(config.RSS_QUERIES, max_per_query=config.MAX_PER_QUERY)
@@ -114,10 +126,10 @@ def run_sentiment(
     total_unique = len(articles)
     logger.info(f"Processing {total_unique} unique article(s)")
 
-    results: list[dict] = []
-    total_scraped = total_failed = 0
+    progress.reset(total=total_unique, stage="articles")
 
-    for idx, article in enumerate(articles, 1):
+    def _process_article(idx_article):
+        idx, article = idx_article
         title = clean_text(article.get("title", ""))
         url   = article.get("url", "")
         logger.info(f"[{idx}/{total_unique}] {title[:80]}…")
@@ -125,19 +137,17 @@ def run_sentiment(
         scrape = scrape_article(url, timeout=config.SCRAPE_TIMEOUT, retries=config.SCRAPE_RETRIES)
         body   = scrape["body"]
         ok     = scrape["extraction_success"]
-        if ok:
-            total_scraped += 1
-        else:
-            total_failed += 1
-            logger.info("  → scrape failed, using title-only")
+        if not ok:
+            logger.info(f"  → scrape failed for [{idx}], using title-only")
 
         text, actual_mode = _build_text(title, body, mode)
 
         vader_result   = vader_analyze(text) if "vader" in models and text else None
         finbert_result = finbert.analyze(text) if finbert and text else None
-        agg            = aggregate(vader_result, finbert_result, actual_mode)
+        panel_result   = agent_panel.analyze(title, body) if agent_panel and text else None
+        agg            = aggregate(vader_result, finbert_result, actual_mode, panel_result)
 
-        results.append({
+        return idx, ok, {
             "title":              title,
             "source":             article.get("source", ""),
             "published":          article.get("published", ""),
@@ -150,11 +160,29 @@ def run_sentiment(
             "vader_score":        vader_result["score"] if vader_result else "",
             "finbert_label":      finbert_result["label"] if finbert_result else "",
             "finbert_confidence": finbert_result.get("confidence", "") if finbert_result else "",
+            "panel_label":        panel_result["label"] if panel_result else "",
+            "panel_score":        panel_result["score"] if panel_result else "",
+            "panel_variance":     panel_result.get("variance", "") if panel_result else "",
+            "panel_rationale":    panel_result["rationale"] if panel_result else "",
             "final_label":        agg["final_label"],
             "final_score":        agg["final_score"],
             "text_mode":          agg["text_mode_used"],
             "models_used":        ",".join(agg["models_used"]),
-        })
+        }
+
+    from concurrent.futures import ThreadPoolExecutor
+    max_workers = getattr(config, "PIPELINE_WORKERS", 6)
+    indexed: list[tuple[int, bool, dict]] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        for item in ex.map(_process_article, enumerate(articles, 1)):
+            indexed.append(item)
+            progress.tick()
+
+    # Preserve original article order (map already keeps order, but sort for safety)
+    indexed.sort(key=lambda x: x[0])
+    total_scraped = sum(1 for _, ok, _ in indexed if ok)
+    total_failed  = len(indexed) - total_scraped
+    results: list[dict] = [row for _, _, row in indexed]
 
     # Save sentiment output
     csv_path  = os.path.join(output_dir, f"sentiment_{timestamp}.csv")
@@ -167,6 +195,14 @@ def run_sentiment(
     save_json({"summary": summary, "articles": results}, json_path)
     logger.info(f"Sentiment CSV  → {csv_path}")
     logger.info(f"Sentiment JSON → {json_path}")
+
+    # Append this run to the sentiment cache so future backtests can
+    # replay today's score instead of falling back to neutral 0.
+    from sentiment import cache as sentiment_cache
+    sentiment_cache.append(
+        avg_score=summary.get("average_final_score"),
+        n_articles=summary.get("total_analyzed", 0),
+    )
 
     print_summary(summary)
     return results, summary
@@ -212,6 +248,16 @@ def _build_sentiment_summary(
         key=_safe_score,
     )[:5]
 
+    panel_variances = [
+        float(r["panel_variance"])
+        for r in results
+        if r.get("panel_variance") not in ("", None)
+    ]
+    avg_panel_variance = (
+        round(sum(panel_variances) / len(panel_variances), 4)
+        if panel_variances else None
+    )
+
     return {
         "total_fetched":           total_fetched,
         "total_unique":            total_unique,
@@ -222,6 +268,8 @@ def _build_sentiment_summary(
         "models_used":             models,
         "sentiment_distribution":  dist,
         "average_final_score":     round(sum(scores) / len(scores), 4) if scores else None,
+        "average_panel_variance":  avg_panel_variance,
+        "panel_articles_scored":   len(panel_variances),
         "top_positive":            [r["title"] for r in top_pos],
         "top_negative":            [r["title"] for r in top_neg],
         "neutral_count":           final_dist.get("neutral", 0),
@@ -244,7 +292,7 @@ def run_signal(
     """
     from market.data_fetcher import fetch_all
     from market.indicators import compute as compute_ind
-    from market.trend_scoring import score_dxy, score_gold, score_yield
+    from market.trend_scoring import score_dxy, score_gold, score_vix, score_volume_profile, score_vwap, score_yield
     from signals import confidence as conf_mod
     from signals import reasoning as reason_mod
     from signals import signal_engine, trade_setup as ts_mod
@@ -261,6 +309,8 @@ def run_signal(
         "failed_scrapes":       sentiment_summary["total_failed"],
         "text_mode_used":       sentiment_summary["text_mode"],
         "market_data_failures": 0,
+        "panel_disagreement":   sentiment_summary.get("average_panel_variance"),
+        "panel_articles_scored": sentiment_summary.get("panel_articles_scored", 0),
     }
 
     # ── Fetch market data ─────────────────────────────────────────────────────
@@ -270,16 +320,25 @@ def run_signal(
     gold_ind  = compute_ind(raw_market.get("gold"),      name="gold",      tf=tf)
     dxy_ind   = compute_ind(raw_market.get("dxy"),       name="dxy",       tf=tf)
     yield_ind = compute_ind(raw_market.get("yield_10y"), name="yield_10y", tf=tf)
+    vix_ind   = compute_ind(raw_market.get("vix"),       name="vix",       tf=tf)
 
-    for name, ind in [("gold", gold_ind), ("dxy", dxy_ind), ("yield_10y", yield_ind)]:
+    for name, ind in [("gold", gold_ind), ("dxy", dxy_ind), ("yield_10y", yield_ind), ("vix", vix_ind)]:
         if ind is None:
             data_quality["market_data_failures"] += 1
             logger.warning(f"{name}: no indicators — score defaults to 0")
 
     # ── Score each factor ─────────────────────────────────────────────────────
-    dxy_score   = score_dxy(dxy_ind,    tf=tf)
-    yld_score   = score_yield(yield_ind, tf=tf)
-    gold_score  = score_gold(gold_ind,   tf=tf)
+    dxy_score   = score_dxy(dxy_ind,              tf=tf)
+    yld_score   = score_yield(yield_ind,          tf=tf)
+    gold_score  = score_gold(gold_ind,            tf=tf)
+    vix_score   = score_vix(vix_ind)
+    vwap_score  = score_vwap(gold_ind)
+    vp_score    = score_volume_profile(gold_ind)
+
+    # Macro regime flag: gold above/below its SMA200.
+    macro_bullish = None
+    if gold_ind and gold_ind.get("sma200") is not None:
+        macro_bullish = gold_ind["current"] > gold_ind["sma200"]
 
     # ── Signal + veto ─────────────────────────────────────────────────────────
     sig = signal_engine.run(
@@ -287,6 +346,10 @@ def run_signal(
         dxy_score=dxy_score,
         yield_score=yld_score,
         gold_score=gold_score,
+        vix_score=vix_score,
+        vwap_score=vwap_score,
+        vp_score=vp_score,
+        macro_bullish=macro_bullish,
     )
 
     confidence = conf_mod.compute(sig, data_quality)
@@ -297,6 +360,7 @@ def run_signal(
         "gold":      gold_ind,
         "dxy":       dxy_ind,
         "yield_10y": yield_ind,
+        "vix":       vix_ind,
     }
 
     output = {

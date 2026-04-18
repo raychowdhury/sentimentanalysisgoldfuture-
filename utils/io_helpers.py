@@ -101,7 +101,7 @@ def print_signal_summary(out: dict) -> None:
 
     print(f"  Signal        : {_SIGNAL_STYLE.get(signal, signal)}")
     print(f"  Confidence    : {_CONF_STYLE.get(confidence, confidence)}")
-    print(f"  Total score   : {total:+d}")
+    print(f"  Total score   : {total:+.2f}")
     if out.get("veto_applied"):
         print(f"  (veto applied — raw signal was {out.get('raw_signal')})")
     print(sep)
