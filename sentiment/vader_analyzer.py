@@ -1,9 +1,14 @@
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-
 from config import VADER_THRESHOLDS
 
-# Loaded once at module import — no per-article re-initialization
-_analyzer = SentimentIntensityAnalyzer()
+_analyzer = None
+
+
+def _get_analyzer():
+    global _analyzer
+    if _analyzer is None:
+        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+        _analyzer = SentimentIntensityAnalyzer()
+    return _analyzer
 
 
 def analyze(text: str) -> dict:
@@ -16,7 +21,7 @@ def analyze(text: str) -> dict:
     if not text or not text.strip():
         return {"score": 0.0, "label": "neutral", "model": "vader"}
 
-    compound = _analyzer.polarity_scores(text)["compound"]
+    compound = _get_analyzer().polarity_scores(text)["compound"]
 
     if compound >= VADER_THRESHOLDS["positive"]:
         label = "positive"

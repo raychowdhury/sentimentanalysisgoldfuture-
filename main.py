@@ -20,9 +20,15 @@ load_dotenv()
 import config
 from news.article_scraper import scrape_article
 from news.dedup import deduplicate
-from news.rss_fetcher import fetch_articles
+from news.rss_fetcher import fetch_articles, fetch_feeds
 from sentiment.aggregator import aggregate
 from sentiment.vader_analyzer import analyze as vader_analyze
+from sentiment.weighting import (
+    relevance_score,
+    source_tier_weight,
+    time_decay_weight,
+    weighted_mean_score,
+)
 from utils import progress
 from utils.io_helpers import print_signal_summary, print_summary, save_csv, save_json
 from utils.logger import setup_logger
@@ -93,6 +99,7 @@ def run_sentiment(
     limit: int,
     output_dir: str,
     timestamp: str,
+    timeframe: str = "swing",
 ) -> tuple[list[dict], dict]:
     """
     Run the news sentiment pipeline.
@@ -115,9 +122,19 @@ def run_sentiment(
         if not agent_panel.ready:
             agent_panel = None
 
-    # Fetch RSS
+    # Fetch RSS — direct feeds first (FinancialJuice, MarketWatch) so they
+    # appear at the top of the article list and win dedup ties over Google
+    # News aggregator entries (better provenance, earlier timestamps).
     logger.info("Fetching gold/XAUUSD news from RSS feeds...")
-    raw = fetch_articles(config.RSS_QUERIES, max_per_query=config.MAX_PER_QUERY)
+    direct_feeds = getattr(config, "RSS_FEEDS", [])
+    raw: list[dict] = []
+    if direct_feeds:
+        raw += fetch_feeds(
+            direct_feeds,
+            max_per_feed=getattr(config, "MAX_PER_FEED", 40),
+            filter_keywords=getattr(config, "GOLD_FILTER_KEYWORDS", []),
+        )
+    raw += fetch_articles(config.RSS_QUERIES, max_per_query=config.MAX_PER_QUERY)
     total_fetched = len(raw)
     logger.info(f"Total fetched: {total_fetched}")
 
@@ -147,15 +164,23 @@ def run_sentiment(
         panel_result   = agent_panel.analyze(title, body) if agent_panel and text else None
         agg            = aggregate(vader_result, finbert_result, actual_mode, panel_result)
 
+        # Pillar 1: per-article static weights (relevance + source tier).
+        # Time decay is applied at aggregation time using the profile's τ.
+        source_name = article.get("source", "")
+        relevance   = round(relevance_score(title), 4)
+        src_tier    = round(source_tier_weight(source_name), 4)
+
         return idx, ok, {
             "title":              title,
-            "source":             article.get("source", ""),
+            "source":             source_name,
             "published":          article.get("published", ""),
             "url":                url,
             "query":              article.get("query", ""),
             "body_length":        len(body),
             "extraction_success": ok,
             "dedup_key":          article.get("dedup_key", ""),
+            "relevance":          relevance,
+            "source_tier":        src_tier,
             "vader_label":        vader_result["label"] if vader_result else "",
             "vader_score":        vader_result["score"] if vader_result else "",
             "finbert_label":      finbert_result["label"] if finbert_result else "",
@@ -184,12 +209,24 @@ def run_sentiment(
     total_failed  = len(indexed) - total_scraped
     results: list[dict] = [row for _, _, row in indexed]
 
+    # Pillar 1: attach time-decay + combined weight per article using the
+    # timeframe's τ. Done here (not in worker) so τ is resolved once.
+    tau_map = getattr(config, "SENTIMENT_TAU_HOURS", {"swing": 48.0, "day": 12.0})
+    tau_hours = float(tau_map.get(timeframe, 48.0))
+    for r in results:
+        dec = time_decay_weight(r.get("published", ""), tau_hours)
+        rel = float(r.get("relevance", 0) or 0)
+        src = float(r.get("source_tier", 0) or 0)
+        r["time_decay"]     = round(dec, 4)
+        r["weight_combined"] = round(rel * src * dec, 4)
+
     # Save sentiment output
     csv_path  = os.path.join(output_dir, f"sentiment_{timestamp}.csv")
     json_path = os.path.join(output_dir, f"sentiment_{timestamp}.json")
 
     summary = _build_sentiment_summary(
-        results, total_fetched, total_unique, total_scraped, total_failed, mode, models
+        results, total_fetched, total_unique, total_scraped, total_failed, mode, models,
+        timeframe=timeframe,
     )
     save_csv(results, csv_path)
     save_json({"summary": summary, "articles": results}, json_path)
@@ -209,7 +246,8 @@ def run_sentiment(
 
 
 def _build_sentiment_summary(
-    results, total_fetched, total_unique, total_scraped, total_failed, mode, models
+    results, total_fetched, total_unique, total_scraped, total_failed, mode, models,
+    timeframe: str = "swing",
 ) -> dict:
     scores: list[float] = []
     dist:   dict        = {}
@@ -258,6 +296,35 @@ def _build_sentiment_summary(
         if panel_variances else None
     )
 
+    # Pillar 1: weighted mean replaces plain mean as the headline score.
+    # Keep plain mean alongside for dashboards / A/B comparison.
+    tau_map = getattr(config, "SENTIMENT_TAU_HOURS", {"swing": 48.0, "day": 12.0})
+    tau = float(tau_map.get(timeframe, 48.0))
+    weighted_avg, total_weight = weighted_mean_score(results, tau_hours=tau)
+    plain_avg = round(sum(scores) / len(scores), 4) if scores else None
+
+    # Which articles dominated the weighted mean. Front-end shows these as
+    # "drove the score" callouts.
+    def _weight(row: dict) -> float:
+        try:
+            return float(row.get("weight_combined") or 0)
+        except (ValueError, TypeError):
+            return 0.0
+    top_weighted = sorted(results, key=_weight, reverse=True)[:3]
+    top_weighted_rows = [
+        {
+            "title":      r.get("title", ""),
+            "source":     r.get("source", ""),
+            "final_label": r.get("final_label", ""),
+            "final_score": r.get("final_score", ""),
+            "relevance":   r.get("relevance"),
+            "source_tier": r.get("source_tier"),
+            "time_decay":  r.get("time_decay"),
+            "weight_combined": r.get("weight_combined"),
+        }
+        for r in top_weighted
+    ]
+
     return {
         "total_fetched":           total_fetched,
         "total_unique":            total_unique,
@@ -267,7 +334,12 @@ def _build_sentiment_summary(
         "text_mode":               mode,
         "models_used":             models,
         "sentiment_distribution":  dist,
-        "average_final_score":     round(sum(scores) / len(scores), 4) if scores else None,
+        "average_final_score":     weighted_avg if weighted_avg is not None else plain_avg,
+        "average_final_score_plain": plain_avg,
+        "weighting_tau_hours":     tau,
+        "weighting_total":         total_weight,
+        "weighting_timeframe":     timeframe,
+        "top_weighted":            top_weighted_rows,
         "average_panel_variance":  avg_panel_variance,
         "panel_articles_scored":   len(panel_variances),
         "top_positive":            [r["title"] for r in top_pos],
@@ -290,9 +362,11 @@ def run_signal(
     Optionally compute trade setup levels.
     Returns the full signal output dict.
     """
+    from events.blackout import is_blackout
     from market.data_fetcher import fetch_all
     from market.indicators import compute as compute_ind
     from market.trend_scoring import score_dxy, score_gold, score_vix, score_volume_profile, score_vwap, score_yield
+    from positioning import cot_fetcher, cot_scoring
     from signals import confidence as conf_mod
     from signals import reasoning as reason_mod
     from signals import signal_engine, trade_setup as ts_mod
@@ -340,6 +414,21 @@ def run_signal(
     if gold_ind and gold_ind.get("sma200") is not None:
         macro_bullish = gold_ind["current"] > gold_ind["sma200"]
 
+    # Event gate — block entries inside blackout window around FOMC/CPI/NFP/PCE.
+    # Toggled per timeframe profile; swing is off by default (see config).
+    if tf.get("event_gate", False):
+        _, event_reason = is_blackout(datetime.now().date())
+    else:
+        event_reason = None
+
+    # COT positioning — weekly CFTC managed-money net z-score, contrarian fade.
+    # Per-profile toggle: swing on, day off (weekly cadence too stale for daily).
+    if tf.get("cot_enabled", True):
+        cot_records = cot_fetcher.ensure_fresh()
+        cot_score = cot_scoring.score_at(cot_records, datetime.now().date())
+    else:
+        cot_score = 0
+
     # ── Signal + veto ─────────────────────────────────────────────────────────
     sig = signal_engine.run(
         avg_sentiment=avg_score,
@@ -349,7 +438,9 @@ def run_signal(
         vix_score=vix_score,
         vwap_score=vwap_score,
         vp_score=vp_score,
+        cot_score=cot_score,
         macro_bullish=macro_bullish,
+        event_blackout_reason=event_reason,
     )
 
     confidence = conf_mod.compute(sig, data_quality)
@@ -400,6 +491,7 @@ if __name__ == "__main__":
         limit=args.limit,
         output_dir=args.output_dir,
         timestamp=timestamp,
+        timeframe=args.timeframe,
     )
 
     if args.signal:

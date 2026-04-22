@@ -292,6 +292,39 @@
     .gate-chip.warn { background: #7c2d12; color: #fed7aa; }
     .gate-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
+    /* ── Event calendar panel ── */
+    .cal-card {
+      padding: .9rem 1.1rem; margin-bottom: 1rem; background: #0f172a; color: #e2e8f0;
+      border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07);
+    }
+    .cal-head {
+      display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+      margin-bottom: .65rem;
+    }
+    .cal-title { font-size: .85rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #cbd5e1; }
+    .cal-status {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+      padding: .3rem .6rem; border-radius: 6px;
+    }
+    .cal-status.blocked { background: #7c2d12; color: #fed7aa; }
+    .cal-status.clear   { background: #14532d; color: #bbf7d0; }
+    .cal-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .35rem; }
+    .cal-row {
+      display: grid; grid-template-columns: 74px 58px 1fr auto; gap: .65rem; align-items: center;
+      padding: .38rem .55rem; background: #1e293b; border-radius: 6px;
+      font-size: .78rem;
+    }
+    .cal-row.active { background: #422006; }
+    .cal-date  { font-weight: 600; color: #e2e8f0; }
+    .cal-until { font-size: .68rem; color: #94a3b8; }
+    .cal-label { color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cal-kind {
+      font-size: .58rem; font-weight: 700; padding: .18rem .42rem; border-radius: 4px;
+      background: #334155; color: #cbd5e1; letter-spacing: .05em; text-transform: uppercase;
+    }
+    .cal-kind.ff { background: #1e40af; color: #dbeafe; }
+    .cal-empty { color: #94a3b8; font-size: .78rem; padding: .6rem 0; }
+
     /* ── Backtest proof card ── */
     .backtest-card {
       padding: 1rem 1.25rem; margin-bottom: 1rem;
@@ -521,6 +554,44 @@
     .sub-score { font-size: .62rem; color: #94a3b8; margin-top: 2px; }
     .mode-pill { font-size: .6rem; color: #64748b; background: #f1f5f9; padding: .12rem .45rem; border-radius: 999px; }
 
+    /* Weight column */
+    .weight-cell { min-width: 110px; }
+    .weight-bar-wrap {
+      position: relative; width: 90px; height: 14px;
+      background: #f1f5f9; border-radius: 4px; overflow: hidden;
+    }
+    .weight-bar-fill {
+      position: absolute; left:0; top:0; bottom:0;
+      background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+      border-radius: 4px;
+    }
+    .weight-val {
+      position: relative; z-index:1; font-size: .62rem; font-weight:600;
+      color: #1e293b; padding-left: 4px; line-height: 14px;
+      mix-blend-mode: difference; filter: invert(1);
+    }
+
+    /* Drove-the-score callout */
+    .drove-card { margin-bottom: 1rem; }
+    .drove-title {
+      font-size: .68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: #64748b; margin-bottom: .6rem;
+    }
+    .drove-list { display:flex; flex-direction:column; gap:.5rem; }
+    .drove-row {
+      display:flex; gap:.75rem; align-items:center; padding:.5rem .65rem;
+      background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;
+    }
+    .drove-rank { font-weight:700; color:#94a3b8; font-size:.85rem; min-width:1.5rem; }
+    .drove-body { flex:1; min-width:0; }
+    .drove-headline { font-size:.8rem; color:#1e293b; font-weight:500;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .drove-meta { font-size:.62rem; color:#64748b; margin-top:2px; }
+    .drove-weight {
+      font-family: ui-monospace,monospace; font-size:.72rem; font-weight:700;
+      padding:.2rem .5rem; background:#eef2ff; border-radius:4px; color:#4338ca;
+    }
+
     /* ── Level 2 ── */
     .l2-groups { display:flex; gap:1.5rem; margin-bottom:1rem; flex-wrap:wrap; align-items:flex-start; }
     .l2-group  { display:flex; flex-direction:column; gap:.4rem; }
@@ -590,8 +661,11 @@
     <span class="logo-sub">XAUUSD · Sentiment + Signal</span>
   </div>
 
-  <!-- Timeframe nav tabs -->
+  <!-- Page nav + Timeframe nav tabs -->
   <nav class="tf-nav">
+    <a class="tf-tab {% if page == 'gold' %}active{% endif %}" href="/">Gold Bias</a>
+    <a class="tf-tab {% if page == 'spx'  %}active{% endif %}" href="/spx">SP500</a>
+    <span style="width:1px; height:18px; background:#334155; margin:0 .35rem"></span>
     <a class="tf-tab {% if tf_filter == 'all' %}active{% endif %}"
        href="/?tf=all">All</a>
     <a class="tf-tab {% if tf_filter == 'swing' %}active{% endif %}"
@@ -794,6 +868,9 @@
       <div class="sig-veto">SMA200 gate — {{ signal.raw_signal }} blocked (gold below SMA200)</div>
       {% endif %}
     {% endif %}
+    {% if signal.event_gated %}
+    <div class="sig-veto">🚫 Event blackout — {{ signal.event_blackout_reason or "high-impact event window" }}</div>
+    {% endif %}
     <div class="sig-conf">
       <div class="sig-conf-label">Confidence</div>
       <div class="sig-conf-val">{{ signal.confidence | default("—") }} {{ conf_dots }}</div>
@@ -844,6 +921,45 @@
   <span class="gate-chip off"><span class="dot"></span>ATR STOP ×{{ engine_cfg.atr_stop_mult }}</span>
   {% endif %}
   <span class="gate-chip off"><span class="dot"></span>SENTIMENT CACHE {{ cache_days | default(0) }}d</span>
+</div>
+{% endif %}
+
+<!-- Upcoming economic events — merges hardcoded calendar with live FF feed -->
+{% if event_calendar %}
+<div class="cal-card">
+  <div class="cal-head">
+    <div class="cal-title">
+      Upcoming Events — next 7 days
+      {% if event_calendar.ff_enabled %}<span class="cal-kind ff" style="margin-left:.5rem">FF LIVE</span>{% endif %}
+    </div>
+    {% if event_calendar.blackout_today %}
+      <span class="cal-status blocked">⛔ Blackout — {{ event_calendar.blackout_reason }}</span>
+    {% else %}
+      <span class="cal-status clear">✓ Clear</span>
+    {% endif %}
+  </div>
+  {% if event_calendar.events %}
+  <ul class="cal-list">
+    {% for e in event_calendar.events %}
+    <li class="cal-row {{ 'active' if e.blocking else '' }}">
+      <div>
+        <div class="cal-date">{{ e.date }}</div>
+        <div class="cal-until">
+          {% if e.days_until == 0 %}today
+          {% elif e.days_until == 1 %}tomorrow
+          {% else %}+{{ e.days_until }}d
+          {% endif %}
+        </div>
+      </div>
+      <span class="cal-kind {{ 'ff' if e.kind == 'FF' else '' }}">{{ e.kind }}</span>
+      <div class="cal-label" title="{{ e.label }}">{{ e.label }}</div>
+      {% if e.blocking %}<span class="cal-kind" style="background:#7c2d12;color:#fed7aa">BLOCK</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="cal-empty">No events in the next 7 days.</div>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -956,11 +1072,12 @@
 
     {{ srow("Sentiment",    signal.sentiment_score,      "sentiment") }}
     {{ srow("DXY",          signal.dxy_score,            "dxy") }}
-    {{ srow("US 10Y Yield", signal.yield_score,          "yield") }}
+    {{ srow("10Y Real Yield", signal.yield_score,        "yield") }}
     {{ srow("VWAP",         signal.vwap_score,           "vwap") }}
     {{ srow("Vol Profile",  signal.volume_profile_score, "volume_profile") }}
     {{ srow("VIX",          signal.vix_score,            "vix") }}
     {{ srow("Gold Trend",   signal.gold_trend_score,     "gold", 3) }}
+    {{ srow("COT Position", signal.cot_score,            "cot") }}
 
     <div class="score-total-row">
       <div class="score-total-label">Total Score</div>
@@ -1261,7 +1378,21 @@
     {% else %}
       <div class="stat-value score-neu">—</div>
     {% endif %}
-    <div class="stat-sub">combined across all articles</div>
+    {% set tau = s.get('weighting_tau_hours') %}
+    {% set plain = s.get('average_final_score_plain') %}
+    {% set tf = s.get('weighting_timeframe') or "swing" %}
+    {% if tau %}
+      <div class="stat-sub">
+        weighted · τ={{ "%.0f" | format(tau) }}h ({{ tf }})
+        {% if plain is not none and s.average_final_score is not none %}
+          · plain: <span class="{{ 'score-pos' if plain > 0.05 else 'score-neg' if plain < -0.05 else 'score-neu' }}">{{ "%+.4f" | format(plain) }}</span>
+          {% set delta = (s.average_final_score | float) - (plain | float) %}
+          <span style="color:#94a3b8;">(Δ {{ "%+.4f" | format(delta) }})</span>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="stat-sub">combined across all articles</div>
+    {% endif %}
   </div>
   <div class="card stat-card">
     <div class="stat-label">Sentiment Split</div>
@@ -1305,6 +1436,33 @@
   </div>
 </div>
 
+{% set drove = s.get('top_weighted') %}
+{% if drove %}
+<div class="card drove-card">
+  <div class="drove-title">Drove the Weighted Score · top {{ drove | length }}</div>
+  <div class="drove-list">
+    {% for t in drove %}
+    <div class="drove-row">
+      <div class="drove-rank">#{{ loop.index }}</div>
+      <div class="drove-body">
+        <div class="drove-headline">{{ t.get('title', '') }}</div>
+        <div class="drove-meta">
+          {{ t.get('source') or "—" }}
+          {% set fs_raw = t.get('final_score') %}
+          {% if fs_raw not in (none, "") %}
+            {% set fs = fs_raw | float %}
+            · <span class="{{ 'score-pos' if fs > 0.05 else 'score-neg' if fs < -0.05 else 'score-neu' }}">{{ "%+.4f" | format(fs) }}</span>
+          {% endif %}
+          · r{{ "%.2f" | format((t.get('relevance') or 0) | float) }} · t{{ "%.2f" | format((t.get('source_tier') or 0) | float) }} · d{{ "%.2f" | format((t.get('time_decay') or 0) | float) }}
+        </div>
+      </div>
+      <div class="drove-weight">W {{ "%.2f" | format((t.get('weight_combined') or 0) | float) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Articles table -->
 <div class="card table-card">
   <div class="table-controls">
@@ -1320,11 +1478,12 @@
           <th onclick="sortTable(2)">Query <i class="sort-icon">↕</i></th>
           <th onclick="sortTable(3)">Final <i class="sort-icon">↕</i></th>
           <th onclick="sortTable(4)">Score <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(5)">VADER <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(6)">FinBERT <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(7)">Panel <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(8)">Mode <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(9)">Body <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(5)" title="Combined weight = relevance × source_tier × time_decay. Drives the weighted average.">W <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(6)">VADER <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(7)">FinBERT <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(8)">Panel <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(9)">Mode <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(10)">Body <i class="sort-icon">↕</i></th>
         </tr>
       </thead>
       <tbody>
@@ -1349,6 +1508,22 @@
                 {{ "%+.4f" | format(fs) }}
               </span>
             {% else %}—{% endif %}
+          </td>
+          {% set wc = a.get('weight_combined') %}
+          {% set rel = a.get('relevance') %}
+          {% set tier = a.get('source_tier') %}
+          {% set dec = a.get('time_decay') %}
+          <td class="weight-cell" title="relevance {{ '%.2f' | format((rel or 0) | float) }} × source_tier {{ '%.2f' | format((tier or 0) | float) }} × time_decay {{ '%.2f' | format((dec or 0) | float) }}">
+            {% if wc not in (none, "") %}
+              {% set w = wc | float %}
+              <div class="weight-bar-wrap">
+                <div class="weight-bar-fill" style="width: {{ (w * 100) | round(0, 'floor') }}%"></div>
+                <span class="weight-val">{{ "%.2f" | format(w) }}</span>
+              </div>
+              <div class="sub-score" style="color:#94a3b8">
+                r{{ "%.2f" | format((rel or 0) | float) }}·t{{ "%.2f" | format((tier or 0) | float) }}·d{{ "%.2f" | format((dec or 0) | float) }}
+              </div>
+            {% else %}<span style="color:#94a3b8">—</span>{% endif %}
           </td>
           <td>
             {% if a.vader_label %}

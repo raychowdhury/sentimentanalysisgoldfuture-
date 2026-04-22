@@ -105,10 +105,12 @@ def print_signal_summary(out: dict) -> None:
     if out.get("veto_applied"):
         print(f"  (veto applied — raw signal was {out.get('raw_signal')})")
     print(sep)
-    print(f"  Sentiment     : {out.get('sentiment_score',  0):+d}")
-    print(f"  DXY           : {out.get('dxy_score',        0):+d}")
-    print(f"  US 10Y yield  : {out.get('yield_score',      0):+d}")
-    print(f"  Gold trend    : {out.get('gold_trend_score', 0):+d}  (weight ×1, range -3..+3)")
+    w = getattr(__import__("config"), "SCORE_WEIGHTS", {})
+    gw = w.get("gold", 1.0)
+    print(f"  Sentiment     : {out.get('sentiment_score',  0):+d}  (weight ×{w.get('sentiment', 1.0):.2f}, range -2..+2)")
+    print(f"  DXY           : {out.get('dxy_score',        0):+d}  (weight ×{w.get('dxy',       1.0):.2f}, range -2..+2)")
+    print(f"  US 10Y yield  : {out.get('yield_score',      0):+d}  (weight ×{w.get('yield',     1.0):.2f}, range -2..+2)")
+    print(f"  Gold trend    : {out.get('gold_trend_score', 0):+d}  (weight ×{gw:.2f}, range -3..+3, dominant)")
 
     reasons = out.get("reasoning", [])
     if reasons:

@@ -183,7 +183,7 @@ def score_gold(ind: dict | None, tf: dict | None = None) -> int:
     Gold trend score — the dominant factor.
 
     tf – optional timeframe profile; overrides config thresholds when provided.
-    Returns: -3 (strong downtrend) … 0 (sideways) … +3 (strong uptrend)
+    Returns: -3 (strong downtrend) … -2/-1 … 0 (sideways) … +1/+2 … +3 (strong uptrend)
     """
     if ind is None:
         logger.warning("Gold indicators unavailable — defaulting to 0")
@@ -201,10 +201,14 @@ def score_gold(ind: dict | None, tf: dict | None = None) -> int:
 
     if above_ema20 and above_ema50 and ret > strong:
         return +3
+    if above_ema20 and above_ema50 and ret > mild:
+        return +2
     if above_ema20 and ret > mild:
         return +1
     if not above_ema20 and not above_ema50 and ret < -strong:
         return -3
+    if not above_ema20 and not above_ema50 and ret < -mild:
+        return -2
     if not above_ema20 and ret < -mild:
         return -1
     return 0

@@ -114,7 +114,9 @@ def run(
     vix_score: int = 0,
     vwap_score: int = 0,
     vp_score: int = 0,
+    cot_score: int = 0,
     macro_bullish: bool | None = None,
+    event_blackout_reason: str | None = None,
 ) -> dict:
     """
     Compute the full signal result.
@@ -123,6 +125,10 @@ def run(
         When config.SMA200_GATE is enabled AND this is False, BUY / STRONG_BUY
         are blocked. None skips the gate (backwards-compat / missing data).
 
+    event_blackout_reason – when set (e.g. "pre-FOMC (2026-04-29)"), the signal
+        is forced to HOLD regardless of scores. Caller computes this via
+        events.blackout.is_blackout(). None = no blackout in effect.
+
     Returns a dict with all component scores, total, raw signal,
     final signal, and whether a veto was applied.
     """
@@ -130,13 +136,14 @@ def run(
 
     w = config.SCORE_WEIGHTS
     total = (
-        s_score     * w["sentiment"]
+        s_score       * w["sentiment"]
         + dxy_score   * w["dxy"]
         + yield_score * w["yield"]
         + gold_score  * w["gold"]
         + vix_score   * w["vix"]
         + vwap_score  * w["vwap"]
         + vp_score    * w["volume_profile"]
+        + cot_score   * w.get("cot", 0.0)
     )
     raw = _map_total(total, gold_score)
     final, vetoed = _veto(raw, gold_score, dxy_score, yield_score)
@@ -155,10 +162,18 @@ def run(
         logger.info(f"SMA200 gate: {final} → HOLD (gold below SMA200)")
         final = "HOLD"
 
+    # Event gate: block any directional entry inside the blackout window
+    # around scheduled FOMC / CPI / NFP / PCE releases.
+    event_gated = False
+    if event_blackout_reason and final != "HOLD":
+        logger.info(f"Event gate: {final} → HOLD ({event_blackout_reason})")
+        final = "HOLD"
+        event_gated = True
+
     logger.info(
         f"Scores — sentiment:{s_score:+d}  dxy:{dxy_score:+d}  yield:{yield_score:+d}  "
         f"gold:{gold_score:+d}  vix:{vix_score:+d}  vwap:{vwap_score:+d}  vp:{vp_score:+d}  "
-        f"total:{total:+.2f}"
+        f"cot:{cot_score:+d}  total:{total:+.2f}"
     )
     logger.info(f"Signal: {raw} → {final}  (veto={vetoed})")
 
@@ -170,8 +185,11 @@ def run(
         "vix_score":               vix_score,
         "vwap_score":              vwap_score,
         "volume_profile_score":    vp_score,
+        "cot_score":               cot_score,
         "total_score":             round(total, 3),
         "raw_signal":              raw,
         "signal":                  final,
         "veto_applied":            vetoed,
+        "event_gated":             event_gated,
+        "event_blackout_reason":   event_blackout_reason,
     }

@@ -14,6 +14,57 @@ RSS_QUERIES: list[str] = [
 MAX_PER_QUERY: int = 10
 MAX_ARTICLES: int  = 50
 
+# Direct RSS feeds — used alongside Google News keyword search. Each entry is
+# {name, url, filter}. When `filter` is True, items are kept only if their title
+# matches GOLD_FILTER_KEYWORDS (firehose feeds covering all asset classes). When
+# False, all items pass (feed is already gold/metals-scoped).
+RSS_FEEDS: list[dict] = [
+    # FinancialJuice squawk firehose — broad macro; filter to gold-relevant.
+    {"name": "FinancialJuice", "url": "https://www.financialjuice.com/feed.ashx?xy=rss", "filter": True},
+    # MarketWatch top stories + breaking pulse — broad market news; filter.
+    {"name": "MarketWatch Top", "url": "https://feeds.marketwatch.com/marketwatch/topstories/", "filter": True},
+    {"name": "MarketWatch Pulse", "url": "https://feeds.marketwatch.com/marketwatch/marketpulse/", "filter": True},
+]
+MAX_PER_FEED: int = 40
+
+# Case-insensitive word-boundary match against title. Firehose feeds are
+# filtered against this to keep only items that actually move gold futures.
+# Covers Tier 1 (primary: Fed, yields, dollar, inflation) + Tier 2 (secondary:
+# jobs, central banks, geopolitical, fiscal). Matching uses \b boundaries so
+# "war" matches "war" but not "awarded"; "rate" matches "rate" but not "separate".
+GOLD_FILTER_KEYWORDS: list[str] = [
+    # ── Direct metals ────────────────────────────────────────────────────
+    "gold", "xau", "xauusd", "bullion", "precious metal", "comex",
+    "silver", "platinum", "palladium",
+    # ── Fed / US monetary policy ─────────────────────────────────────────
+    "fed", "fomc", "powell", "federal reserve", "fed chair", "fed funds",
+    "fed minutes", "rate cut", "rate hike", "rate decision", "dot plot",
+    "jackson hole", "hawkish", "dovish", "pivot", "tightening", "easing",
+    "quantitative",
+    # ── Yields / bonds ───────────────────────────────────────────────────
+    "treasury yield", "10-year yield", "10y yield", "2-year yield",
+    "real yield", "tips yield", "breakeven", "yield curve", "bond market",
+    # ── US dollar ────────────────────────────────────────────────────────
+    "dxy", "dollar index", "us dollar", "greenback", "dollar strength",
+    "dollar weakness", "dollar rally", "dollar slide",
+    # ── Inflation / prices ───────────────────────────────────────────────
+    "cpi", "core cpi", "ppi", "pce", "core pce", "inflation", "deflation",
+    "disinflation", "price index", "consumer prices",
+    # ── Jobs / growth ────────────────────────────────────────────────────
+    "nfp", "non-farm", "nonfarm", "payroll", "jobless", "unemployment",
+    "jolts", "ism", "pmi", "gdp", "retail sales", "consumer confidence",
+    # ── Central banks ────────────────────────────────────────────────────
+    "ecb", "boe", "boj", "pboc", "rba", "snb", "central bank",
+    "bullion reserves", "gold reserves", "world gold council",
+    # ── Geopolitical / safe-haven catalysts ──────────────────────────────
+    "war", "conflict", "sanction", "invasion", "missile", "ceasefire",
+    "iran", "ukraine", "russia", "israel", "gaza", "hormuz", "taiwan",
+    "north korea", "nuclear", "embargo", "tariff", "trade war",
+    # ── Fiscal / credit ──────────────────────────────────────────────────
+    "debt ceiling", "downgrade", "credit rating", "deficit",
+    "treasury auction", "bond auction",
+]
+
 # ── Scraping ──────────────────────────────────────────────────────────────────
 SCRAPE_TIMEOUT: int  = 10
 SCRAPE_RETRIES: int  = 2
@@ -78,6 +129,59 @@ PANEL_DISAGREEMENT_HIGH: float = 0.35
 # per-article time is small. Tune down if Ollama gets overloaded.
 PIPELINE_WORKERS: int = 6
 
+# ── Signal Extraction Weighting (Pillar 1) ───────────────────────────────────
+# Per-article weight = relevance × source_tier × time_decay. Replaces the plain
+# mean used previously so fresh, on-topic, high-quality sources dominate the
+# aggregate sentiment score and irrelevant / stale / low-tier items are damped
+# instead of dropped.
+#
+# SOURCE_TIERS: substring → weight. First match wins. Unknown sources get
+# SOURCE_TIER_DEFAULT. Keys are lowercase; matched against the article's
+# `source` field (Google News sets publisher, direct feeds set feed name).
+SOURCE_TIERS: dict[str, float] = {
+    # Tier 1 — premium newswires / institutional
+    "reuters":              1.0,
+    "bloomberg":            1.0,
+    "wall street journal":  1.0,
+    "wsj":                  1.0,
+    "financial times":      1.0,
+    "ft.com":               1.0,
+    "dow jones":            1.0,
+    # Tier 2 — strong financial / commodity specialists
+    "marketwatch":          0.8,
+    "cnbc":                 0.8,
+    "kitco":                0.8,
+    "fxstreet":             0.8,
+    "mining.com":           0.8,
+    "barron":               0.8,
+    "financialjuice":       0.8,
+    "financial juice":      0.8,
+    "reuters commodities":  1.0,
+    # Tier 3 — mainstream financial / aggregators with editorial
+    "yahoo":                0.5,
+    "fortune":              0.5,
+    "investing.com":        0.5,
+    "fxempire":             0.5,
+    "forbes":               0.5,
+    "seeking alpha":        0.5,
+    "business insider":     0.5,
+    # Tier 4 — retail-lean aggregators / blogs
+    "benzinga":             0.3,
+    "zacks":                0.3,
+    "motley fool":          0.3,
+}
+SOURCE_TIER_DEFAULT: float = 0.4
+
+# Time-decay τ in hours. weight_decay = exp(-age_hours / τ).
+# Day-mode horizon is ~1 day; τ=12h means 24h-old news is already worth ~14%
+# of fresh news. Swing holds span days; τ=48h keeps week-old catalysts in play
+# at ~3%. Values validated against common 3-day half-life used in equity
+# sentiment literature — gold reacts faster, so τ runs shorter.
+SENTIMENT_TAU_HOURS: dict[str, float] = {
+    "swing": 48.0,
+    "day":   12.0,
+}
+
 # ── Output ────────────────────────────────────────────────────────────────────
 OUTPUT_DIR: str = "outputs"
 
@@ -86,8 +190,17 @@ OUTPUT_DIR: str = "outputs"
 MARKET_SYMBOLS: dict[str, str] = {
     "gold":      "GC=F",       # Gold Futures (COMEX)
     "dxy":       "DX-Y.NYB",   # US Dollar Index
-    "yield_10y": "^TNX",       # US 10-Year Treasury Yield
     "vix":       "^VIX",       # CBOE Volatility Index
+}
+
+# FRED (Federal Reserve) series — fetched via public CSV endpoint, no key.
+# DFII10 = 10Y TIPS real yield. Real yield is gold's true discount rate;
+# nominal yield (^TNX / DGS10) mixes in inflation expectations and is a
+# weaker factor. A FRED source with the same field name overrides any
+# yfinance entry in MARKET_SYMBOLS.
+FRED_SYMBOLS: dict[str, str] = {
+    "yield_10y":         "DFII10",  # 10Y TIPS real yield (replaces ^TNX)
+    "nominal_yield_10y": "DGS10",   # kept for a future breakeven-inflation factor
 }
 MARKET_LOOKBACK_DAYS: int  = 90   # fetch 90 days → ~63 trading days (enough for EMA50)
 RETURN_WINDOW_DAYS: int    = 5    # n-day return for trend detection
@@ -180,7 +293,41 @@ SCORE_WEIGHTS: dict[str, float] = {
     "vix":            0.75,
     "vwap":           0.75,
     "volume_profile": 0.75,
+    # COT managed-money z-score — contrarian fade at weekly ±1σ+ extremes.
+    # 5yr weight sweep (0 → 1.0) showed swing gets +2pp win-rate with near-flat
+    # expectancy; day mode degrades monotonically (stale weekly data adds noise
+    # to a daily signal). Keep low global weight; per-profile toggle disables
+    # it entirely for day mode.
+    "cot":            0.25,
 }
+
+# ── Event Gate ───────────────────────────────────────────────────────────────
+# Block signals inside a window around high-impact US macro events (FOMC,
+# CPI, NFP, PCE). Cuts whipsaw entries into scheduled announcements. Event
+# dates live in events/calendar.py; refresh FOMC/CPI/PCE yearly from official
+# schedules (NFP is derived from "first Friday of month" and needs no refresh).
+EVENT_GATE_ENABLED: bool        = True
+EVENT_BLACKOUT_DAYS_BEFORE: int = 1
+EVENT_BLACKOUT_DAYS_AFTER: int  = 1
+# "FF" includes high-impact events pulled live from the Faireconomy/ForexFactory
+# export (covers BoE/ECB/BoJ + any USD events missing from the hardcoded list).
+EVENT_BLACKOUT_TYPES: list[str] = ["FOMC", "CPI", "NFP", "PCE", "FF"]
+
+# ── ForexFactory Live Calendar ───────────────────────────────────────────────
+# Pulls the current week's high-impact events from the public Faireconomy JSON
+# export (same data FF publishes, CDN-hosted, no auth, no Cloudflare). Adds
+# live coverage of central-bank decisions outside the US and any USD events
+# not yet in events/calendar.py. Cached to disk; refreshes every hour.
+FF_CALENDAR_ENABLED: bool       = True
+FF_CALENDAR_URL: str            = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+FF_CALENDAR_CACHE: str          = "outputs/ff_calendar_cache.json"
+FF_CALENDAR_TTL_SECONDS: int    = 3600
+# Impact filter: only events at or above this rank trigger a blackout.
+# "Low" | "Medium" | "High" (Holiday is ignored).
+FF_IMPACT_MIN: str              = "High"
+# Currency codes to include. Expand to ["USD", "EUR", "GBP", "JPY"] for
+# multi-currency coverage. Keep USD-only until multi-currency scoring lands.
+FF_COUNTRIES: list[str]         = ["USD"]
 
 # ── Auto-Scheduler ───────────────────────────────────────────────────────────
 # Interval (minutes) between automatic pipeline runs for each timeframe.
@@ -221,6 +368,15 @@ TIMEFRAME_PROFILES: dict[str, dict] = {
         # Max bars a swing trade stays open before forced time exit.
         # Grid showed 60 beat 40: longer holds let value-area targets hit.
         "max_hold":             60,
+        # Event gate OFF for swing by default — 5yr A/B showed ±1 day blackout
+        # removed 2 winners and clipped expectancy by ~0.06R. Swing trades hold
+        # weeks, so event-day volatility rarely triggers the stop. Re-enable
+        # after tuning a tighter swing-specific window.
+        "event_gate":           False,
+        # COT contrarian factor ON for swing — weekly CFTC cadence matches the
+        # swing hold horizon. 5yr A/B at weight 0.25 showed +2pp win rate with
+        # near-flat expectancy.
+        "cot_enabled":          True,
     },
     # Day trading — tighter EMAs, 1-day momentum, shorter high/low window,
     # lower move thresholds, 1:1.5 minimum RR, tighter ATR stop
@@ -240,5 +396,13 @@ TIMEFRAME_PROFILES: dict[str, dict] = {
         "stop_buffer_pct":       0.002,
         "atr_stop_mult":         0.5,   # tighter stop for day trade
         "max_hold":             10,     # ~2 trading weeks
+        # Event gate ON for day mode — 5yr A/B: expectancy +50% (0.16 → 0.24 R),
+        # max drawdown cut 65% (-15.1 → -5.3 R), trade count -22%. Event-day
+        # gaps hit tight intraday stops hard; gating around FOMC/CPI/NFP/PCE
+        # removes the worst of them.
+        "event_gate":           True,
+        # COT OFF for day mode — weekly release cadence is stale for a daily
+        # signal. 5yr sweep showed monotonic drag on expectancy as weight grew.
+        "cot_enabled":          False,
     },
 }

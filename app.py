@@ -9,7 +9,7 @@ Usage:
 import glob
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -18,6 +18,7 @@ from flask import Flask, jsonify, render_template, request
 
 import config
 import scheduler as sched
+from market import spx_service
 from sentiment import cache as sentiment_cache
 
 app = Flask(__name__)
@@ -184,6 +185,43 @@ def _engine_config(timeframe: str = "swing") -> dict:
     }
 
 
+def _event_calendar(lookahead_days: int = 7, limit: int = 12) -> dict:
+    """
+    Upcoming events + today's blackout status for the dashboard panel.
+    Sources: hardcoded FOMC/CPI/NFP/PCE + live FF feed (see events/ff_fetcher).
+    """
+    from events import get_events, is_blackout
+
+    today = date.today()
+    events = get_events(today, today + timedelta(days=lookahead_days))
+
+    before = int(getattr(config, "EVENT_BLACKOUT_DAYS_BEFORE", 1))
+    after  = int(getattr(config, "EVENT_BLACKOUT_DAYS_AFTER", 1))
+
+    rows = []
+    for ev in events[:limit]:
+        days_until = (ev.date - today).days
+        win_start  = ev.date - timedelta(days=before)
+        win_end    = ev.date + timedelta(days=after)
+        in_window  = win_start <= today <= win_end
+        rows.append({
+            "date":       ev.date.isoformat(),
+            "days_until": days_until,
+            "kind":       ev.kind,
+            "label":      ev.label,
+            "blocking":   in_window,
+        })
+
+    blocked, reason = is_blackout(today)
+    return {
+        "today":           today.isoformat(),
+        "blackout_today":  blocked,
+        "blackout_reason": reason,
+        "events":          rows,
+        "ff_enabled":      bool(getattr(config, "FF_CALENDAR_ENABLED", False)),
+    }
+
+
 def _macro_bullish(signal: dict | None) -> bool | None:
     """True when gold > SMA200, False when below, None when unknown."""
     if not signal:
@@ -248,7 +286,8 @@ def index():
                                scheduler=sched.get_status(),
                                scheduler_enabled=sched.is_enabled(),
                                backtest=None, engine_cfg=_engine_config("swing"),
-                               macro_bullish=None, cache_days=0)
+                               macro_bullish=None, cache_days=0,
+                               event_calendar=_event_calendar(), page="gold")
 
     # Timeframe nav filter: all / swing / day
     tf_filter = request.args.get("tf", "all")
@@ -288,7 +327,24 @@ def index():
         engine_cfg=_engine_config(signal.get("timeframe", "swing") if signal else "swing"),
         macro_bullish=_macro_bullish(signal),
         cache_days=cache_days,
+        event_calendar=_event_calendar(),
+        page="gold",
     )
+
+
+@app.route("/spx")
+def spx_view():
+    """SP500 top-20 influencers page."""
+    force = request.args.get("refresh") == "1"
+    data = spx_service.get_top_influencers(force_refresh=force)
+    return render_template("spx.html", spx=data, page="spx")
+
+
+@app.route("/api/spx/influencers")
+def api_spx_influencers():
+    """JSON payload for live polling from the SP500 page."""
+    force = request.args.get("refresh") == "1"
+    return jsonify(spx_service.get_top_influencers(force_refresh=force))
 
 
 # ── Scheduler API ─────────────────────────────────────────────────────────────

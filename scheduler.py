@@ -81,6 +81,7 @@ def _run_pipeline(
             limit=lim,
             output_dir=config.OUTPUT_DIR,
             timestamp=ts,
+            timeframe=tf,
         )
         signal_output = run_signal(
             sentiment_summary=summary,

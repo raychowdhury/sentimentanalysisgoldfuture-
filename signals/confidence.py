@@ -27,18 +27,30 @@ def compute(signal_result: dict, data_quality: dict) -> str:
     vwap_score  = signal_result.get("vwap_score",           0)
     vp_score    = signal_result.get("volume_profile_score", 0)
 
-    # Gold trend is the dominant factor — it defines the reference direction
+    # Gold trend is the dominant factor — it defines the reference direction.
+    # When gold is flat, fall back to the sign of the weighted non-gold sum so
+    # that strong cross-factor agreement can still register HIGH/MEDIUM.
+    w = getattr(config, "SCORE_WEIGHTS", {})
+    others = [dxy_score, yield_score, sent_score, vix_score, vwap_score, vp_score]
+
     if gold_score > 0:
         direction = 1
     elif gold_score < 0:
         direction = -1
     else:
-        direction = 0   # sideways gold → low base alignment
+        weighted = (
+            dxy_score   * w.get("dxy",            1.0)
+            + yield_score * w.get("yield",        1.0)
+            + sent_score  * w.get("sentiment",    1.0)
+            + vix_score   * w.get("vix",          1.0)
+            + vwap_score  * w.get("vwap",         1.0)
+            + vp_score    * w.get("volume_profile", 1.0)
+        )
+        direction = 1 if weighted > 0 else -1 if weighted < 0 else 0
 
     if direction == 0:
         aligned = 0
     else:
-        others  = [dxy_score, yield_score, sent_score, vix_score, vwap_score, vp_score]
         aligned = sum(
             1 for s in others
             if s != 0 and (s > 0) == (direction > 0)

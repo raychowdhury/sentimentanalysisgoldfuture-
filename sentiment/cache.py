@@ -7,13 +7,17 @@ aggregate sentiment score to a JSONL cache. The backtest engine queries
 this cache by date; when no entry exists it falls back to 0 (neutral).
 
 File format (outputs/sentiment_cache.jsonl), one JSON object per line:
-    {"date": "2026-04-16", "avg_score": 0.07, "n_articles": 34, "ts": "..."}
+    {"date": "2026-04-16", "avg_score": 0.07, "n_articles": 34, "ts": "...",
+     "weighted": true, "weighting_total": 2.81, "timeframe": "swing"}
 
 Semantics:
   • Append-only. Multiple entries per day are allowed; the LATEST one wins
     when queried (matches live-pipeline intent — most recent read is truth).
   • Date is the local calendar date of the run (UTC would be fine too; pick
     one and stay consistent).
+  • `weighted` marks Pillar-1 rows (weighted mean + per-article weighting).
+    Rows written before Pillar 1 lack the field → treated as plain-mean.
+    Backtest can filter or annotate to avoid mixing regimes.
 
 This scaffold enables forward-going coverage. Historical sentiment remains
 unavailable without a third-party archival feed (Bloomberg, Ravenpack, etc.).

@@ -26,7 +26,10 @@ from __future__ import annotations
 import pandas as pd
 
 import config
+from events.blackout import is_blackout
+from events.calendar import get_events
 from market import data_fetcher, indicators, trend_scoring
+from positioning import cot_fetcher, cot_scoring
 from sentiment import cache as sentiment_cache
 from signals import signal_engine, trade_setup
 from utils.logger import setup_logger
@@ -244,6 +247,17 @@ def run(
     if sent_cache:
         logger.info(f"Sentiment cache: {len(sent_cache)} day(s) available")
 
+    # Pre-load events covering the full backtest window once — avoids rebuilding
+    # the list per bar. is_blackout() accepts a pre-filtered events list.
+    bt_start = gold_df.index[0].date()
+    bt_end   = gold_df.index[-1].date()
+    bt_events = get_events(bt_start, bt_end)
+
+    # Pre-load COT records once. ensure_fresh pulls from CFTC if stale/missing.
+    cot_records = cot_fetcher.ensure_fresh()
+    if cot_records:
+        logger.info(f"COT cache: {len(cot_records)} weeks, latest {cot_records[-1]['date']}")
+
     next_available_idx = WARMUP_BARS
 
     for t in range(WARMUP_BARS, n - 1):
@@ -268,6 +282,14 @@ def run(
             gold_ind["current"] > gold_ind["sma200"]
             if gold_ind.get("sma200") is not None else None
         )
+        if tf.get("event_gate", False):
+            _, event_reason = is_blackout(gold_df.index[t].date(), bt_events)
+        else:
+            event_reason = None
+        if tf.get("cot_enabled", True):
+            cot_score = cot_scoring.score_at(cot_records, gold_df.index[t].date())
+        else:
+            cot_score = 0
         sig = signal_engine.run(
             avg_sentiment=avg_sent,
             dxy_score=scores["dxy"],
@@ -276,7 +298,9 @@ def run(
             vix_score=scores["vix"],
             vwap_score=scores["vwap"],
             vp_score=scores["vp"],
+            cot_score=cot_score,
             macro_bullish=macro_bullish,
+            event_blackout_reason=event_reason,
         )
         signal = sig["signal"]
         if signal not in ("BUY", "STRONG_BUY", "SELL", "STRONG_SELL"):

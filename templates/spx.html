@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SP500 Top Influencers</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    header {
+      background: #0f172a;
+      color: #fff;
+      padding: 0 1.5rem;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+    }
+    .logo { font-size: 1rem; font-weight: 700; letter-spacing: -.02em; display: flex; align-items: center; gap: .5rem; }
+    .logo-gold { color: #fbbf24; }
+    .logo-sub { font-size: .65rem; font-weight: 400; color: #64748b; letter-spacing: .06em; text-transform: uppercase; }
+
+    .main-nav { display: flex; align-items: center; gap: .25rem; }
+    .nav-tab {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      padding: .3rem .75rem; border-radius: 6px; border: 1px solid transparent;
+      color: #64748b; text-decoration: none; transition: background .12s, color .12s;
+    }
+    .nav-tab:hover { background: #1e293b; color: #e2e8f0; }
+    .nav-tab.active { background: #fbbf24; color: #0f172a; border-color: #fbbf24; }
+
+    .refresh-btn {
+      background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
+      padding: .3rem .75rem; border-radius: 6px; font-size: .65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em; cursor: pointer; text-decoration: none;
+    }
+    .refresh-btn:hover { border-color: #fbbf24; color: #fbbf24; }
+
+    .wrap { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+
+    .meta-bar {
+      display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: .85rem 1.25rem; margin-bottom: 1.25rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,.03);
+    }
+    .meta-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; color: #64748b; font-weight: 700; }
+    .meta-val   { font-size: .95rem; font-weight: 700; color: #0f172a; }
+    .meta-val.pos { color: #16a34a; }
+    .meta-val.neg { color: #dc2626; }
+
+    /* Live status pill */
+    .live-pill {
+      display: inline-flex; align-items: center; gap: .4rem;
+      font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      padding: .3rem .7rem; border-radius: 999px;
+      background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;
+    }
+    .live-pill .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1;
+    }
+    .live-pill.live   { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    .live-pill.live  .dot { background: #10b981; animation: pulse 1.6s infinite; }
+    .live-pill.closed { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+    .live-pill.closed .dot { background: #f59e0b; }
+    .live-pill.error  { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+    .live-pill.error  .dot { background: #dc2626; }
+    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+
+    .err-banner {
+      background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+      padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem;
+      font-size: .85rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: .85rem;
+    }
+    @media (max-width: 1100px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 800px)  { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px)  { .grid { grid-template-columns: 1fr; } }
+
+    .tile {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: .85rem 1rem; position: relative; overflow: hidden;
+      box-shadow: 0 1px 2px rgba(0,0,0,.03);
+      transition: transform .1s, box-shadow .1s;
+    }
+    .tile:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+    .tile::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      background: #cbd5e1; transition: background .25s;
+    }
+    .tile.pos::before { background: #16a34a; }
+    .tile.neg::before { background: #dc2626; }
+
+    .tile-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+    .tkr { font-size: 1.1rem; font-weight: 800; letter-spacing: -.02em; color: #0f172a; }
+    .rank { font-size: .65rem; color: #94a3b8; font-weight: 700; }
+    .name { font-size: .7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: .1rem; }
+
+    .price-row { display: flex; align-items: baseline; justify-content: space-between; margin-top: .5rem; }
+    .price { font-size: 1.05rem; font-weight: 700; color: #1e293b; transition: color .25s; }
+    .day { font-size: .95rem; font-weight: 700; transition: color .25s; }
+    .day.pos, .price.pos, .stat-val.pos { color: #16a34a; }
+    .day.neg, .price.neg, .stat-val.neg { color: #dc2626; }
+    .day.neu { color: #64748b; }
+
+    /* Flash on value change */
+    @keyframes flash-pos { 0% { background-color: rgba(22, 163, 74, 0.22); } 100% { background-color: transparent; } }
+    @keyframes flash-neg { 0% { background-color: rgba(220, 38, 38, 0.22); } 100% { background-color: transparent; } }
+    .flash-pos { animation: flash-pos .8s ease-out; border-radius: 4px; }
+    .flash-neg { animation: flash-neg .8s ease-out; border-radius: 4px; }
+
+    .stats {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .4rem .75rem;
+      margin-top: .65rem; padding-top: .6rem; border-top: 1px dashed #e2e8f0;
+      font-size: .7rem;
+    }
+    .stat-label { color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; font-size: .6rem; }
+    .stat-val   { color: #0f172a; font-weight: 700; font-size: .78rem; margin-top: .05rem; transition: color .25s; }
+    .stat-val.muted { color: #94a3b8; font-weight: 500; }
+
+    .empty {
+      text-align: center; padding: 4rem 1rem; color: #64748b;
+      background: #fff; border: 1px dashed #cbd5e1; border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    Market<span class="logo-gold">Intel</span>
+    <span class="logo-sub">SP500 · Top Influencers</span>
+  </div>
+
+  <nav class="main-nav">
+    <a class="nav-tab {% if page=='gold' %}active{% endif %}" href="/">Gold Bias</a>
+    <a class="nav-tab {% if page=='spx'  %}active{% endif %}" href="/spx">SP500</a>
+  </nav>
+
+  <a class="refresh-btn" href="/spx?refresh=1">↻ Force refresh</a>
+</header>
+
+<div class="wrap">
+
+  <div id="err-banner" class="err-banner" {% if not spx.error %}style="display:none"{% endif %}>
+    <strong>Data issue:</strong> <span id="err-msg">{{ spx.error or '' }}</span>
+  </div>
+
+  <div class="meta-bar">
+    <div>
+      <div class="meta-label">Updated</div>
+      <div class="meta-val" style="font-size:.85rem">
+        <span id="as-of-ago">just now</span>
+        <span style="color:#94a3b8; font-weight:500" id="as-of-iso">· {{ spx.as_of }}</span>
+      </div>
+    </div>
+    <div>
+      <div class="meta-label">Breadth (Top {{ spx.top_n }})</div>
+      <div class="meta-val">
+        <span class="pos" id="breadth-up">{{ spx.breadth.up }}</span> ▲
+        /
+        <span class="neg" id="breadth-dn">{{ spx.breadth.down }}</span> ▼
+        <span style="color:#94a3b8; font-weight:500"> of <span id="breadth-total">{{ spx.breadth.total }}</span></span>
+      </div>
+    </div>
+    <div>
+      <div class="meta-label">Net contribution</div>
+      <div class="meta-val {% if spx.net_bps > 0 %}pos{% elif spx.net_bps < 0 %}neg{% endif %}" id="net-bps">
+        {{ "%+.1f"|format(spx.net_bps) }} bp
+      </div>
+    </div>
+    <div style="margin-left:auto">
+      <div class="meta-label">Status</div>
+      <div id="live-pill" class="live-pill {% if spx.market_open %}live{% else %}closed{% endif %}">
+        <span class="dot"></span>
+        <span id="live-text">
+          {% if spx.market_open %}Live · 30s{% else %}Market closed{% endif %}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  {% if spx.rows %}
+  <div class="grid" id="grid">
+    {% for r in spx.rows %}
+      {% set dp = r.day_pct %}
+      {% set pos_cls = 'pos' if dp and dp > 0 else ('neg' if dp and dp < 0 else '') %}
+      <div class="tile {{ pos_cls }}" data-ticker="{{ r.ticker }}">
+        <div class="tile-head">
+          <div class="tkr">{{ r.ticker }}</div>
+          <div class="rank">#{{ loop.index }}</div>
+        </div>
+        <div class="name" title="{{ r.name }}">{{ r.name }}</div>
+
+        <div class="price-row">
+          <div class="price" data-field="price">
+            {% if r.price is not none %}${{ "%.2f"|format(r.price) }}{% else %}—{% endif %}
+          </div>
+          <div class="day {{ 'pos' if dp and dp > 0 else ('neg' if dp and dp < 0 else 'neu') }}" data-field="day_pct">
+            {% if dp is not none %}{{ "%+.2f"|format(dp) }}%{% else %}—{% endif %}
+          </div>
+        </div>
+
+        <div class="stats">
+          <div>
+            <div class="stat-label">Weight</div>
+            <div class="stat-val" data-field="weight_pct">{{ "%.2f"|format(r.weight_pct) }}%</div>
+          </div>
+          <div>
+            <div class="stat-label">Contribution</div>
+            <div class="stat-val {% if r.contrib_bps and r.contrib_bps > 0 %}pos{% elif r.contrib_bps and r.contrib_bps < 0 %}neg{% endif %}" data-field="contrib_bps">
+              {% if r.contrib_bps is not none %}{{ "%+.1f"|format(r.contrib_bps) }} bp{% else %}—{% endif %}
+            </div>
+          </div>
+          <div>
+            <div class="stat-label">Volume vs 20d</div>
+            <div class="stat-val {% if r.vol_ratio and r.vol_ratio > 1.5 %}pos{% elif r.vol_ratio and r.vol_ratio < 0.5 %}muted{% endif %}" data-field="vol_ratio">
+              {% if r.vol_ratio is not none %}{{ "%.2f"|format(r.vol_ratio) }}x{% else %}—{% endif %}
+            </div>
+          </div>
+          <div>
+            <div class="stat-label">Sector</div>
+            <div class="stat-val" data-field="sector" style="font-size:.7rem">
+              {% if r.sector %}{{ r.sector }}{% else %}<span class="muted">—</span>{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    No SP500 data yet. <a href="/spx?refresh=1">Try a refresh</a>.
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+(function () {
+  const POLL_INTERVAL_MS = 30_000;
+  const MAX_BACKOFF_MS   = 5 * 60_000;
+  const API_URL          = "/api/spx/influencers";
+
+  const $ = (sel, root=document) => root.querySelector(sel);
+
+  let asOf          = {{ spx.as_of | tojson }};
+  let marketOpen    = {{ 'true' if spx.market_open else 'false' }};
+  let backoffMs     = POLL_INTERVAL_MS;
+  let timerId       = null;
+
+  const asOfAgoEl   = $("#as-of-ago");
+  const asOfIsoEl   = $("#as-of-iso");
+  const errBanner   = $("#err-banner");
+  const errMsg      = $("#err-msg");
+  const livePill    = $("#live-pill");
+  const liveText    = $("#live-text");
+
+  function fmtAgo(iso) {
+    if (!iso) return "—";
+    const secs = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
+    if (secs < 5)    return "just now";
+    if (secs < 60)   return secs + "s ago";
+    if (secs < 3600) return Math.floor(secs/60) + "m ago";
+    return Math.floor(secs/3600) + "h ago";
+  }
+
+  function tickClock() {
+    asOfAgoEl.textContent = fmtAgo(asOf);
+  }
+
+  function fmtSignedPct(v)  { return (v >= 0 ? "+" : "") + v.toFixed(2) + "%"; }
+  function fmtSignedBp(v)   { return (v >= 0 ? "+" : "") + v.toFixed(1) + " bp"; }
+  function fmtPct(v)        { return v.toFixed(2) + "%"; }
+  function fmtMoney(v)      { return "$" + v.toFixed(2); }
+  function fmtRatio(v)      { return v.toFixed(2) + "x"; }
+
+  function setValue(el, newText, numericDelta) {
+    if (!el || el.textContent.trim() === newText.trim()) return;
+    el.textContent = newText;
+    if (numericDelta === undefined || numericDelta === 0) return;
+    el.classList.remove("flash-pos", "flash-neg");
+    void el.offsetWidth;  // restart animation
+    el.classList.add(numericDelta > 0 ? "flash-pos" : "flash-neg");
+  }
+
+  function setClasses(el, dp) {
+    el.classList.remove("pos", "neg", "neu");
+    if (dp === null || dp === undefined) { el.classList.add("neu"); return; }
+    if (dp > 0) el.classList.add("pos");
+    else if (dp < 0) el.classList.add("neg");
+    else el.classList.add("neu");
+  }
+
+  function patchTile(tile, row) {
+    const priceEl   = tile.querySelector('[data-field="price"]');
+    const dayEl     = tile.querySelector('[data-field="day_pct"]');
+    const wtEl      = tile.querySelector('[data-field="weight_pct"]');
+    const contribEl = tile.querySelector('[data-field="contrib_bps"]');
+    const volEl     = tile.querySelector('[data-field="vol_ratio"]');
+    const sectorEl  = tile.querySelector('[data-field="sector"]');
+
+    const prevPrice = parseFloat((priceEl.textContent || "").replace(/[^\d.-]/g,""));
+    if (row.price != null) setValue(priceEl, fmtMoney(row.price), row.price - (prevPrice || row.price));
+    else priceEl.textContent = "—";
+
+    if (row.day_pct != null) {
+      setValue(dayEl, fmtSignedPct(row.day_pct), 0);
+      setClasses(dayEl, row.day_pct);
+    } else { dayEl.textContent = "—"; }
+
+    // Tile bar color follows day_pct
+    tile.classList.remove("pos", "neg");
+    if (row.day_pct != null) tile.classList.add(row.day_pct > 0 ? "pos" : (row.day_pct < 0 ? "neg" : ""));
+
+    if (row.weight_pct != null) wtEl.textContent = fmtPct(row.weight_pct);
+
+    if (row.contrib_bps != null) {
+      contribEl.textContent = fmtSignedBp(row.contrib_bps);
+      contribEl.classList.remove("pos", "neg");
+      contribEl.classList.add(row.contrib_bps > 0 ? "pos" : (row.contrib_bps < 0 ? "neg" : ""));
+    } else { contribEl.textContent = "—"; }
+
+    if (row.vol_ratio != null) {
+      volEl.textContent = fmtRatio(row.vol_ratio);
+      volEl.classList.remove("pos", "muted");
+      if (row.vol_ratio > 1.5) volEl.classList.add("pos");
+      else if (row.vol_ratio < 0.5) volEl.classList.add("muted");
+    } else { volEl.textContent = "—"; }
+
+    if (row.sector) sectorEl.textContent = row.sector;
+  }
+
+  function applyPayload(data) {
+    if (data.error) {
+      errBanner.style.display = "";
+      errMsg.textContent = data.error;
+    } else {
+      errBanner.style.display = "none";
+    }
+
+    asOf = data.as_of || asOf;
+    asOfIsoEl.textContent = "· " + asOf;
+    marketOpen = !!data.market_open;
+
+    livePill.classList.remove("live", "closed", "error");
+    if (data.error) {
+      livePill.classList.add("error");
+      liveText.textContent = "Polling paused · error";
+    } else if (marketOpen) {
+      livePill.classList.add("live");
+      liveText.textContent = "Live · 30s";
+    } else {
+      livePill.classList.add("closed");
+      liveText.textContent = "Market closed";
+    }
+
+    $("#breadth-up").textContent    = data.breadth.up;
+    $("#breadth-dn").textContent    = data.breadth.down;
+    $("#breadth-total").textContent = data.breadth.total;
+    const netEl = $("#net-bps");
+    netEl.textContent = fmtSignedBp(data.net_bps || 0);
+    netEl.classList.remove("pos", "neg");
+    if (data.net_bps > 0) netEl.classList.add("pos");
+    else if (data.net_bps < 0) netEl.classList.add("neg");
+
+    const byTicker = {};
+    (data.rows || []).forEach(r => { byTicker[r.ticker] = r; });
+    document.querySelectorAll(".tile[data-ticker]").forEach(tile => {
+      const row = byTicker[tile.dataset.ticker];
+      if (row) patchTile(tile, row);
+    });
+
+    tickClock();
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch(API_URL, { cache: "no-store" });
+      if (res.status === 429) {
+        backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+        liveText.textContent = `Rate-limited · retry ${Math.round(backoffMs/1000)}s`;
+      } else if (!res.ok) {
+        throw new Error("HTTP " + res.status);
+      } else {
+        const data = await res.json();
+        applyPayload(data);
+        backoffMs = POLL_INTERVAL_MS;
+      }
+    } catch (err) {
+      backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+      livePill.classList.remove("live", "closed");
+      livePill.classList.add("error");
+      liveText.textContent = "Poll failed · retrying";
+    } finally {
+      scheduleNext();
+    }
+  }
+
+  function scheduleNext() {
+    clearTimeout(timerId);
+    if (document.hidden) return;
+    if (!marketOpen)     return;    // no polling outside RTH
+    timerId = setTimeout(poll, backoffMs);
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      poll();        // immediate refresh on refocus
+    } else {
+      clearTimeout(timerId);
+    }
+  });
+
+  setInterval(tickClock, 1000);
+  scheduleNext();
+})();
+</script>
+
+</body>
+</html>
