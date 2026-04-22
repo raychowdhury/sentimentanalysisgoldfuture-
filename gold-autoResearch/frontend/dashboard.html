@@ -1,0 +1,1037 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gold AutoResearch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:         #0b1120;
+    --bg-soft:    #111a2e;
+    --card:       #0f1a30;
+    --card-hi:    #13213d;
+    --border:     #1f2b48;
+    --border-hi:  #2a3a5e;
+    --text:       #e2e8f0;
+    --text-dim:   #94a3b8;
+    --text-faint: #64748b;
+    --accent:     #fbbf24;   /* gold */
+    --accent-hi:  #fcd34d;
+    --ok:         #22c55e;
+    --ok-bg:      rgba(34,197,94,.12);
+    --warn:       #f59e0b;
+    --warn-bg:    rgba(245,158,11,.12);
+    --err:        #ef4444;
+    --err-bg:     rgba(239,68,68,.12);
+    --info:       #38bdf8;
+    --info-bg:    rgba(56,189,248,.12);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background:
+      radial-gradient(1200px 800px at 85% -10%, rgba(251,191,36,.07), transparent 60%),
+      radial-gradient(900px 700px at -10% 10%, rgba(56,189,248,.06), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: "Inter", -apple-system, system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  a { color: var(--info); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+  /* ── Header ── */
+  header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 1rem; margin-bottom: 1.75rem; flex-wrap: wrap;
+  }
+  .brand {
+    display: flex; align-items: center; gap: .75rem; margin-bottom: .4rem;
+  }
+  .logo {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent) 0%, #d97706 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; color: #0b1120; font-size: 1rem;
+    box-shadow: 0 8px 24px -8px rgba(251,191,36,.5);
+  }
+  h1 { font-size: 1.6rem; margin: 0; letter-spacing: -.02em; font-weight: 700; }
+  .obj {
+    color: var(--text-dim); max-width: 720px; font-size: .92rem;
+    margin-top: .25rem;
+  }
+  .headmeta {
+    display: flex; flex-direction: column; align-items: flex-end; gap: .35rem;
+    font-size: .75rem; color: var(--text-faint);
+  }
+  .livepill {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .28rem .6rem; border-radius: 999px;
+    background: var(--ok-bg); color: var(--ok);
+    font-size: .7rem; font-weight: 600; letter-spacing: .02em;
+  }
+  .livedot {
+    width: 7px; height: 7px; border-radius: 999px; background: var(--ok);
+    box-shadow: 0 0 0 4px rgba(34,197,94,.18);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .livepill.err { background: var(--err-bg); color: var(--err); }
+  .livepill.err .livedot { background: var(--err); box-shadow: 0 0 0 4px rgba(239,68,68,.18); }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%     { opacity: .35; }
+  }
+
+  /* ── KPI strip ── */
+  .kpis {
+    display: grid; gap: 1rem; margin-bottom: 1.25rem;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  .kpi {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1rem 1.2rem;
+    position: relative; overflow: hidden;
+  }
+  .kpi::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(251,191,36,.05), transparent 50%);
+    pointer-events: none;
+  }
+  .kpi .lbl {
+    font-size: .62rem; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .kpi .val {
+    font-size: 1.6rem; font-weight: 700; margin-top: .45rem;
+    letter-spacing: -.02em;
+  }
+  .kpi .sub {
+    font-size: .78rem; color: var(--text-dim); margin-top: .3rem;
+  }
+  .kpi.accent .val { color: var(--accent); }
+  .kpi.ok .val     { color: var(--ok);     }
+  .kpi.warn .val   { color: var(--warn);   }
+  .kpi.err .val    { color: var(--err);    }
+
+  /* ── Two-col ── */
+  .two {
+    display: grid; gap: 1rem; margin-bottom: 1.25rem;
+    grid-template-columns: 1.1fr .9fr;
+  }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1.1rem 1.3rem 1.25rem;
+  }
+  .card h2 {
+    font-size: .7rem; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--text-faint);
+    margin: 0 0 .85rem;
+  }
+
+  /* ── Next experiment card ── */
+  .nextexp {
+    background: linear-gradient(180deg, #1a1530 0%, var(--card) 100%);
+    border-color: #3b2d6e;
+    position: relative; overflow: hidden;
+  }
+  .nextexp::before {
+    content: "✦"; position: absolute;
+    top: 12px; right: 16px; font-size: 1.6rem; color: #7c3aed;
+    opacity: .4;
+  }
+  .nextexp .finding {
+    color: var(--text); font-size: .88rem; line-height: 1.55;
+    padding: .25rem 0 .5rem;
+  }
+  .nextexp .experiment {
+    color: var(--accent); font-size: .92rem; font-weight: 500;
+    background: rgba(251,191,36,.08);
+    padding: .7rem .85rem; border-radius: 8px;
+    border-left: 3px solid var(--accent);
+    margin-top: .75rem;
+  }
+  .nextexp .cfg {
+    margin-top: .75rem;
+    background: #050912; border: 1px solid var(--border);
+    border-radius: 8px; padding: .65rem .85rem;
+    font-family: "JetBrains Mono", monospace;
+    font-size: .76rem; color: #cbd5e1;
+    overflow: auto; max-height: 180px;
+    white-space: pre;
+  }
+  .nextexp .empty {
+    color: var(--text-dim); font-style: italic; padding: 1rem 0;
+    text-align: center;
+  }
+
+  /* ── Gate explainer ── */
+  .gate-rules {
+    display: flex; flex-direction: column; gap: .5rem; margin-top: .25rem;
+  }
+  .gate-rule {
+    display: flex; justify-content: space-between; gap: .75rem;
+    padding: .55rem .7rem;
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: 8px; font-size: .82rem;
+  }
+  .gate-rule .name { color: var(--text-dim); }
+  .gate-rule .thr  { font-family: "JetBrains Mono", monospace; color: var(--text); }
+
+  /* ── Pine Script card ── */
+  .pine-card { position: relative; }
+  .pine-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 1rem; margin-bottom: .75rem;
+  }
+  .pine-sub {
+    margin: .3rem 0 0; color: var(--text-dim); font-size: .82rem;
+  }
+  .btn-copy {
+    background: var(--accent); color: #0b1120;
+    border: none; border-radius: 8px;
+    padding: .55rem 1rem; font-weight: 600; font-size: .82rem;
+    font-family: "Inter", sans-serif;
+    cursor: pointer; transition: transform .1s, background .15s;
+    white-space: nowrap;
+  }
+  .btn-copy:hover { background: var(--accent-hi); }
+  .btn-copy:active { transform: translateY(1px); }
+  .btn-copy.ok { background: var(--ok); color: #fff; }
+
+  .btn-link {
+    display: inline-flex; align-items: center; gap: .5rem;
+    padding: .4rem .75rem; border-radius: 8px;
+    background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.3);
+    color: var(--accent); font-size: .78rem; font-weight: 600;
+    text-decoration: none;
+    transition: background .15s, transform .1s;
+  }
+  .btn-link:hover {
+    background: rgba(251,191,36,.18); text-decoration: none;
+  }
+  .btn-link:active { transform: translateY(1px); }
+  .btn-link .btn-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  }
+  .pine-feats {
+    display: flex; flex-wrap: wrap; gap: .4rem;
+    margin-bottom: .75rem;
+  }
+  .feat-pill {
+    font-family: "JetBrains Mono", monospace; font-size: .72rem;
+    padding: .22rem .55rem; border-radius: 999px;
+    background: rgba(56,189,248,.12);
+    border: 1px solid rgba(56,189,248,.35);
+    color: var(--info);
+  }
+  .feat-pill.dim {
+    background: var(--bg-soft); border-color: var(--border);
+    color: var(--text-faint);
+  }
+  .pine-code {
+    margin: 0; padding: 1rem;
+    max-height: 420px; overflow: auto;
+    background: #060a18; border: 1px solid var(--border);
+    border-radius: 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: .78rem; line-height: 1.55;
+    color: #cbd5e1;
+    white-space: pre;
+  }
+  .pine-code::-webkit-scrollbar { width: 10px; height: 10px; }
+  .pine-code::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 5px; }
+  .pine-code::-webkit-scrollbar-track { background: transparent; }
+
+  /* ── Cross-project links ── */
+  .link-card { }
+  .link-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: .75rem;
+  }
+  .link-tile {
+    display: flex; gap: .75rem; align-items: flex-start;
+    padding: .9rem 1rem; border-radius: 10px;
+    background: var(--bg-soft); border: 1px solid var(--border);
+    text-decoration: none; color: var(--text);
+    transition: background .15s, border-color .15s, transform .1s;
+  }
+  .link-tile:hover {
+    background: var(--card-hi); border-color: var(--border-hi);
+    text-decoration: none;
+  }
+  .link-tile:active { transform: translateY(1px); }
+  .link-tile.primary {
+    background: linear-gradient(135deg, rgba(251,191,36,.10), rgba(251,191,36,.03));
+    border-color: rgba(251,191,36,.35);
+  }
+  .link-tile.primary:hover {
+    background: linear-gradient(135deg, rgba(251,191,36,.18), rgba(251,191,36,.05));
+    border-color: rgba(251,191,36,.55);
+  }
+  .link-ico {
+    font-size: 1.35rem; line-height: 1; flex-shrink: 0;
+    padding-top: 2px;
+  }
+  .link-body { flex: 1; min-width: 0; }
+  .link-title {
+    font-weight: 600; font-size: .92rem;
+    display: flex; align-items: center; gap: .4rem;
+  }
+  .link-tile.primary .link-title { color: var(--accent); }
+  .link-arrow {
+    font-size: .9rem; transition: transform .15s;
+  }
+  .link-tile:hover .link-arrow { transform: translateX(3px); }
+  .link-url {
+    font-size: .72rem; color: var(--text-faint);
+    margin-top: .2rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .link-desc {
+    font-size: .78rem; color: var(--text-dim);
+    margin-top: .3rem; line-height: 1.4;
+  }
+  .link-note {
+    margin: 1rem 0 0; padding: .7rem .9rem;
+    background: var(--warn-bg); border: 1px solid rgba(245,158,11,.3);
+    border-radius: 8px;
+    font-size: .78rem; color: var(--text-dim);
+  }
+
+  /* ── Webhook bridge card ── */
+  .wh-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 1rem; margin-bottom: .75rem; flex-wrap: wrap;
+  }
+  .wh-pill {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .28rem .6rem; border-radius: 999px;
+    background: var(--bg-soft); border: 1px solid var(--border);
+    font-size: .72rem; color: var(--text-dim);
+  }
+  .wh-pill.ok  { background: var(--ok-bg);  border-color: rgba(34,197,94,.4); color: var(--ok); }
+  .wh-pill.err { background: var(--err-bg); border-color: rgba(239,68,68,.4); color: var(--err); }
+  .wh-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; box-shadow: 0 0 8px currentColor;
+  }
+  .wh-list {
+    list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: .5rem;
+  }
+  .wh-list .empty {
+    color: var(--text-faint); font-style: italic;
+    padding: 1rem; text-align: center;
+    background: var(--bg-soft); border: 1px dashed var(--border);
+    border-radius: 10px;
+  }
+  .wh-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: .7rem; align-items: center;
+    padding: .65rem .8rem;
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: 8px; font-size: .82rem;
+  }
+  .wh-sig {
+    font-family: "JetBrains Mono", monospace; font-weight: 700;
+    font-size: .78rem;
+    padding: .22rem .55rem; border-radius: 6px;
+  }
+  .wh-sig.LONG  { background: var(--ok-bg);   color: var(--ok); }
+  .wh-sig.SHORT { background: var(--err-bg);  color: var(--err); }
+  .wh-sig.FLAT  { background: var(--info-bg); color: var(--info); }
+  .wh-detail { color: var(--text-dim); font-size: .78rem; }
+  .wh-detail b { color: var(--text); font-family: "JetBrains Mono", monospace; font-weight: 500; }
+  .wh-agree {
+    font-size: .72rem; font-weight: 600;
+    padding: .22rem .5rem; border-radius: 999px;
+  }
+  .wh-agree.agree    { background: var(--ok-bg);   color: var(--ok); }
+  .wh-agree.disagree { background: var(--err-bg);  color: var(--err); }
+  .wh-agree.neutral,
+  .wh-agree.unknown  { background: var(--bg-soft); color: var(--text-faint); border: 1px solid var(--border); }
+  .wh-time {
+    font-family: "JetBrains Mono", monospace;
+    font-size: .72rem; color: var(--text-faint);
+  }
+  .wh-setup {
+    margin-top: 1rem; padding: .8rem 1rem;
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: 8px; font-size: .82rem;
+  }
+  .wh-setup summary {
+    cursor: pointer; color: var(--accent); font-weight: 600;
+    user-select: none;
+  }
+  .wh-setup ol {
+    margin: .6rem 0 0 1rem; padding: 0; color: var(--text-dim);
+  }
+  .wh-setup li { margin-bottom: .4rem; line-height: 1.5; }
+  .wh-setup code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: .75rem; }
+
+  /* ── Cycles timeline ── */
+  .tl-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin: 1.25rem 0 .75rem;
+  }
+  .tl-head h2 {
+    font-size: 1.05rem; font-weight: 700; margin: 0; letter-spacing: -.01em;
+  }
+  .tl-head .tl-count { color: var(--text-faint); font-size: .82rem; }
+
+  ol.timeline { list-style: none; padding: 0; margin: 0; display: grid; gap: .65rem; }
+  .cycle {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1rem 1.2rem 1.1rem;
+    display: grid; grid-template-columns: auto 1fr auto; gap: 1rem;
+    align-items: start;
+    transition: border-color .15s, transform .15s;
+  }
+  .cycle:hover { border-color: var(--border-hi); }
+  .cycle.promoted { border-color: rgba(34,197,94,.35); }
+
+  .cyc-idx {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: 10px; padding: .55rem .7rem;
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 60px;
+  }
+  .cyc-idx .n {
+    font-size: 1.3rem; font-weight: 700; color: var(--accent);
+    font-family: "JetBrains Mono", monospace; line-height: 1;
+  }
+  .cyc-idx .lbl {
+    font-size: .56rem; font-weight: 600; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text-faint); margin-top: .35rem;
+  }
+
+  .cyc-body { min-width: 0; }
+  .cyc-head-row {
+    display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+    margin-bottom: .5rem;
+  }
+  .ts { color: var(--text-faint); font-size: .78rem; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: .35rem;
+    font-size: .62rem; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: .22rem .55rem; border-radius: 999px;
+  }
+  .pill.promoted { background: var(--ok-bg);   color: var(--ok);   }
+  .pill.blocked  { background: var(--err-bg);  color: var(--err);  }
+  .pill.info     { background: var(--info-bg); color: var(--info); }
+
+  .metrics {
+    display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0 .65rem;
+  }
+  .metric {
+    display: inline-flex; align-items: baseline; gap: .4rem;
+    padding: .3rem .6rem; border-radius: 8px;
+    background: var(--bg-soft); border: 1px solid var(--border);
+    font-size: .8rem;
+  }
+  .metric .k { color: var(--text-faint); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; }
+  .metric .v { font-family: "JetBrains Mono", monospace; font-weight: 500; color: var(--text); }
+  .metric.pass .v { color: var(--ok);   }
+  .metric.fail .v { color: var(--err);  }
+
+  .hp {
+    display: grid; grid-template-columns: 1fr 1fr; gap: .35rem .7rem;
+    margin-top: .45rem; font-size: .75rem; color: var(--text-dim);
+  }
+  .hp .hk { color: var(--text-faint); text-transform: uppercase; font-size: .6rem; letter-spacing: .08em; }
+  .hp .hv { font-family: "JetBrains Mono", monospace; color: var(--text); }
+
+  .reason {
+    background: var(--err-bg); border: 1px solid rgba(239,68,68,.25);
+    color: #fca5a5; border-radius: 8px; padding: .5rem .75rem;
+    font-size: .8rem; margin-top: .55rem;
+  }
+  .reason strong { color: #fecaca; }
+
+  .cyc-meta {
+    text-align: right; font-size: .72rem; color: var(--text-faint);
+    min-width: 110px;
+  }
+  .cyc-meta .ver {
+    font-family: "JetBrains Mono", monospace; color: var(--text-dim);
+    font-size: .76rem;
+  }
+
+  /* ── Chart ── */
+  .chart-card { position: relative; }
+  .chart-wrap { position: relative; height: 160px; margin-top: .5rem; }
+
+  /* ── Empty state ── */
+  .empty {
+    text-align: center; color: var(--text-dim); padding: 1.5rem;
+    font-size: .9rem;
+  }
+
+  /* ── Footer ── */
+  footer {
+    margin-top: 2rem; padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; font-size: .75rem;
+    color: var(--text-faint); flex-wrap: wrap; gap: .5rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <div class="brand">
+      <div class="logo">Au</div>
+      <h1>Gold AutoResearch</h1>
+    </div>
+    <div id="objective" class="obj">Loading objective…</div>
+  </div>
+  <div class="headmeta">
+    <span id="livepill" class="livepill"><span class="livedot"></span><span id="liveText">connecting</span></span>
+    <a class="btn-link" href="/"><span class="btn-dot"></span> Gold Bias</a>
+    <a class="btn-link" href="/stocks/overview"><span class="btn-dot"></span> Stocks</a>
+    <span>polls <a href="http://localhost:8000/api/research/status" target="_blank">/api/research/status</a> · 60 s</span>
+    <span id="stamp">—</span>
+  </div>
+</header>
+
+<!-- KPI strip -->
+<section class="kpis" id="kpis">
+  <div class="kpi accent">
+    <div class="lbl">Accuracy Target</div>
+    <div class="val">≥ 0.60</div>
+    <div class="sub">next-day direction</div>
+  </div>
+  <div class="kpi ok">
+    <div class="lbl">Sharpe Target</div>
+    <div class="val">≥ 1.20</div>
+    <div class="sub">daily, annualized</div>
+  </div>
+  <div class="kpi warn">
+    <div class="lbl">Drawdown Limit</div>
+    <div class="val">≤ 0.15</div>
+    <div class="sub">max guard-rail</div>
+  </div>
+  <div class="kpi" id="kpiCycles">
+    <div class="lbl">Cycles Completed</div>
+    <div class="val">—</div>
+    <div class="sub">meta-opt every 10</div>
+  </div>
+</section>
+
+<div class="two">
+  <!-- Production + chart -->
+  <div class="card chart-card">
+    <h2>Production Model & Accuracy Trend</h2>
+    <div id="prodBody"><div class="empty">No model promoted yet — every candidate gated out.</div></div>
+    <div class="chart-wrap"><canvas id="accChart"></canvas></div>
+  </div>
+
+  <!-- Next experiment (AI) -->
+  <div class="card nextexp">
+    <h2>AI-Suggested Next Experiment</h2>
+    <div id="nextBody"><div class="empty">Waiting for meta-optimizer…</div></div>
+  </div>
+</div>
+
+<!-- Why blocked explainer -->
+<div class="card">
+  <h2>Promotion Gate Rules</h2>
+  <div class="gate-rules">
+    <div class="gate-rule"><span class="name">Sharpe (soft floor)</span><span class="thr">sharpe ≥ 0.96</span></div>
+    <div class="gate-rule"><span class="name">Max drawdown</span><span class="thr">dd ≤ 0.15</span></div>
+    <div class="gate-rule"><span class="name">Accuracy vs incumbent</span><span class="thr">acc &gt; incumbent.acc</span></div>
+  </div>
+  <p style="margin:.75rem 0 0; font-size:.8rem; color:var(--text-dim);">
+    A candidate must clear all three to replace production. Failing any rule
+    is shown inline on each cycle below.
+  </p>
+</div>
+
+<!-- Cross-project link card -->
+<div class="card link-card">
+  <div class="link-grid">
+    <a class="link-tile primary" href="http://localhost:5001/" target="_blank" rel="noopener">
+      <div class="link-ico">📊</div>
+      <div class="link-body">
+        <div class="link-title">Sentiment Scanner <span class="link-arrow">→</span></div>
+        <div class="link-url mono">http://localhost:5001</div>
+        <div class="link-desc">Parent Flask dashboard · XAUUSD bias · FinBERT + weighted mean</div>
+      </div>
+    </a>
+    <a class="link-tile" href="http://localhost:5001/spx" target="_blank" rel="noopener">
+      <div class="link-ico">📈</div>
+      <div class="link-body">
+        <div class="link-title">SPX View <span class="link-arrow">→</span></div>
+        <div class="link-url mono">localhost:5001/spx</div>
+        <div class="link-desc">Cross-asset context · risk-on/off regime</div>
+      </div>
+    </a>
+    <a class="link-tile" href="http://localhost:8000/api/research/status" target="_blank" rel="noopener">
+      <div class="link-ico">🔌</div>
+      <div class="link-body">
+        <div class="link-title">Research API <span class="link-arrow">→</span></div>
+        <div class="link-url mono">localhost:8000/api/research/status</div>
+        <div class="link-desc">Raw JSON · production model + recent cycles</div>
+      </div>
+    </a>
+  </div>
+  <p class="link-note">
+    TradingView Pine Script cannot fetch these URLs (sandboxed). Use as
+    manual cross-reference before taking a Pine signal: only act when
+    sentiment direction agrees.
+  </p>
+</div>
+
+<!-- Pine Script export -->
+<div class="card pine-card">
+  <div class="pine-head">
+    <div>
+      <h2 style="margin:0;">TradingView Pine Script</h2>
+      <p class="pine-sub">Linear mirror of autoresearch features. Apply to <span class="mono">COMEX:GC1!</span> · daily TF.</p>
+    </div>
+    <button id="copyPine" class="btn-copy" type="button">Copy</button>
+  </div>
+  <div class="pine-feats">
+    <span class="feat-pill">ret_5d</span>
+    <span class="feat-pill">ema_gap</span>
+    <span class="feat-pill">rsi_14</span>
+    <span class="feat-pill">dxy_ret_5d</span>
+    <span class="feat-pill">vix_ret_5d</span>
+    <span class="feat-pill">real10y_chg_5d</span>
+    <span class="feat-pill">vol_20d gate</span>
+    <span class="feat-pill dim">sentiment_z10 · not wired (TV limit)</span>
+  </div>
+  <pre id="pineCode" class="pine-code"><code>//@version=5
+indicator("Gold AutoResearch Mirror — Next-Day Bias", overlay=false, precision=3)
+
+// ── Inputs ─────────────────────────────────────────────────────────────
+train_window   = input.int(750,  "Recent-regime window (bars)", minval=100)
+vol_cap        = input.float(3.0,"Vol z-score cap (skip signal)",step=0.1)
+up_thresh      = input.float(0.15,"Up threshold (composite)",   step=0.05)
+dn_thresh      = input.float(-0.15,"Down threshold (composite)",step=0.05)
+
+w_trend  = input.float(0.30, "Weight: ema_gap / rsi trend")
+w_momo   = input.float(0.25, "Weight: price momentum (ret_5d)")
+w_dxy    = input.float(0.20, "Weight: DXY momentum (inverse)")
+w_vix    = input.float(0.10, "Weight: VIX momentum")
+w_real10 = input.float(0.15, "Weight: real-10Y change (inverse)")
+
+// ── External series ────────────────────────────────────────────────────
+dxy     = request.security("TVC:DXY",     "D", close, barmerge.gaps_off, barmerge.lookahead_off)
+vix     = request.security("CBOE:VIX",    "D", close, barmerge.gaps_off, barmerge.lookahead_off)
+real10y = request.security("FRED:DFII10", "D", close, barmerge.gaps_off, barmerge.lookahead_off)
+
+// ── Price features ────────────────────────────────────────────────────
+ret_5d   = ta.change(close,5)/ close[5]
+vol_20d  = ta.stdev(ta.change(close)/close[1], 20)
+ema_10   = ta.ema(close, 10)
+ema_50   = ta.ema(close, 50)
+ema_gap  = (ema_10 - ema_50) / ema_50
+rsi_14   = ta.rsi(close, 14)
+
+// ── Macro momentum ────────────────────────────────────────────────────
+dxy_ret_5d     = ta.change(dxy, 5)     / dxy[5]
+vix_ret_5d     = ta.change(vix, 5)     / vix[5]
+real10y_chg_5d = ta.change(real10y, 5)
+
+// ── Z-normalize over recent-regime window ─────────────────────────────
+z(src, len) =>
+    m = ta.sma(src, len)
+    s = ta.stdev(src, len)
+    s == 0 ? 0.0 : (src - m) / s
+
+z_emagap = z(ema_gap,        train_window)
+z_rsi    = z(rsi_14 - 50,    train_window)
+z_momo   = z(ret_5d,         train_window)
+z_dxy    = z(dxy_ret_5d,     train_window)
+z_vix    = z(vix_ret_5d,     train_window)
+z_real10 = z(real10y_chg_5d, train_window)
+z_vol    = z(vol_20d,        train_window)
+
+// ── Composite bias ────────────────────────────────────────────────────
+trend_signal = 0.5 * z_emagap + 0.5 * z_rsi
+composite    = w_trend  * trend_signal
+             + w_momo   * z_momo
+             + w_dxy    * (-z_dxy)
+             + w_vix    * z_vix
+             + w_real10 * (-z_real10)
+
+gated = math.abs(z_vol) > vol_cap
+bias  = gated ? 0.0 : composite
+
+long_sig  = bias >  up_thresh and not gated
+short_sig = bias <  dn_thresh and not gated
+
+// ── Plots ─────────────────────────────────────────────────────────────
+plot(bias, "Composite bias", color=color.new(color.orange, 0), linewidth=2)
+hline(up_thresh, "Up threshold", color=color.new(color.green, 40), linestyle=hline.style_dashed)
+hline(dn_thresh, "Down threshold", color=color.new(color.red, 40),   linestyle=hline.style_dashed)
+hline(0, "Zero", color=color.new(color.gray, 60))
+
+bgcolor(long_sig  ? color.new(color.green, 88) : na)
+bgcolor(short_sig ? color.new(color.red,   88) : na)
+bgcolor(gated     ? color.new(color.yellow,90) : na)
+
+plotshape(long_sig  and not long_sig[1],  "Flip LONG",  shape.triangleup,   location.bottom, color=color.green, size=size.tiny)
+plotshape(short_sig and not short_sig[1], "Flip SHORT", shape.triangledown, location.top,    color=color.red,   size=size.tiny)
+
+// ── Webhook payload (for TradingView alerts → Sentiment Flask) ────────
+// In "Create Alert" paste one of these as the Message. Webhook URL:
+//   http://&lt;your-host&gt;:5001/api/tv_webhook   (use ngrok to expose)
+// LONG:
+//   {"secret":"YOUR_SECRET","ticker":"{{ticker}}","signal":"LONG","price":{{close}},"bias":{{plot_0}},"time":"{{timenow}}"}
+// SHORT:
+//   {"secret":"YOUR_SECRET","ticker":"{{ticker}}","signal":"SHORT","price":{{close}},"bias":{{plot_0}},"time":"{{timenow}}"}
+
+alertcondition(long_sig  and not long_sig[1],  "Gold next-day LONG",  "Composite bias flipped long.")
+alertcondition(short_sig and not short_sig[1], "Gold next-day SHORT", "Composite bias flipped short.")</code></pre>
+</div>
+
+<!-- TradingView webhook hits -->
+<div class="card wh-card">
+  <div class="wh-head">
+    <div>
+      <h2 style="margin:0;">TradingView → Sentiment Bridge</h2>
+      <p class="pine-sub">
+        Live webhook hits from TradingView Pine alerts · cross-checked against parent sentiment cache ·
+        <a href="http://localhost:5001/api/tv_webhook/recent" target="_blank" rel="noopener">raw JSON →</a>
+      </p>
+    </div>
+    <span id="whPill" class="wh-pill"><span class="wh-dot"></span><span id="whText">waiting</span></span>
+  </div>
+  <ol id="whList" class="wh-list"><li class="empty">No webhook hits yet. Setup steps below.</li></ol>
+  <details class="wh-setup">
+    <summary>Setup (3 steps)</summary>
+    <ol>
+      <li><b>Expose Flask publicly</b> — run <code class="mono">ngrok http 5001</code>, copy the https URL.</li>
+      <li><b>Set secret</b> — add <code class="mono">TV_WEBHOOK_SECRET=your-secret</code> to parent <code class="mono">.env</code> and restart Flask.</li>
+      <li><b>Create TradingView alert</b> — Condition: <i>Gold next-day LONG</i> (or SHORT) · Webhook URL: <code class="mono">https://&lt;ngrok&gt;/api/tv_webhook</code> · Message: paste JSON template from Pine comments.</li>
+    </ol>
+  </details>
+</div>
+
+<div class="tl-head">
+  <h2>Recent Cycles</h2>
+  <span id="tlCount" class="tl-count">—</span>
+</div>
+
+<ol id="timeline" class="timeline"><li class="empty">Loading…</li></ol>
+
+<footer>
+  <span>Gold AutoResearch · <span class="mono">claude-sonnet-4</span> meta-optimizer · XGBoost + optional LSTM ensemble</span>
+  <span>Stack: FastAPI · Postgres · Docker · cron 00:05 UTC</span>
+</footer>
+
+</div>
+
+<script>
+const API = "http://localhost:8000/api/research/status";
+const POLL_MS = 60_000;
+
+// Thresholds mirror config/settings.py (hard-coded client-side; server exposes
+// them implicitly through run_log.md already)
+const T = { sharpe: 0.96, dd: 0.15, accuracy: 0.60 };
+
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Parse bullet strings like "version=m1234, acc=0.5556, sharpe=1.17, dd=0.18"
+function parseKV(str) {
+  const out = {};
+  (str || "").split(",").forEach(pair => {
+    const [k, ...rest] = pair.split("=");
+    if (!k || !rest.length) return;
+    out[k.trim()] = rest.join("=").trim();
+  });
+  return out;
+}
+
+// Pretty hyperparams — strip backticks + JSON.parse + format
+function parseHP(raw) {
+  if (!raw) return null;
+  const clean = String(raw).replace(/^`+|`+$/g, "").trim();
+  try { return JSON.parse(clean); } catch { return null; }
+}
+
+function gateCheck(cand) {
+  const f = { sharpe: null, dd: null };
+  if (cand.sharpe != null) f.sharpe = Number(cand.sharpe) >= T.sharpe;
+  if (cand.dd != null)     f.dd     = Number(cand.dd)     <= T.dd;
+  return f;
+}
+
+function renderBlockReason(cand) {
+  const f = gateCheck(cand);
+  const fails = [];
+  if (f.sharpe === false) fails.push(`Sharpe ${Number(cand.sharpe).toFixed(2)} < 0.96 floor`);
+  if (f.dd === false)     fails.push(`Drawdown ${Number(cand.dd).toFixed(2)} > 0.15 limit`);
+  if (!fails.length) return "";
+  return `<div class="reason"><strong>Blocked:</strong> ${fails.join(" · ")}</div>`;
+}
+
+function renderProduction(p) {
+  if (!p) {
+    return '<div class="empty">No model promoted yet — every candidate gated out by the guard-rails.</div>';
+  }
+  const ts = new Date(p.created_at).toLocaleString();
+  const fSharpe = p.sharpe >= T.sharpe ? "pass" : "fail";
+  const fDD     = p.max_drawdown <= T.dd ? "pass" : "fail";
+  const fAcc    = p.accuracy >= T.accuracy ? "pass" : "fail";
+  return `
+    <div style="display:flex; align-items:baseline; gap:.75rem; margin-bottom:.6rem;">
+      <div style="font-size:1.25rem; font-weight:700;" class="mono">${esc(p.version)}</div>
+      <span class="pill promoted">live</span>
+    </div>
+    <div class="metrics">
+      <span class="metric ${fAcc}"><span class="k">acc</span><span class="v">${p.accuracy.toFixed(4)}</span></span>
+      <span class="metric ${fSharpe}"><span class="k">sharpe</span><span class="v">${p.sharpe.toFixed(2)}</span></span>
+      <span class="metric ${fDD}"><span class="k">dd</span><span class="v">${p.max_drawdown.toFixed(2)}</span></span>
+    </div>
+    <div style="font-size:.76rem; color:var(--text-faint);">promoted ${esc(ts)}</div>
+  `;
+}
+
+// Split Claude's markdown-ish suggestion into finding / experiment / cfg
+function renderNextExp(raw) {
+  if (!raw || /waiting|no suggestion yet/i.test(raw)) {
+    return '<div class="empty">Waiting for meta-optimizer…</div>';
+  }
+  const findingM = raw.match(/\*\*Finding\.\*\*\s*([\s\S]*?)(?=\n\s*\n|\*\*Next experiment\.\*\*)/i);
+  const expM     = raw.match(/\*\*Next experiment\.\*\*\s*([\s\S]*?)(?=\n\s*\n|\*\*Proposed config change\.\*\*)/i);
+  const cfgM     = raw.match(/```json\s*([\s\S]*?)```/);
+  const finding = findingM ? findingM[1].trim() : "";
+  const exp     = expM ? expM[1].trim() : "";
+  const cfg     = cfgM ? cfgM[1].trim() : "";
+  return `
+    ${finding ? `<div class="finding"><strong style="color:#c4b5fd;">Finding.</strong> ${esc(finding)}</div>` : ""}
+    ${exp     ? `<div class="experiment">→ ${esc(exp)}</div>` : ""}
+    ${cfg     ? `<div class="cfg">${esc(cfg)}</div>` : ""}
+  `;
+}
+
+function renderCycle(c) {
+  const promoted = (c.bullets["promoted"] || "").toLowerCase() === "yes";
+  const ts = new Date(c.timestamp).toLocaleString();
+  const candKV = parseKV(c.bullets["candidate"] || "");
+  const hp     = parseHP(c.bullets["hyperparams"]);
+  const dataKV = parseKV(c.bullets["dataset"] || "");
+
+  const fSharpe = candKV.sharpe != null ? (Number(candKV.sharpe) >= T.sharpe ? "pass" : "fail") : "";
+  const fDD     = candKV.dd     != null ? (Number(candKV.dd)     <= T.dd    ? "pass" : "fail") : "";
+  const fAcc    = candKV.acc    != null ? (Number(candKV.acc)    >= T.accuracy ? "pass" : "fail") : "";
+
+  const hpRows = hp ? Object.entries(hp).flatMap(([group, obj]) =>
+    Object.entries(obj || {}).map(([k, v]) =>
+      `<div class="hk">${esc(group)}.${esc(k)}</div><div class="hv">${esc(JSON.stringify(v))}</div>`
+    )
+  ).join("") : "";
+
+  return `
+    <li class="cycle ${promoted ? "promoted" : ""}">
+      <div class="cyc-idx">
+        <div class="n">${c.cycle}</div>
+        <div class="lbl">cycle</div>
+      </div>
+      <div class="cyc-body">
+        <div class="cyc-head-row">
+          <span class="pill ${promoted ? "promoted" : "blocked"}">${promoted ? "promoted" : "blocked"}</span>
+          ${candKV.version ? `<span class="pill info mono">${esc(candKV.version)}</span>` : ""}
+          <span class="ts">${esc(ts)}</span>
+        </div>
+        <div class="metrics">
+          ${candKV.acc    != null ? `<span class="metric ${fAcc}"><span class="k">acc</span><span class="v">${Number(candKV.acc).toFixed(4)}</span></span>` : ""}
+          ${candKV.sharpe != null ? `<span class="metric ${fSharpe}"><span class="k">sharpe</span><span class="v">${Number(candKV.sharpe).toFixed(2)}</span></span>` : ""}
+          ${candKV.dd     != null ? `<span class="metric ${fDD}"><span class="k">dd</span><span class="v">${Number(candKV.dd).toFixed(2)}</span></span>` : ""}
+          ${dataKV.rows   != null ? `<span class="metric"><span class="k">rows</span><span class="v">${esc(dataKV.rows)}</span></span>` : ""}
+          ${dataKV.cols   != null ? `<span class="metric"><span class="k">features</span><span class="v">${esc(dataKV.cols)}</span></span>` : ""}
+        </div>
+        ${hpRows ? `<div class="hp">${hpRows}</div>` : ""}
+        ${!promoted ? renderBlockReason(candKV) : ""}
+      </div>
+      <div class="cyc-meta">
+        <div class="ver">${esc(candKV.version || "—")}</div>
+        <div>${c.bullets["experiment note"] ? esc(c.bullets["experiment note"]) : ""}</div>
+      </div>
+    </li>
+  `;
+}
+
+// ── Chart ──
+let chart = null;
+function renderChart(cycles) {
+  const ctx = $("accChart").getContext("2d");
+  const sorted = [...cycles].sort((a, b) => a.cycle - b.cycle);
+  const labels = sorted.map(c => `#${c.cycle}`);
+  const accs = sorted.map(c => {
+    const kv = parseKV(c.bullets["candidate"] || "");
+    return kv.acc != null ? Number(kv.acc) : null;
+  });
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "accuracy",
+          data: accs,
+          borderColor: "#fbbf24",
+          backgroundColor: "rgba(251,191,36,.12)",
+          fill: true,
+          tension: .3,
+          pointRadius: 4,
+          pointBackgroundColor: "#fbbf24",
+          pointBorderColor: "#0b1120",
+          pointBorderWidth: 2,
+        },
+        {
+          label: "target",
+          data: labels.map(_ => T.accuracy),
+          borderColor: "rgba(34,197,94,.55)",
+          borderDash: [4, 4],
+          pointRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: "#94a3b8", font: { size: 10 } } },
+        tooltip: { mode: "index", intersect: false },
+      },
+      scales: {
+        x: { ticks: { color: "#64748b" }, grid: { color: "rgba(148,163,184,.08)" } },
+        y: {
+          min: .4, max: .75,
+          ticks: { color: "#64748b", callback: v => v.toFixed(2) },
+          grid: { color: "rgba(148,163,184,.08)" },
+        },
+      },
+    },
+  });
+}
+
+async function tick() {
+  try {
+    const r = await fetch(API, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+
+    $("objective").textContent = d.program.objective ?? "No objective set.";
+    $("nextBody").innerHTML    = renderNextExp(d.program.next_experiment);
+    $("prodBody").innerHTML    = renderProduction(d.production_model);
+
+    const cycles = d.recent_cycles || [];
+    $("kpiCycles").querySelector(".val").textContent = cycles.length;
+
+    if (cycles.length === 0) {
+      $("timeline").innerHTML = '<li class="empty">No cycles logged yet.</li>';
+    } else {
+      $("timeline").innerHTML = cycles.map(renderCycle).join("");
+      renderChart(cycles);
+    }
+    $("tlCount").textContent = `${cycles.length} shown`;
+
+    $("livepill").classList.remove("err");
+    $("liveText").textContent = "live";
+    $("stamp").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (e) {
+    $("livepill").classList.add("err");
+    $("liveText").textContent = (e && e.message) || "error";
+  }
+}
+
+tick();
+setInterval(tick, POLL_MS);
+
+// ── Webhook hits poller ──
+const WH_URL = "http://localhost:5001/api/tv_webhook/recent";
+
+function renderWhItem(h) {
+  const sig      = esc(h.signal || "—");
+  const agree    = esc(h.agreement || "unknown");
+  const price    = h.price != null ? Number(h.price).toFixed(2) : "—";
+  const bias     = h.bias  != null ? Number(h.bias).toFixed(3)  : "—";
+  const sent     = h.sentiment || {};
+  const sentTxt  = sent.score != null
+    ? `sent ${Number(sent.score).toFixed(3)} (${esc(sent.direction)})`
+    : "no sentiment data";
+  const t = h.received_at ? new Date(h.received_at).toLocaleTimeString() : "";
+  return `
+    <li class="wh-item">
+      <span class="wh-sig ${sig}">${sig}</span>
+      <span class="wh-detail">
+        <b>${esc(h.ticker || "—")}</b> @ <b>${price}</b> · bias <b>${bias}</b> · ${esc(sentTxt)}
+      </span>
+      <span class="wh-agree ${agree}">${agree}</span>
+      <span class="wh-time">${t}</span>
+    </li>
+  `;
+}
+
+async function tickWebhook() {
+  const pill = document.getElementById("whPill");
+  const text = document.getElementById("whText");
+  const list = document.getElementById("whList");
+  try {
+    const r = await fetch(WH_URL, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const hits = await r.json();
+    pill.className = "wh-pill ok";
+    text.textContent = hits.length ? `${hits.length} hits` : "connected · 0 hits";
+    if (!hits.length) {
+      list.innerHTML = `<li class="empty">No webhook hits yet. Setup steps below.</li>`;
+    } else {
+      list.innerHTML = hits.map(renderWhItem).join("");
+    }
+  } catch (e) {
+    pill.className = "wh-pill err";
+    text.textContent = "bridge offline";
+    list.innerHTML = `<li class="empty">Parent Flask offline or <code class="mono">/api/tv_webhook/recent</code> unreachable.</li>`;
+  }
+}
+tickWebhook();
+setInterval(tickWebhook, 15000);
+
+// ── Pine Script copy button ──
+document.getElementById("copyPine").addEventListener("click", async (e) => {
+  const btn  = e.currentTarget;
+  const code = document.getElementById("pineCode").innerText;
+  try {
+    await navigator.clipboard.writeText(code);
+    const prev = btn.textContent;
+    btn.textContent = "Copied ✓";
+    btn.classList.add("ok");
+    setTimeout(() => { btn.textContent = prev; btn.classList.remove("ok"); }, 1400);
+  } catch (err) {
+    btn.textContent = "copy failed";
+  }
+});
+</script>
+</body>
+</html>

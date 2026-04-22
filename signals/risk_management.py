@@ -11,24 +11,27 @@ from utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 
-def validate(setup: dict) -> dict:
+def validate(setup: dict, tf: dict | None = None) -> dict:
     """
-    Validate a trade setup dict against config.MIN_RR.
+    Validate a trade setup dict against the minimum RR.
+
+    tf – optional timeframe profile; its min_rr overrides config.MIN_RR.
     Returns a (possibly modified) copy — the original is not mutated.
     """
+    min_rr = tf["min_rr"] if tf else config.MIN_RR
     rr = setup.get("risk_reward_ratio")
     if rr is None:
         return setup   # already a no-trade setup
 
-    if rr < config.MIN_RR:
+    if rr < min_rr:
         logger.warning(
-            f"RR {rr:.2f} < required {config.MIN_RR:.1f} — downgrading to NO_TRADE"
+            f"RR {rr:.2f} < required {min_rr:.1f} — downgrading to NO_TRADE"
         )
         setup = {
             **setup,
             "trade_valid":    False,
             "trade_decision": "NO_TRADE",
-            "setup_note":     f"RR {rr:.2f} does not meet minimum {config.MIN_RR:.1f}",
+            "setup_note":     f"RR {rr:.2f} does not meet minimum {min_rr:.1f}",
         }
 
     return setup

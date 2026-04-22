@@ -1,0 +1,41 @@
+{
+  "version": "m1776889422",
+  "created_at": "2026-04-22T20:23:42+00:00",
+  "accuracy": 0.5556,
+  "sharpe": 1.0361,
+  "max_drawdown": 0.1773,
+  "features": [
+    "ret_1d",
+    "ret_5d",
+    "vol_20d",
+    "ema_10",
+    "ema_50",
+    "ema_gap",
+    "rsi_14",
+    "dxy",
+    "vix",
+    "CPI",
+    "FED",
+    "REAL10Y",
+    "dxy_ret_5d",
+    "vix_ret_5d",
+    "real10y_chg_5d",
+    "cpi_yoy",
+    "sent_score",
+    "sentiment_z10"
+  ],
+  "hyperparams": {
+    "xgb": {
+      "max_depth": 7,
+      "learning_rate": 0.05,
+      "n_estimators": 400
+    },
+    "lstm": {
+      "hidden": 64,
+      "layers": 2,
+      "dropout": 0.1
+    }
+  },
+  "notes": "cycle-5",
+  "pred_up_rate": 1.0
+}

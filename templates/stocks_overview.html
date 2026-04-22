@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock Sentiment — Overview</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f1f5f9; color: #1e293b; font-size: 14px; line-height: 1.5;
+    }
+
+    header {
+      background: #0f172a; color: #fff; padding: 0 1.5rem; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 200;
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+    }
+    .logo { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: .5rem; }
+    .logo-gold { color: #fbbf24; }
+    .logo-sub { font-size: .65rem; font-weight: 400; color: #64748b; letter-spacing: .06em; text-transform: uppercase; }
+
+    .main-nav { display: flex; align-items: center; gap: .25rem; }
+    .nav-tab {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      padding: .3rem .75rem; border-radius: 6px; border: 1px solid transparent;
+      color: #64748b; text-decoration: none; transition: background .12s, color .12s;
+    }
+    .nav-tab:hover { background: #1e293b; color: #e2e8f0; }
+    .nav-tab.active { background: #fbbf24; color: #0f172a; border-color: #fbbf24; }
+    .nav-sep { width:1px; height:18px; background:#334155; margin:0 .35rem; display:inline-block; }
+
+    .refresh-btn {
+      background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
+      padding: .3rem .85rem; border-radius: 6px; font-size: .65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em; cursor: pointer; text-decoration: none;
+    }
+    .refresh-btn:hover { border-color: #fbbf24; color: #fbbf24; }
+    .refresh-btn:disabled { opacity: .55; cursor: wait; }
+
+    .wrap { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+
+    .meta-bar {
+      display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: .85rem 1.25rem; margin-bottom: 1.25rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,.03);
+    }
+    .meta-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; color: #64748b; font-weight: 700; }
+    .meta-val   { font-size: .95rem; font-weight: 700; color: #0f172a; }
+
+    .summary-grid {
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: .85rem;
+      margin-bottom: 1.25rem;
+    }
+    @media (max-width: 1100px) { .summary-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 600px)  { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    .summary-card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: .85rem 1rem; box-shadow: 0 1px 2px rgba(0,0,0,.03);
+    }
+    .summary-card .label { font-size: .6rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .08em; }
+    .summary-card .val   { font-size: 1.6rem; font-weight: 800; color: #0f172a; margin-top: .25rem; }
+    .summary-card .val.pos { color: #16a34a; }
+    .summary-card .val.neg { color: #dc2626; }
+    .summary-card .val.neu { color: #64748b; }
+    .summary-card .sub   { font-size: .7rem; color: #64748b; margin-top: .15rem; }
+
+    .grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: .85rem;
+    }
+    @media (max-width: 1100px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 800px)  { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px)  { .grid { grid-template-columns: 1fr; } }
+
+    .tile {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: .85rem 1rem; position: relative; overflow: hidden;
+      box-shadow: 0 1px 2px rgba(0,0,0,.03);
+      transition: transform .1s, box-shadow .1s;
+      text-decoration: none; color: inherit; display: block;
+    }
+    .tile:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+    .tile::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      background: #cbd5e1;
+    }
+    .tile.pos::before { background: #16a34a; }
+    .tile.neg::before { background: #dc2626; }
+    .tile.err::before { background: #f59e0b; }
+
+    .tile-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+    .tkr { font-size: 1.1rem; font-weight: 800; letter-spacing: -.02em; color: #0f172a; }
+    .name { font-size: .7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: .1rem; }
+    .sector { font-size: .6rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; margin-top: .25rem; }
+
+    .signal-pill {
+      display: inline-block; font-size: .62rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .07em; padding: .2rem .5rem; border-radius: 999px;
+      background: #f1f5f9; color: #64748b;
+    }
+    .signal-pill.buy      { background: #ecfdf5; color: #047857; }
+    .signal-pill.sell     { background: #fef2f2; color: #991b1b; }
+    .signal-pill.strong-buy  { background: #16a34a; color: #fff; }
+    .signal-pill.strong-sell { background: #dc2626; color: #fff; }
+
+    .conf-pill {
+      display: inline-block; font-size: .58rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; padding: .15rem .45rem; border-radius: 4px;
+      background: #e2e8f0; color: #475569;
+    }
+    .conf-pill.high   { background: #dbeafe; color: #1e40af; }
+    .conf-pill.medium { background: #fef3c7; color: #92400e; }
+    .conf-pill.low    { background: #fee2e2; color: #991b1b; }
+
+    .tile-row { display: flex; align-items: center; justify-content: space-between; margin-top: .5rem; gap: .5rem; }
+
+    .price { font-size: .95rem; font-weight: 700; color: #1e293b; }
+    .day   { font-size: .85rem; font-weight: 700; }
+    .day.pos { color: #16a34a; }
+    .day.neg { color: #dc2626; }
+    .day.neu { color: #64748b; }
+
+    .meta-line { font-size: .65rem; color: #64748b; margin-top: .4rem; display: flex; gap: .75rem; flex-wrap: wrap; }
+
+    .empty {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: 3rem 1.5rem; text-align: center; color: #64748b;
+    }
+    .empty h2 { font-size: 1.1rem; color: #1e293b; margin-bottom: .5rem; }
+    .empty code {
+      background: #f1f5f9; padding: .15rem .4rem; border-radius: 4px;
+      font-family: 'SF Mono', Menlo, monospace; font-size: .85rem; color: #0f172a;
+    }
+
+    .status-msg {
+      font-size: .7rem; color: #64748b; margin-left: .5rem;
+    }
+    .status-msg.err { color: #dc2626; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    Stock<span class="logo-gold">Sentiment</span>Engine
+    <span class="logo-sub">Top 20 · Aggregated</span>
+  </div>
+  <nav class="main-nav">
+    <a class="nav-tab" href="/">Gold Bias</a>
+    <a class="nav-tab active" href="/stocks/overview">Stocks</a>
+    <a class="nav-tab" href="/autoresearch">AutoResearch</a>
+    <span class="nav-sep"></span>
+    <a class="nav-tab active" href="/stocks/overview">Overview</a>
+    <a class="nav-tab" href="/stocks/explorer">Explorer</a>
+  </nav>
+  <div>
+    <button class="refresh-btn" id="run-btn">Run Scan</button>
+    <span class="status-msg" id="status-msg"></span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  {% if overview %}
+    {% set ms = overview.market_summary %}
+    <div class="meta-bar">
+      <div>
+        <div class="meta-label">Last Run</div>
+        <div class="meta-val">{{ overview.run_timestamp }}</div>
+      </div>
+      <div>
+        <div class="meta-label">Universe</div>
+        <div class="meta-val">{{ overview.universe.size }} tickers</div>
+      </div>
+      <div>
+        <div class="meta-label">Elapsed</div>
+        <div class="meta-val">{{ overview.elapsed_sec }}s</div>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="label">Bullish</div>
+        <div class="val pos">{{ ms.bullish_count }}</div>
+        <div class="sub">BUY / STRONG_BUY</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Bearish</div>
+        <div class="val neg">{{ ms.bearish_count }}</div>
+        <div class="sub">SELL / STRONG_SELL</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Neutral</div>
+        <div class="val neu">{{ ms.neutral_count }}</div>
+        <div class="sub">HOLD</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Strongest Bull</div>
+        <div class="val pos">{{ ms.strongest_bullish or "—" }}</div>
+        <div class="sub">highest total score</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Strongest Bear</div>
+        <div class="val neg">{{ ms.strongest_bearish or "—" }}</div>
+        <div class="sub">lowest total score</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Avg Sentiment</div>
+        <div class="val {% if ms.average_sentiment and ms.average_sentiment > 0.05 %}pos{% elif ms.average_sentiment and ms.average_sentiment < -0.05 %}neg{% else %}neu{% endif %}">
+          {% if ms.average_sentiment is not none %}{{ '%+.3f'|format(ms.average_sentiment) }}{% else %}—{% endif %}
+        </div>
+        <div class="sub">across universe</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      {% for row in overview.stocks %}
+        {% set signal = row.signal or 'HOLD' %}
+        {% set cls = 'pos' if signal in ['BUY','STRONG_BUY'] else 'neg' if signal in ['SELL','STRONG_SELL'] else '' %}
+        {% if row.error %}{% set cls = 'err' %}{% endif %}
+        {% set pill_cls = {'BUY':'buy','STRONG_BUY':'strong-buy','SELL':'sell','STRONG_SELL':'strong-sell'}.get(signal, '') %}
+        {% set conf_cls = (row.confidence or 'low')|lower %}
+        <a class="tile {{ cls }}" href="/stocks/explorer?ticker={{ row.ticker }}">
+          <div class="tile-head">
+            <div class="tkr">{{ row.ticker }}</div>
+            <span class="signal-pill {{ pill_cls }}">{{ signal }}</span>
+          </div>
+          <div class="name">{{ row.company_name }}</div>
+          <div class="sector">{{ row.sector or '' }}</div>
+          <div class="tile-row">
+            <span class="price">{% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</span>
+            <span class="day {% if row.return_5d_pct and row.return_5d_pct > 0 %}pos{% elif row.return_5d_pct and row.return_5d_pct < 0 %}neg{% else %}neu{% endif %}">
+              {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}% 5d{% else %}—{% endif %}
+            </span>
+          </div>
+          <div class="meta-line">
+            <span class="conf-pill {{ conf_cls }}">{{ row.confidence or 'LOW' }}</span>
+            <span>sent: {{ row.sentiment_label or 'neutral' }}</span>
+            <span>n={{ row.article_count or 0 }}</span>
+            <span>score: {{ row.total_score if row.total_score is not none else '—' }}</span>
+          </div>
+          {% if row.error %}<div class="meta-line" style="color:#dc2626;">error: {{ row.error[:80] }}</div>{% endif %}
+        </a>
+      {% endfor %}
+    </div>
+
+  {% else %}
+    <div class="empty">
+      <h2>No scan yet</h2>
+      <p>Run the stock sentiment scanner first:</p>
+      <p style="margin-top: .75rem;"><code>python main.py --stocks</code></p>
+      <p style="margin-top: .75rem;">or hit the <strong>Run Scan</strong> button above (takes ~2 minutes).</p>
+    </div>
+  {% endif %}
+
+</div>
+
+<script>
+  (function () {
+    const runBtn = document.getElementById("run-btn");
+    const status = document.getElementById("status-msg");
+
+    runBtn.addEventListener("click", async () => {
+      runBtn.disabled = true;
+      status.classList.remove("err");
+      status.textContent = "Scanning… this takes ~2 minutes";
+      try {
+        const res = await fetch("/api/stocks/run", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: "{}",
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          status.classList.add("err");
+          status.textContent = "Scan failed: " + (data.error || res.status);
+          runBtn.disabled = false;
+          return;
+        }
+        status.textContent = "Done. Reloading…";
+        setTimeout(() => window.location.reload(), 600);
+      } catch (err) {
+        status.classList.add("err");
+        status.textContent = "Request failed: " + err.message;
+        runBtn.disabled = false;
+      }
+    });
+  })();
+</script>
+
+</body>
+</html>

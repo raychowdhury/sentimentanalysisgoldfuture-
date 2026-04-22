@@ -60,11 +60,18 @@ class FinBERTAnalyzer:
             label = _LABEL_MAP.get(raw_label, "neutral")
             confidence = round(float(result["score"]), 4)
 
-            # Convert to signed score for consistent aggregation
+            # Convert to signed score for consistent aggregation.
+            # Calibrate confidence via (2c - 1) so it spans [0, 1] starting from
+            # the 50% decision boundary instead of the 33% softmax floor. Without
+            # this, FinBERT's winning-class probability almost always sits in
+            # [0.85, 0.99] and dominates the weighted mean against VADER's
+            # graded compound score. Clamped at 0 to avoid flipping sign when
+            # confidence < 0.5.
+            calibrated = max(0.0, 2 * confidence - 1)
             if label == "positive":
-                score = confidence
+                score = round(calibrated, 4)
             elif label == "negative":
-                score = -confidence
+                score = -round(calibrated, 4)
             else:
                 score = 0.0
 

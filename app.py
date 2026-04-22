@@ -9,9 +9,17 @@ Usage:
 import glob
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
-from flask import Flask, abort, render_template, request
+from dotenv import load_dotenv
+load_dotenv()
+
+from flask import Flask, jsonify, render_template, request, send_file
+
+import config
+import scheduler as sched
+from sentiment import cache as sentiment_cache
 
 app = Flask(__name__)
 OUTPUT_DIR = "outputs"
@@ -61,6 +69,18 @@ def pct_change(v):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _peek_timeframe(sig_path: str | None) -> str:
+    """Read the 'timeframe' field from a signal JSON without full loading."""
+    if not sig_path or not os.path.isfile(sig_path):
+        return "swing"
+    try:
+        with open(sig_path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("timeframe", "swing")
+    except Exception:
+        return "swing"
+
+
 def load_runs() -> list[dict]:
     """
     Pair sentiment_*.json and signal_*.json by shared timestamp.
@@ -84,8 +104,10 @@ def load_runs() -> list[dict]:
         except ValueError:
             label = ts
 
-        has_sent = ts in sent_map
-        has_sig  = ts in sig_map
+        has_sent  = ts in sent_map
+        has_sig   = ts in sig_map
+        sig_path  = sig_map.get(ts)
+        timeframe = _peek_timeframe(sig_path)
         tag = "signal+sentiment" if (has_sent and has_sig) else ("signal" if has_sig else "sentiment")
 
         runs.append({
@@ -94,7 +116,8 @@ def load_runs() -> list[dict]:
             "has_sent":   has_sent,
             "has_sig":    has_sig,
             "sent_path":  sent_map.get(ts),
-            "sig_path":   sig_map.get(ts),
+            "sig_path":   sig_path,
+            "timeframe":  timeframe,
         })
     return runs
 
@@ -104,6 +127,110 @@ def _load_json(path: str | None) -> dict | None:
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _load_latest_backtest(timeframe: str = "swing") -> dict | None:
+    """Newest backtest_{tf}_*.json → condensed summary for the dashboard.
+
+    Falls back to any timeframe when the requested one has no backtest yet,
+    so a fresh `day` run still shows the swing backtest proof.
+    """
+    paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, f"backtest_{timeframe}_*.json")),
+                   reverse=True)
+    if not paths:
+        paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, "backtest_*.json")),
+                       reverse=True)
+        if paths:
+            # Update timeframe label to whatever file we actually grabbed.
+            fn = os.path.basename(paths[0])
+            timeframe = fn.split("_")[1] if fn.startswith("backtest_") else timeframe
+    if not paths:
+        return None
+    data = _load_json(paths[0])
+    if not data:
+        return None
+    rep      = data.get("report", {})
+    overall  = rep.get("overall", {})
+    filename = os.path.basename(paths[0])
+    ts       = filename.removeprefix(f"backtest_{timeframe}_").removesuffix(".json")
+    try:
+        label = datetime.strptime(ts, "%Y%m%d_%H%M%S").strftime("%b %d, %Y %H:%M")
+    except ValueError:
+        label = ts
+    return {
+        "label":      label,
+        "days":       data.get("params", {}).get("days"),
+        "timeframe":  timeframe,
+        "overall":    overall,
+        "by_signal":  rep.get("by_signal", {}),
+        "by_regime":  rep.get("by_regime", {}),
+        "max_dd":     rep.get("max_drawdown_r"),
+    }
+
+
+def _engine_config(timeframe: str = "swing") -> dict:
+    """Risk gates + weights + partial-TP settings surfaced to the template."""
+    tf_profile = config.TIMEFRAME_PROFILES.get(timeframe, {})
+    return {
+        "long_only":          getattr(config, "LONG_ONLY",         False),
+        "sma200_gate":        getattr(config, "SMA200_GATE",       False),
+        "min_rr":             tf_profile.get("min_rr", getattr(config, "MIN_RR", None)),
+        "max_hold":           tf_profile.get("max_hold"),
+        "atr_stop_mult":      tf_profile.get("atr_stop_mult"),
+        "partial_tp_enabled": getattr(config, "PARTIAL_TP_ENABLED", False),
+        "partial_tp_r":       getattr(config, "PARTIAL_TP_R",       None),
+        "partial_tp_frac":    getattr(config, "PARTIAL_TP_FRACTION", None),
+        "trail_enabled":      getattr(config, "TRAIL_ENABLED",     False),
+        "weights":            getattr(config, "SCORE_WEIGHTS",     {}),
+    }
+
+
+def _event_calendar(lookahead_days: int = 7, limit: int = 12) -> dict:
+    """
+    Upcoming events + today's blackout status for the dashboard panel.
+    Sources: hardcoded FOMC/CPI/NFP/PCE + live FF feed (see events/ff_fetcher).
+    """
+    from events import get_events, is_blackout
+
+    today = date.today()
+    events = get_events(today, today + timedelta(days=lookahead_days))
+
+    before = int(getattr(config, "EVENT_BLACKOUT_DAYS_BEFORE", 1))
+    after  = int(getattr(config, "EVENT_BLACKOUT_DAYS_AFTER", 1))
+
+    rows = []
+    for ev in events[:limit]:
+        days_until = (ev.date - today).days
+        win_start  = ev.date - timedelta(days=before)
+        win_end    = ev.date + timedelta(days=after)
+        in_window  = win_start <= today <= win_end
+        rows.append({
+            "date":       ev.date.isoformat(),
+            "days_until": days_until,
+            "kind":       ev.kind,
+            "label":      ev.label,
+            "blocking":   in_window,
+        })
+
+    blocked, reason = is_blackout(today)
+    return {
+        "today":           today.isoformat(),
+        "blackout_today":  blocked,
+        "blackout_reason": reason,
+        "events":          rows,
+        "ff_enabled":      bool(getattr(config, "FF_CALENDAR_ENABLED", False)),
+    }
+
+
+def _macro_bullish(signal: dict | None) -> bool | None:
+    """True when gold > SMA200, False when below, None when unknown."""
+    if not signal:
+        return None
+    gold = (signal.get("market_snapshot") or {}).get("gold") or {}
+    cur, sma = gold.get("current"), gold.get("sma200")
+    if cur is None or sma is None:
+        return None
+    return cur > sma
 
 
 def _trade_viz(trade: dict | None) -> dict | None:
@@ -152,20 +279,39 @@ def _trade_viz(trade: dict | None) -> dict | None:
 
 @app.route("/")
 def index():
-    runs = load_runs()
-    if not runs:
+    all_runs = load_runs()
+    if not all_runs:
         return render_template("index.html", runs=[], sentiment=None, signal=None,
-                               trade_viz=None, selected=None)
+                               trade_viz=None, selected=None, tf_filter="all",
+                               scheduler=sched.get_status(),
+                               scheduler_enabled=sched.is_enabled(),
+                               backtest=None, engine_cfg=_engine_config("swing"),
+                               macro_bullish=None, cache_days=0,
+                               event_calendar=_event_calendar(), page="gold")
 
-    valid = {r["timestamp"] for r in runs}
+    # Timeframe nav filter: all / swing / day
+    tf_filter = request.args.get("tf", "all")
+    if tf_filter not in ("all", "swing", "day"):
+        tf_filter = "all"
+
+    runs = all_runs if tf_filter == "all" else [r for r in all_runs if r["timeframe"] == tf_filter]
+    # Fall back to full list if filter yields nothing
+    if not runs:
+        runs = all_runs
+
+    valid    = {r["timestamp"] for r in runs}
     selected = request.args.get("run", runs[0]["timestamp"])
     if selected not in valid:
         selected = runs[0]["timestamp"]
 
-    run      = next(r for r in runs if r["timestamp"] == selected)
+    run       = next(r for r in runs if r["timestamp"] == selected)
     sentiment = _load_json(run["sent_path"])
     signal    = _load_json(run["sig_path"])
     viz       = _trade_viz(signal.get("trade_setup") if signal else None)
+
+    backtest_tf = signal.get("timeframe") if signal else "swing"
+    backtest    = _load_latest_backtest(backtest_tf or "swing")
+    cache_days  = len(sentiment_cache.load())
 
     return render_template(
         "index.html",
@@ -174,8 +320,254 @@ def index():
         signal=signal,
         trade_viz=viz,
         selected=selected,
+        tf_filter=tf_filter,
+        scheduler=sched.get_status(),
+        scheduler_enabled=sched.is_enabled(),
+        backtest=backtest,
+        engine_cfg=_engine_config(signal.get("timeframe", "swing") if signal else "swing"),
+        macro_bullish=_macro_bullish(signal),
+        cache_days=cache_days,
+        event_calendar=_event_calendar(),
+        page="gold",
     )
 
 
+# ── Gold AutoResearch dashboard ──────────────────────────────────────────────
+# Serves the standalone dashboard.html from the gold-autoResearch sub-project.
+# The page fetches live data from the FastAPI service at localhost:8000 (see
+# gold-autoResearch/api.py); that must be running separately.
+
+AUTORESEARCH_HTML = Path(__file__).parent / "gold-autoResearch" / "frontend" / "dashboard.html"
+
+
+@app.route("/autoresearch")
+def autoresearch_view():
+    if not AUTORESEARCH_HTML.exists():
+        return "AutoResearch dashboard not available.", 404
+    return send_file(AUTORESEARCH_HTML)
+
+
+# ── Stock sentiment scanner ───────────────────────────────────────────────────
+
+@app.route("/stocks/overview")
+def stocks_overview_view():
+    """Aggregated view over the fixed 20-ticker universe."""
+    from stocks.stock_output import read_overview
+    from stocks.stock_universe import UNIVERSE
+    overview = read_overview()
+    return render_template(
+        "stocks_overview.html",
+        overview=overview,
+        universe=[{"ticker": s.ticker, "name": s.name, "sector": s.sector} for s in UNIVERSE],
+        page="stocks",
+    )
+
+
+@app.route("/stocks/explorer")
+def stocks_explorer_view():
+    """Click-through explorer — one ticker detail panel at a time."""
+    from stocks.stock_output import read_overview, read_ticker
+    from stocks.stock_universe import UNIVERSE, is_known
+
+    requested = (request.args.get("ticker") or "").upper()
+    overview = read_overview()
+
+    # Pick default ticker: explicit → strongest non-HOLD in overview → first
+    selected = requested if (requested and is_known(requested)) else None
+    if not selected and overview:
+        non_hold = [
+            r for r in (overview.get("stocks") or [])
+            if r.get("signal") and r["signal"] != "HOLD" and r.get("total_score") is not None
+        ]
+        if non_hold:
+            selected = max(non_hold, key=lambda r: abs(r["total_score"]))["ticker"]
+    if not selected:
+        selected = UNIVERSE[0].ticker
+
+    detail = read_ticker(selected) if selected else None
+
+    return render_template(
+        "stocks_explorer.html",
+        overview=overview,
+        universe=[{"ticker": s.ticker, "name": s.name, "sector": s.sector} for s in UNIVERSE],
+        selected=selected,
+        detail=detail,
+        page="stocks",
+    )
+
+
+@app.route("/api/stocks/list")
+def api_stocks_list():
+    from stocks.stock_universe import UNIVERSE
+    return jsonify([
+        {"ticker": s.ticker, "name": s.name, "sector": s.sector}
+        for s in UNIVERSE
+    ])
+
+
+@app.route("/api/stocks/overview")
+def api_stocks_overview():
+    from stocks.stock_output import read_overview
+    data = read_overview()
+    if data is None:
+        return jsonify({"ok": False, "error": "no overview yet — run the scanner first"}), 404
+    return jsonify(data)
+
+
+@app.route("/api/stocks/<ticker>")
+def api_stocks_ticker(ticker: str):
+    from stocks.stock_output import read_ticker
+    from stocks.stock_universe import is_known
+    if not is_known(ticker):
+        return jsonify({"ok": False, "error": f"unknown ticker: {ticker}"}), 404
+    data = read_ticker(ticker)
+    if data is None:
+        return jsonify({"ok": False, "error": "no output yet for this ticker"}), 404
+    return jsonify(data)
+
+
+@app.route("/api/stocks/run", methods=["POST"])
+def api_stocks_run():
+    """
+    Synchronous trigger. Blocks until the scan finishes — full universe
+    takes ~2 min. Accepts optional JSON body `{"ticker": "AAPL"}` to scan
+    a single name.
+    """
+    from stocks.stock_pipeline import scan_universe
+    from stocks.stock_universe import is_known
+
+    body = request.get_json(silent=True) or {}
+    ticker = body.get("ticker")
+    tickers = None
+    if ticker:
+        if not is_known(ticker):
+            return jsonify({"ok": False, "error": f"unknown ticker: {ticker}"}), 400
+        tickers = [ticker.upper()]
+
+    try:
+        overview = scan_universe(tickers=tickers)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"scan failed: {e}"}), 500
+    return jsonify({"ok": True, "overview": overview})
+
+
+# ── Scheduler API ─────────────────────────────────────────────────────────────
+
+@app.route("/api/status")
+def api_status():
+    """Return current scheduler / run state as JSON."""
+    return jsonify(sched.get_status())
+
+
+@app.route("/api/run", methods=["POST"])
+def api_run():
+    """Trigger an immediate pipeline run in the background."""
+    tf = request.json.get("timeframe") if request.is_json else None
+    started = sched.trigger_run(timeframe=tf)
+    if started:
+        return jsonify({"ok": True,  "message": "Run started"})
+    return jsonify({"ok": False, "message": "A run is already in progress"}), 409
+
+
+# ── TradingView webhook bridge ────────────────────────────────────────────────
+
+TV_WEBHOOK_LOG = os.path.join(OUTPUT_DIR, "tv_webhook_hits.jsonl")
+TV_WEBHOOK_SECRET = os.getenv("TV_WEBHOOK_SECRET", "")
+
+
+def _tv_sentiment_snapshot():
+    """Latest cached sentiment score + direction for agreement check."""
+    cache = sentiment_cache.load_full()
+    if not cache:
+        return {"score": None, "direction": "unknown"}
+    latest_date = max(cache.keys())
+    rec = cache[latest_date]
+    score = float(rec.get("avg_score", 0.0))
+    direction = "up" if score > 0.05 else "down" if score < -0.05 else "flat"
+    return {
+        "date":      latest_date,
+        "score":     round(score, 4),
+        "direction": direction,
+        "n":         int(rec.get("n_articles", 0)),
+    }
+
+
+@app.route("/api/tv_webhook", methods=["POST"])
+def api_tv_webhook():
+    """
+    TradingView alert webhook receiver.
+
+    Expected payload (set in the Pine alert message as JSON):
+        {
+          "secret":   "<TV_WEBHOOK_SECRET>",
+          "ticker":   "GC1!",
+          "signal":   "LONG"|"SHORT"|"FLAT",
+          "price":    2315.5,
+          "bias":     0.21,
+          "time":     "2026-04-22T13:05:00Z"
+        }
+
+    Cross-checks against current sentiment cache and returns whether the
+    Pine signal agrees with the live sentiment bias.
+    """
+    payload = request.get_json(silent=True) or {}
+
+    if TV_WEBHOOK_SECRET:
+        if payload.get("secret") != TV_WEBHOOK_SECRET:
+            return jsonify({"ok": False, "error": "bad secret"}), 403
+
+    signal = str(payload.get("signal", "")).upper()
+    if signal not in {"LONG", "SHORT", "FLAT"}:
+        return jsonify({"ok": False, "error": "signal must be LONG|SHORT|FLAT"}), 400
+
+    sentiment = _tv_sentiment_snapshot()
+
+    # Agreement check: Pine long agrees with positive sentiment, etc.
+    agreement = "unknown"
+    if sentiment["direction"] != "unknown":
+        if signal == "LONG"  and sentiment["direction"] == "up":   agreement = "agree"
+        elif signal == "SHORT" and sentiment["direction"] == "down": agreement = "agree"
+        elif signal == "FLAT": agreement = "neutral"
+        else: agreement = "disagree"
+
+    entry = {
+        "received_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "ticker":      payload.get("ticker"),
+        "signal":      signal,
+        "price":       payload.get("price"),
+        "bias":        payload.get("bias"),
+        "tv_time":     payload.get("time"),
+        "sentiment":   sentiment,
+        "agreement":   agreement,
+    }
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(TV_WEBHOOK_LOG, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+    return jsonify({"ok": True, **entry})
+
+
+@app.route("/api/tv_webhook/recent")
+def api_tv_webhook_recent():
+    """Last 20 webhook hits — consumed by the autoresearch dashboard card."""
+    if not os.path.exists(TV_WEBHOOK_LOG):
+        return jsonify([])
+    lines: list[dict] = []
+    with open(TV_WEBHOOK_LOG) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                lines.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    resp = jsonify(lines[-20:][::-1])
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    if sched.is_enabled():
+        sched.init_scheduler()
+    app.run(debug=True, port=5001, use_reloader=False)

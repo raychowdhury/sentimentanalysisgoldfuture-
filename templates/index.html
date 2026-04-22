@@ -31,6 +31,17 @@
     .logo { font-size: 1rem; font-weight: 700; letter-spacing: -.02em; display: flex; align-items: center; gap: .5rem; }
     .logo-gold { color: #fbbf24; }
     .logo-sub { font-size: .65rem; font-weight: 400; color: #64748b; letter-spacing: .06em; text-transform: uppercase; }
+
+    /* ── Timeframe nav tabs ── */
+    .tf-nav { display: flex; align-items: center; gap: .25rem; }
+    .tf-tab {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      padding: .3rem .75rem; border-radius: 6px; border: 1px solid transparent;
+      color: #64748b; text-decoration: none; transition: background .12s, color .12s;
+    }
+    .tf-tab:hover { background: #1e293b; color: #e2e8f0; }
+    .tf-tab.active { background: #fbbf24; color: #0f172a; border-color: #fbbf24; }
+
     .run-selector { display: flex; align-items: center; gap: .5rem; }
     .run-selector label { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
     .run-selector select {
@@ -38,6 +49,195 @@
       padding: .3rem .65rem; border-radius: 6px; font-size: .75rem; cursor: pointer; outline: none;
     }
     .run-selector select:focus { border-color: #fbbf24; }
+
+    /* ── Timeframe badge (on signal banner) ── */
+    .tf-badge {
+      font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+      padding: .15rem .55rem; border-radius: 999px; background: rgba(255,255,255,.15); color: inherit;
+    }
+
+    /* ── Scheduler bar ── */
+    .scheduler-bar {
+      background: #0f172a; border-top: 1px solid #1e293b;
+      padding: .3rem 1.5rem; display: flex; align-items: center; gap: 1.25rem;
+      font-size: .65rem; color: #64748b; flex-wrap: wrap;
+    }
+    .sched-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+      background: #334155;
+    }
+    .sched-dot.ok      { background: #16a34a; }
+    .sched-dot.running { background: #f59e0b; animation: pulse 1s infinite; }
+    .sched-dot.error   { background: #dc2626; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .sched-label { color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+    .sched-val   { color: #cbd5e1; }
+    .run-now-btn {
+      margin-left: auto;
+      background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
+      padding: .25rem .75rem; border-radius: 6px; font-size: .65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em; cursor: pointer;
+      transition: background .12s, border-color .12s;
+    }
+    .run-now-btn:hover  { background: #334155; border-color: #fbbf24; color: #fbbf24; }
+    .run-now-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Loading overlay ── */
+    .fetch-overlay {
+      position: fixed; inset: 0; z-index: 9000;
+      background: rgba(2, 6, 23, 0.88);
+      backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity .3s ease;
+    }
+    .fetch-overlay.visible { opacity: 1; pointer-events: all; }
+
+    .fetch-card {
+      background: #0f172a; border: 1px solid #1e293b;
+      border-radius: 18px; padding: 2.5rem 3rem;
+      width: 440px; max-width: 92vw;
+      display: flex; flex-direction: column; align-items: center; gap: 1.75rem;
+      box-shadow: 0 24px 60px rgba(0,0,0,.6);
+    }
+
+    /* Gold ring spinner */
+    .fetch-spinner {
+      width: 72px; height: 72px; position: relative; flex-shrink: 0;
+    }
+    .fetch-spinner::before,
+    .fetch-spinner::after {
+      content: ''; position: absolute; inset: 0; border-radius: 50%;
+    }
+    .fetch-spinner::before {
+      border: 3px solid #1e293b;
+    }
+    .fetch-spinner::after {
+      border: 3px solid transparent;
+      border-top-color: #fbbf24;
+      border-right-color: #fbbf24;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fetch-spinner-inner {
+      position: absolute; inset: 12px; border-radius: 50%;
+      background: #fbbf2415;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
+      animation: glow 2s ease-in-out infinite;
+    }
+    @keyframes glow {
+      0%,100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); }
+      50%      { box-shadow: 0 0 18px 4px rgba(251,191,36,.25); }
+    }
+
+    .fetch-title {
+      font-size: 1.1rem; font-weight: 800; color: #f8fafc;
+      letter-spacing: -.02em; text-align: center; line-height: 1.3;
+    }
+    .fetch-subtitle {
+      font-size: .72rem; color: #64748b; text-align: center; margin-top: -.5rem;
+    }
+
+    /* Pipeline steps */
+    .fetch-steps { width: 100%; display: flex; flex-direction: column; gap: .55rem; }
+    .fetch-step {
+      display: flex; align-items: center; gap: .75rem;
+      padding: .55rem .8rem; border-radius: 8px;
+      background: #1e293b; border: 1px solid #334155;
+      transition: background .3s, border-color .3s;
+    }
+    .fetch-step.active  { background: #1c2a1a; border-color: #16a34a55; }
+    .fetch-step.done    { background: #162116; border-color: #16a34a40; }
+    .fetch-step.waiting { opacity: .45; }
+
+    .step-icon {
+      width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .7rem; font-weight: 700;
+    }
+    .fetch-step.waiting .step-icon { background: #334155; color: #64748b; }
+    .fetch-step.active  .step-icon {
+      background: transparent; border: 2px solid #fbbf24;
+      border-right-color: transparent;
+      animation: spin .8s linear infinite;
+      color: transparent;
+    }
+    .fetch-step.done .step-icon { background: #16a34a; color: #fff; }
+
+    .step-text { flex: 1; }
+    .step-label { font-size: .78rem; font-weight: 600; color: #e2e8f0; }
+    .step-desc  { font-size: .64rem; color: #64748b; margin-top: 1px; }
+    .fetch-step.active .step-label { color: #fbbf24; }
+    .fetch-step.done   .step-label { color: #86efac; }
+
+    .step-badge {
+      font-size: .58rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; padding: .12rem .45rem; border-radius: 999px;
+    }
+    .fetch-step.active  .step-badge { background: #fbbf2420; color: #fbbf24; }
+    .fetch-step.waiting .step-badge { background: #33415540; color: #64748b; }
+    .fetch-step.done    .step-badge { background: #16a34a20; color: #86efac; }
+
+    /* Elapsed timer */
+    .fetch-elapsed {
+      font-size: .65rem; color: #475569;
+      font-variant-numeric: tabular-nums; letter-spacing: .04em;
+    }
+
+    /* ── "Ready" toast ── */
+    .ready-toast {
+      position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(120%);
+      z-index: 9100; background: #0f172a; border: 1px solid #16a34a;
+      border-radius: 12px; padding: .9rem 1.5rem;
+      display: flex; align-items: center; gap: .85rem;
+      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+      transition: transform .45s cubic-bezier(.175,.885,.32,1.275);
+      min-width: 280px;
+    }
+    .ready-toast.show { transform: translateX(-50%) translateY(0); }
+    .toast-icon {
+      width: 34px; height: 34px; background: #16a34a; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; flex-shrink: 0;
+      animation: pop .4s cubic-bezier(.175,.885,.32,1.275);
+    }
+    @keyframes pop { 0%{transform:scale(0)} 80%{transform:scale(1.15)} 100%{transform:scale(1)} }
+    .toast-body { flex: 1; min-width: 0; }
+    .toast-title { font-size: .82rem; font-weight: 800; color: #f8fafc; }
+    .toast-sub   { font-size: .65rem; color: #64748b; margin-top: 2px; }
+    .toast-stats {
+      display: flex; gap: .9rem; margin-top: .55rem; flex-wrap: wrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .toast-stat {
+      display: flex; flex-direction: column; line-height: 1.1;
+    }
+    .toast-stat-label {
+      font-size: .55rem; text-transform: uppercase; letter-spacing: .08em;
+      color: #64748b; font-weight: 700;
+    }
+    .toast-stat-value {
+      font-size: .82rem; font-weight: 800; color: #e2e8f0; margin-top: 2px;
+    }
+    .toast-stat-value.buy         { color: #22c55e; }
+    .toast-stat-value.strong-buy  { color: #16a34a; }
+    .toast-stat-value.sell        { color: #ef4444; }
+    .toast-stat-value.strong-sell { color: #b91c1c; }
+    .toast-stat-value.hold        { color: #94a3b8; }
+    .toast-stat-value.high        { color: #22c55e; }
+    .toast-stat-value.medium      { color: #fbbf24; }
+    .toast-stat-value.low         { color: #f87171; }
+    .toast-bar {
+      height: 3px; background: #1e293b; border-radius: 999px;
+      margin-top: .65rem; overflow: hidden;
+    }
+    .toast-bar-fill {
+      height: 100%; background: #16a34a; border-radius: 999px;
+      width: 100%; transform-origin: left;
+      animation: shrink 2.4s linear forwards;
+    }
+    @keyframes shrink { from{transform:scaleX(1)} to{transform:scaleX(0)} }
 
     /* ── Layout ── */
     main { max-width: 1440px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
@@ -76,6 +276,97 @@
       font-size: .7rem; background: rgba(0,0,0,.2); padding: .2rem .6rem;
       border-radius: 999px; opacity: .8;
     }
+
+    /* ── Engine status strip ── */
+    .engine-strip {
+      display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem;
+      padding: .65rem .75rem; background: #0f172a; border-radius: 8px;
+    }
+    .gate-chip {
+      font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      padding: .3rem .55rem; border-radius: 6px; display: inline-flex; align-items: center; gap: .35rem;
+      background: #1e293b; color: #cbd5e1;
+    }
+    .gate-chip.on   { background: #14532d; color: #bbf7d0; }
+    .gate-chip.off  { background: #334155; color: #94a3b8; }
+    .gate-chip.warn { background: #7c2d12; color: #fed7aa; }
+    .gate-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    /* ── Event calendar panel ── */
+    .cal-card {
+      padding: .9rem 1.1rem; margin-bottom: 1rem; background: #0f172a; color: #e2e8f0;
+      border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07);
+    }
+    .cal-head {
+      display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+      margin-bottom: .65rem;
+    }
+    .cal-title { font-size: .85rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #cbd5e1; }
+    .cal-status {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+      padding: .3rem .6rem; border-radius: 6px;
+    }
+    .cal-status.blocked { background: #7c2d12; color: #fed7aa; }
+    .cal-status.clear   { background: #14532d; color: #bbf7d0; }
+    .cal-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .35rem; }
+    .cal-row {
+      display: grid; grid-template-columns: 74px 58px 1fr auto; gap: .65rem; align-items: center;
+      padding: .38rem .55rem; background: #1e293b; border-radius: 6px;
+      font-size: .78rem;
+    }
+    .cal-row.active { background: #422006; }
+    .cal-date  { font-weight: 600; color: #e2e8f0; }
+    .cal-until { font-size: .68rem; color: #94a3b8; }
+    .cal-label { color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cal-kind {
+      font-size: .58rem; font-weight: 700; padding: .18rem .42rem; border-radius: 4px;
+      background: #334155; color: #cbd5e1; letter-spacing: .05em; text-transform: uppercase;
+    }
+    .cal-kind.ff { background: #1e40af; color: #dbeafe; }
+    .cal-empty { color: #94a3b8; font-size: .78rem; padding: .6rem 0; }
+
+    /* ── Backtest proof card ── */
+    .backtest-card {
+      padding: 1rem 1.25rem; margin-bottom: 1rem;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #e2e8f0;
+      border-radius: 10px;
+    }
+    .bt-hdr {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem;
+      flex-wrap: wrap; gap: .5rem;
+    }
+    .bt-title { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #94a3b8; }
+    .bt-meta  { font-size: .6rem; color: #64748b; }
+    .bt-grid  { display: grid; grid-template-columns: repeat(5, 1fr); gap: .75rem; }
+    .bt-stat  {
+      background: rgba(255,255,255,.04); padding: .6rem .75rem; border-radius: 6px;
+      border-left: 3px solid #475569;
+    }
+    .bt-stat.good { border-left-color: #22c55e; }
+    .bt-stat.bad  { border-left-color: #ef4444; }
+    .bt-lbl  { font-size: .55rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; }
+    .bt-val  { font-size: 1.15rem; font-weight: 800; color: #f8fafc; margin-top: .2rem; }
+    .bt-sub  { font-size: .6rem; color: #64748b; margin-top: .1rem; }
+    .bt-by-sig { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .8rem; }
+    .bt-by-sig .chip {
+      font-size: .6rem; padding: .3rem .55rem; border-radius: 6px;
+      background: rgba(255,255,255,.06); color: #cbd5e1;
+    }
+    .bt-by-sig .chip strong { color: #f8fafc; }
+
+    /* ── Weighted score contribution ── */
+    .score-weight-col { width: 55px; text-align: right; font-size: .65rem; color: #94a3b8; flex-shrink: 0; }
+    .score-contrib    { width: 48px; text-align: right; font-size: .72rem; font-weight: 700; flex-shrink: 0; }
+
+    /* ── Partial TP plan row inside trade card ── */
+    .partial-plan {
+      margin-top: .75rem; padding: .65rem .75rem;
+      background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px;
+      font-size: .7rem; color: #166534;
+    }
+    .partial-plan strong { color: #14532d; }
+    .partial-plan .ptp-row { display: flex; justify-content: space-between; gap: .5rem; }
+    .partial-plan .ptp-row + .ptp-row { margin-top: .25rem; }
 
     /* ── 2-col grids ── */
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
@@ -192,6 +483,14 @@
     .reasoning-item:last-child { border-bottom: none; }
     .reasoning-dot { font-size: .85rem; flex-shrink: 0; margin-top: 1px; color: #94a3b8; }
 
+    /* ── Thin-weight badge (low-conviction sentiment batch) ── */
+    .thin-badge {
+      display: inline-block; font-size: .58rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em;
+      padding: .12rem .42rem; border-radius: 999px; margin-left: .4rem;
+      background: #fee2e2; color: #b91c1c; vertical-align: middle;
+    }
+
     /* ── Sentiment stats cards ── */
     .stat-card { padding: 1.1rem 1.4rem; }
     .stat-label { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; margin-bottom: .4rem; }
@@ -263,6 +562,73 @@
     .sub-score { font-size: .62rem; color: #94a3b8; margin-top: 2px; }
     .mode-pill { font-size: .6rem; color: #64748b; background: #f1f5f9; padding: .12rem .45rem; border-radius: 999px; }
 
+    /* Weight column */
+    .weight-cell { min-width: 96px; white-space: nowrap; }
+    .weight-bar-wrap {
+      display: inline-flex; align-items: center; gap: .4rem;
+    }
+    .weight-bar-track {
+      position: relative; width: 54px; height: 6px;
+      background: #e2e8f0; border-radius: 3px; overflow: hidden;
+    }
+    .weight-bar-fill {
+      position: absolute; left:0; top:0; bottom:0;
+      background: #6366f1; border-radius: 3px;
+    }
+    .weight-val {
+      font-size: .72rem; font-weight: 600; color: #1e293b; line-height: 1;
+    }
+
+    /* Drove-the-score callout */
+    .drove-card { margin-bottom: 1rem; }
+    .drove-title {
+      font-size: .68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: #64748b; margin-bottom: .6rem;
+    }
+    .drove-list { display:flex; flex-direction:column; gap:.5rem; }
+    .drove-row {
+      display:flex; gap:.75rem; align-items:center; padding:.5rem .65rem;
+      background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;
+    }
+    .drove-rank { font-weight:700; color:#94a3b8; font-size:.85rem; min-width:1.5rem; }
+    .drove-body { flex:1; min-width:0; }
+    .drove-headline { font-size:.8rem; color:#1e293b; font-weight:500;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .drove-meta { font-size:.62rem; color:#64748b; margin-top:2px; }
+    .drove-weight {
+      font-family: ui-monospace,monospace; font-size:.72rem; font-weight:700;
+      padding:.2rem .5rem; background:#eef2ff; border-radius:4px; color:#4338ca;
+    }
+
+    /* ── Level 2 ── */
+    .l2-groups { display:flex; gap:1.5rem; margin-bottom:1rem; flex-wrap:wrap; align-items:flex-start; }
+    .l2-group  { display:flex; flex-direction:column; gap:.4rem; }
+    .l2-group-hdr {
+      font-size:.54rem; font-weight:700; text-transform:uppercase;
+      letter-spacing:.1em; color:#94a3b8; white-space:nowrap;
+    }
+    .l2-group-pills { display:flex; gap:.4rem; flex-wrap:wrap; }
+    .l2-pill {
+      background:#f8fafc; border:1px solid #e8edf2;
+      border-radius:6px; padding:.45rem .8rem; min-width:88px;
+    }
+    .l2-pill-lbl {
+      font-size:.54rem; font-weight:700; text-transform:uppercase;
+      letter-spacing:.08em; color:#94a3b8; margin-bottom:2px;
+    }
+    .l2-pill-val {
+      font-size:.9rem; font-weight:800; font-variant-numeric:tabular-nums;
+    }
+    .l2-pill-sub { font-size:.6rem; color:#94a3b8; margin-top:1px; }
+
+    /* TP source badge */
+    .tp-src-badge {
+      margin-left:auto; background:#0f172a; border-radius:8px;
+      padding:.5rem .85rem; display:flex; align-items:center; gap:.5rem; flex-shrink:0;
+    }
+    .tp-src-badge span:first-child { font-size:.58rem; color:#64748b; text-transform:uppercase; letter-spacing:.08em; }
+    .tp-src-badge span:last-child  { font-size:.72rem; font-weight:700; color:#fbbf24; }
+
     /* ── Empty state ── */
     .empty-state { text-align: center; padding: 5rem 2rem; }
     .empty-state h2 { font-size: 1.1rem; color: #334155; margin-bottom: .5rem; }
@@ -302,8 +668,24 @@
     Gold<span class="logo-gold">Bias</span>Engine
     <span class="logo-sub">XAUUSD · Sentiment + Signal</span>
   </div>
+
+  <!-- Page nav + Timeframe nav tabs -->
+  <nav class="tf-nav">
+    <a class="tf-tab {% if page == 'gold' %}active{% endif %}" href="/">Gold Bias</a>
+    <a class="tf-tab {% if page == 'stocks' %}active{% endif %}" href="/stocks/overview">Stocks</a>
+    <a class="tf-tab {% if page == 'autoresearch' %}active{% endif %}" href="/autoresearch">AutoResearch</a>
+    <span style="width:1px; height:18px; background:#334155; margin:0 .35rem"></span>
+    <a class="tf-tab {% if tf_filter == 'all' %}active{% endif %}"
+       href="/?tf=all">All</a>
+    <a class="tf-tab {% if tf_filter == 'swing' %}active{% endif %}"
+       href="/?tf=swing">Swing</a>
+    <a class="tf-tab {% if tf_filter == 'day' %}active{% endif %}"
+       href="/?tf=day">Day Trade</a>
+  </nav>
+
   {% if runs %}
   <form class="run-selector" method="get" action="/">
+    <input type="hidden" name="tf" value="{{ tf_filter }}">
     <label for="run-sel">Run</label>
     <select id="run-sel" name="run" onchange="this.form.submit()">
       {% for r in runs %}
@@ -315,6 +697,119 @@
   </form>
   {% endif %}
 </header>
+
+<!-- ── Scheduler status bar ── -->
+<div class="scheduler-bar">
+  {% if scheduler.running %}
+    <div class="sched-dot running"></div>
+    <span class="sched-label">Status</span><span class="sched-val">Running…</span>
+  {% elif scheduler.last_status == "error" %}
+    <div class="sched-dot error"></div>
+    <span class="sched-label">Last Run</span><span class="sched-val">Error — {{ scheduler.last_error or "unknown" }}</span>
+  {% elif scheduler.last_status == "ok" %}
+    <div class="sched-dot ok"></div>
+    <span class="sched-label">Last Run</span><span class="sched-val">{{ scheduler.last_run_at or "—" }}</span>
+  {% else %}
+    <div class="sched-dot"></div>
+    <span class="sched-label">Auto-fetch</span>
+    <span class="sched-val">{% if scheduler_enabled %}Enabled{% else %}Off — set SCHEDULER_ENABLED=True in config.py{% endif %}</span>
+  {% endif %}
+
+  {% if scheduler.next_run_at and scheduler_enabled %}
+  <span style="color:#475569">·</span>
+  <span class="sched-label">Next</span><span class="sched-val">{{ scheduler.next_run_at }}</span>
+  {% endif %}
+
+  {% if scheduler.run_count %}
+  <span style="color:#475569">·</span>
+  <span class="sched-label">Runs</span><span class="sched-val">{{ scheduler.run_count }}</span>
+  {% endif %}
+
+  <button class="run-now-btn" id="runNowBtn" onclick="runNow()"
+    {% if scheduler.running %}disabled{% endif %}>
+    ▶ Run Now
+  </button>
+</div>
+
+<!-- ── Fetch loading overlay ── -->
+<div class="fetch-overlay" id="fetchOverlay">
+  <div class="fetch-card">
+    <div class="fetch-spinner">
+      <div class="fetch-spinner-inner">Au</div>
+    </div>
+
+    <div style="text-align:center">
+      <div class="fetch-title">Fetching Gold Market Intelligence</div>
+      <div class="fetch-subtitle">Scanning news · Scoring sentiment · Computing signal</div>
+    </div>
+
+    <div class="fetch-steps" id="fetchSteps">
+      <div class="fetch-step waiting" id="step-news">
+        <div class="step-icon">1</div>
+        <div class="step-text">
+          <div class="step-label">Fetching news</div>
+          <div class="step-desc">Google News RSS · scraping articles · deduplication</div>
+        </div>
+        <span class="step-badge">Queued</span>
+      </div>
+      <div class="fetch-step waiting" id="step-sentiment">
+        <div class="step-icon">2</div>
+        <div class="step-text">
+          <div class="step-label">Analyzing sentiment</div>
+          <div class="step-desc">VADER + FinBERT · aggregating scores</div>
+        </div>
+        <span class="step-badge">Queued</span>
+      </div>
+      <div class="fetch-step waiting" id="step-signal">
+        <div class="step-icon">3</div>
+        <div class="step-text">
+          <div class="step-label">Computing market signal</div>
+          <div class="step-desc">DXY · US10Y · Gold trend · veto rules</div>
+        </div>
+        <span class="step-badge">Queued</span>
+      </div>
+      <div class="fetch-step waiting" id="step-trade">
+        <div class="step-icon">4</div>
+        <div class="step-text">
+          <div class="step-label">Building trade setup</div>
+          <div class="step-desc">Entry · stop loss · take profit · R:R validation</div>
+        </div>
+        <span class="step-badge">Queued</span>
+      </div>
+    </div>
+
+    <div class="fetch-elapsed" id="fetchElapsed">Elapsed: 0s</div>
+    <div class="fetch-elapsed" id="fetchProgress" style="margin-top:4px">Articles: 0 / 0</div>
+  </div>
+</div>
+
+<!-- ── Ready toast ── -->
+<div class="ready-toast" id="readyToast">
+  <div class="toast-icon">✓</div>
+  <div class="toast-body">
+    <div class="toast-title" id="toastTitle">Run complete</div>
+    <div class="toast-sub" id="toastSub">Loading results…</div>
+    <div class="toast-stats" id="toastStats" style="display:none;">
+      <div class="toast-stat">
+        <span class="toast-stat-label">Signal</span>
+        <span class="toast-stat-value" id="toastSignal">—</span>
+      </div>
+      <div class="toast-stat">
+        <span class="toast-stat-label">Score</span>
+        <span class="toast-stat-value" id="toastScore">—</span>
+      </div>
+      <div class="toast-stat">
+        <span class="toast-stat-label">Confidence</span>
+        <span class="toast-stat-value" id="toastConfidence">—</span>
+      </div>
+      <div class="toast-stat">
+        <span class="toast-stat-label">Articles</span>
+        <span class="toast-stat-value" id="toastArticles">—</span>
+      </div>
+    </div>
+    <div class="toast-bar"><div class="toast-bar-fill" id="toastBarFill"></div></div>
+  </div>
+</div>
 
 <main>
 
@@ -360,19 +855,177 @@
 <div class="signal-banner {{ sig_class }}">
   <div class="sig-main">
     <div class="sig-label">{{ sig_icon }} {{ sig }}</div>
-    <div class="sig-score">Total score: {{ signal.total_score | default(0) | int | string | replace('-', '−') }}
-      {%- if signal.total_score | default(0) > 0 %}+{% endif %}{{ signal.total_score | default(0) }}</div>
+    <div class="sig-score">Total score: {{ '%+.2f' | format(signal.total_score | default(0) | float) | replace('-', '−') }}</div>
+    {% set tf_label = {"day": "Day Trade", "swing": "Swing"}.get(signal.timeframe | default("swing"), "Swing") %}
+    <span class="tf-badge">{{ tf_label }}</span>
   </div>
   <div class="sig-meta">
     {% if signal.veto_applied %}
-    <div class="sig-veto">⚠ Veto applied — was {{ signal.raw_signal }}</div>
+    <div class="sig-veto">⚠ Veto applied — was {{ signal.raw_signal }} (contradictory factors)</div>
+    {% endif %}
+    {% if signal.raw_signal == "STRONG_BUY" and signal.signal == "BUY" %}
+    <div class="sig-veto">STRONG downgraded — gold trend not confirmed (|score|&lt;2)</div>
+    {% elif signal.raw_signal == "STRONG_SELL" and signal.signal == "SELL" %}
+    <div class="sig-veto">STRONG downgraded — gold trend not confirmed</div>
+    {% endif %}
+
+    {# Gate triggers — raw→HOLD from long-only or SMA200 (not the _veto path) #}
+    {% if signal.raw_signal != signal.signal and signal.signal == "HOLD" and not signal.veto_applied %}
+      {% if signal.raw_signal in ("SELL", "STRONG_SELL") and engine_cfg.long_only %}
+      <div class="sig-veto">Long-only gate — {{ signal.raw_signal }} blocked (shorts disabled)</div>
+      {% elif signal.raw_signal in ("BUY", "STRONG_BUY") and engine_cfg.sma200_gate and macro_bullish == False %}
+      <div class="sig-veto">SMA200 gate — {{ signal.raw_signal }} blocked (gold below SMA200)</div>
+      {% endif %}
+    {% endif %}
+    {% if signal.event_gated %}
+    <div class="sig-veto">🚫 Event blackout — {{ signal.event_blackout_reason or "high-impact event window" }}</div>
     {% endif %}
     <div class="sig-conf">
       <div class="sig-conf-label">Confidence</div>
       <div class="sig-conf-val">{{ signal.confidence | default("—") }} {{ conf_dots }}</div>
     </div>
+    {% set pv_raw = sentiment.summary.get('average_panel_variance') if sentiment else none %}
+    {% if pv_raw is not none %}
+      {% set pv = pv_raw | float %}
+      {% set pv_high = pv >= 0.35 %}
+      {% set pv_n = sentiment.summary.get('panel_articles_scored', 0) %}
+      <div class="sig-conf" title="Population variance of 5 trader personas' scores, averaged across {{ pv_n }} articles. High = personas disagree = contested narrative.">
+        <div class="sig-conf-label">Panel Disagreement</div>
+        <div class="sig-conf-val" style="color:{{ '#dc2626' if pv_high else '#16a34a' }}">
+          {{ "%.3f" | format(pv) }} {{ '(HIGH)' if pv_high else '(LOW)' }}
+        </div>
+      </div>
+    {% endif %}
   </div>
 </div>
+
+<!-- Engine status strip — risk gates, macro regime, cache coverage -->
+{% if engine_cfg %}
+<div class="engine-strip">
+  <span class="gate-chip {{ 'on' if engine_cfg.long_only else 'off' }}">
+    <span class="dot"></span>LONG-ONLY {{ 'ON' if engine_cfg.long_only else 'OFF' }}
+  </span>
+  <span class="gate-chip {{ 'on' if engine_cfg.sma200_gate else 'off' }}">
+    <span class="dot"></span>SMA200 GATE {{ 'ON' if engine_cfg.sma200_gate else 'OFF' }}
+  </span>
+  {% if macro_bullish is not none %}
+  <span class="gate-chip {{ 'on' if macro_bullish else 'warn' }}">
+    <span class="dot"></span>MACRO {{ 'BULL (>SMA200)' if macro_bullish else 'BEAR (<SMA200)' }}
+  </span>
+  {% else %}
+  <span class="gate-chip off"><span class="dot"></span>MACRO —</span>
+  {% endif %}
+  <span class="gate-chip {{ 'on' if engine_cfg.partial_tp_enabled else 'off' }}">
+    <span class="dot"></span>PARTIAL TP
+    {% if engine_cfg.partial_tp_enabled %} @{{ engine_cfg.partial_tp_r }}R ({{ (engine_cfg.partial_tp_frac * 100) | int }}%){% endif %}
+  </span>
+  <span class="gate-chip {{ 'warn' if engine_cfg.trail_enabled else 'off' }}">
+    <span class="dot"></span>TRAIL {{ 'ON' if engine_cfg.trail_enabled else 'OFF' }}
+  </span>
+  <span class="gate-chip off"><span class="dot"></span>MIN RR 1:{{ engine_cfg.min_rr }}</span>
+  {% if engine_cfg.max_hold %}
+  <span class="gate-chip off"><span class="dot"></span>MAX HOLD {{ engine_cfg.max_hold }}b</span>
+  {% endif %}
+  {% if engine_cfg.atr_stop_mult %}
+  <span class="gate-chip off"><span class="dot"></span>ATR STOP ×{{ engine_cfg.atr_stop_mult }}</span>
+  {% endif %}
+  <span class="gate-chip off"><span class="dot"></span>SENTIMENT CACHE {{ cache_days | default(0) }}d</span>
+</div>
+{% endif %}
+
+<!-- Upcoming economic events — merges hardcoded calendar with live FF feed -->
+{% if event_calendar %}
+<div class="cal-card">
+  <div class="cal-head">
+    <div class="cal-title">
+      Upcoming Events — next 7 days
+      {% if event_calendar.ff_enabled %}<span class="cal-kind ff" style="margin-left:.5rem">FF LIVE</span>{% endif %}
+    </div>
+    {% if event_calendar.blackout_today %}
+      <span class="cal-status blocked">⛔ Blackout — {{ event_calendar.blackout_reason }}</span>
+    {% else %}
+      <span class="cal-status clear">✓ Clear</span>
+    {% endif %}
+  </div>
+  {% if event_calendar.events %}
+  <ul class="cal-list">
+    {% for e in event_calendar.events %}
+    <li class="cal-row {{ 'active' if e.blocking else '' }}">
+      <div>
+        <div class="cal-date">{{ e.date }}</div>
+        <div class="cal-until">
+          {% if e.days_until == 0 %}today
+          {% elif e.days_until == 1 %}tomorrow
+          {% else %}+{{ e.days_until }}d
+          {% endif %}
+        </div>
+      </div>
+      <span class="cal-kind {{ 'ff' if e.kind == 'FF' else '' }}">{{ e.kind }}</span>
+      <div class="cal-label" title="{{ e.label }}">{{ e.label }}</div>
+      {% if e.blocking %}<span class="cal-kind" style="background:#7c2d12;color:#fed7aa">BLOCK</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="cal-empty">No events in the next 7 days.</div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Backtest proof card -->
+{% if backtest and backtest.overall and backtest.overall.trades %}
+{% set o = backtest.overall %}
+<div class="backtest-card">
+  <div class="bt-hdr">
+    <div class="bt-title">5-Year Backtest Proof · {{ backtest.timeframe | upper }}</div>
+    <div class="bt-meta">{{ backtest.days }}d walk-forward · {{ backtest.label }}</div>
+  </div>
+  <div class="bt-grid">
+    <div class="bt-stat {{ 'good' if o.total_r > 0 else 'bad' }}">
+      <div class="bt-lbl">Total R</div>
+      <div class="bt-val">{{ '%+.2f' | format(o.total_r) | replace('-', '−') }}</div>
+      <div class="bt-sub">{{ o.trades }} trades</div>
+    </div>
+    <div class="bt-stat {{ 'good' if o.expectancy > 0 else 'bad' }}">
+      <div class="bt-lbl">Expectancy</div>
+      <div class="bt-val">{{ '%+.3f' | format(o.expectancy) | replace('-', '−') }} R</div>
+      <div class="bt-sub">per trade</div>
+    </div>
+    <div class="bt-stat {{ 'good' if o.win_rate >= 50 else 'bad' }}">
+      <div class="bt-lbl">Win Rate</div>
+      <div class="bt-val">{{ o.win_rate }}%</div>
+      <div class="bt-sub">{{ o.wins }}W / {{ o.losses }}L</div>
+    </div>
+    <div class="bt-stat">
+      <div class="bt-lbl">Avg Win / Loss</div>
+      <div class="bt-val">{{ '%+.2f' | format(o.avg_win_r) }} / {{ '%.2f' | format(o.avg_loss_r) | replace('-', '−') }}</div>
+      <div class="bt-sub">R multiples</div>
+    </div>
+    <div class="bt-stat bad">
+      <div class="bt-lbl">Max Drawdown</div>
+      <div class="bt-val">{{ '%.2f' | format(backtest.max_dd or 0) | replace('-', '−') }} R</div>
+      <div class="bt-sub">worst dip</div>
+    </div>
+  </div>
+  {% if backtest.by_signal %}
+  <div class="bt-by-sig">
+    {% for sig_name, s in backtest.by_signal.items() %}
+    <div class="chip">
+      <strong>{{ sig_name }}</strong> · n={{ s.trades }} · win {{ s.win_rate }}% ·
+      exp {{ '%+.3f' | format(s.expectancy) | replace('-', '−') }}R
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if backtest.by_regime %}
+  <div class="bt-by-sig" style="margin-top:.4rem;">
+    {% for reg, s in backtest.by_regime.items() %}
+    <div class="chip"><strong>{{ reg | upper }} regime</strong> · n={{ s.trades }} · win {{ s.win_rate }}% · exp {{ '%+.3f' | format(s.expectancy) | replace('-', '−') }}R</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 
 <!-- Score breakdown + Trade setup -->
 <div class="grid-2">
@@ -409,38 +1062,36 @@
     </div>
     {% endmacro %}
 
-    <div class="score-row">
-      <div class="score-row-label">Sentiment</div>
-      <div class="score-track-wrap">{{ score_bar(signal.sentiment_score | default(0)) }}</div>
-      {% set sv = signal.sentiment_score | default(0) | int %}
-      <div class="score-val {{ 'pos' if sv > 0 else 'neg' if sv < 0 else 'neu' }}">{{ '%+d' | format(sv) }}</div>
-    </div>
+    {% set w = engine_cfg.weights if engine_cfg else {} %}
+    {% macro srow(label, raw, wkey, max_abs=2) %}
+      {% set rv = raw | default(0) | int %}
+      {% set weight = w.get(wkey, 1.0) %}
+      {% set contrib = rv * weight %}
+      <div class="score-row">
+        <div class="score-row-label">{{ label }}</div>
+        <div class="score-track-wrap">{{ score_bar(rv, max_abs) }}</div>
+        <div class="score-val {{ 'pos' if rv > 0 else 'neg' if rv < 0 else 'neu' }}">{{ '%+d' | format(rv) }}</div>
+        <div class="score-weight-col">×{{ '%.2f' | format(weight) }}</div>
+        <div class="score-contrib {{ 'pos' if contrib > 0 else 'neg' if contrib < 0 else 'neu' }}"
+             style="color: {% if contrib > 0 %}#16a34a{% elif contrib < 0 %}#dc2626{% else %}#94a3b8{% endif %};">
+          {{ '%+.2f' | format(contrib) | replace('-', '−') }}
+        </div>
+      </div>
+    {% endmacro %}
 
-    <div class="score-row">
-      <div class="score-row-label">DXY</div>
-      <div class="score-track-wrap">{{ score_bar(signal.dxy_score | default(0)) }}</div>
-      {% set dv = signal.dxy_score | default(0) | int %}
-      <div class="score-val {{ 'pos' if dv > 0 else 'neg' if dv < 0 else 'neu' }}">{{ '%+d' | format(dv) }}</div>
-    </div>
-
-    <div class="score-row">
-      <div class="score-row-label">US 10Y Yield</div>
-      <div class="score-track-wrap">{{ score_bar(signal.yield_score | default(0)) }}</div>
-      {% set yv = signal.yield_score | default(0) | int %}
-      <div class="score-val {{ 'pos' if yv > 0 else 'neg' if yv < 0 else 'neu' }}">{{ '%+d' | format(yv) }}</div>
-    </div>
-
-    <div class="score-row">
-      <div class="score-row-label">Gold Trend</div>
-      <div class="score-track-wrap">{{ score_bar(signal.gold_trend_score | default(0), 3) }}</div>
-      {% set gv = signal.gold_trend_score | default(0) | int %}
-      <div class="score-val {{ 'pos' if gv > 0 else 'neg' if gv < 0 else 'neu' }}">{{ '%+d' | format(gv) }}</div>
-    </div>
+    {{ srow("Sentiment",    signal.sentiment_score,      "sentiment") }}
+    {{ srow("DXY",          signal.dxy_score,            "dxy") }}
+    {{ srow("10Y Real Yield", signal.yield_score,        "yield") }}
+    {{ srow("VWAP",         signal.vwap_score,           "vwap") }}
+    {{ srow("Vol Profile",  signal.volume_profile_score, "volume_profile") }}
+    {{ srow("VIX",          signal.vix_score,            "vix") }}
+    {{ srow("Gold Trend",   signal.gold_trend_score,     "gold", 3) }}
+    {{ srow("COT Position", signal.cot_score,            "cot") }}
 
     <div class="score-total-row">
       <div class="score-total-label">Total Score</div>
-      {% set tv = signal.total_score | default(0) | int %}
-      <div class="score-total-val {{ 'score-pos' if tv > 0 else 'score-neg' if tv < 0 else 'score-neu' }}">{{ '%+d' | format(tv) }}</div>
+      {% set tv = signal.total_score | default(0) | float %}
+      <div class="score-total-val {{ 'score-pos' if tv > 0 else 'score-neg' if tv < 0 else 'score-neu' }}">{{ '%+.2f' | format(tv) }}</div>
     </div>
   </div>
 
@@ -505,6 +1156,27 @@
       <div class="trade-rr-badge">✓ Meets 1:{{ trade.minimum_required_rr | int }} minimum</div>
     </div>
 
+    {% if engine_cfg and engine_cfg.partial_tp_enabled and trade.risk_amount %}
+    {% set ptp_r    = engine_cfg.partial_tp_r %}
+    {% set ptp_frac = engine_cfg.partial_tp_frac %}
+    {% set ptp_dir  = 1 if trade_viz.is_buy else -1 %}
+    {% set ptp_lvl  = trade.entry_price + ptp_dir * ptp_r * trade.risk_amount %}
+    <div class="partial-plan">
+      <div class="ptp-row">
+        <span><strong>Partial TP plan</strong></span>
+        <span>Scale {{ (ptp_frac * 100) | int }}% at +{{ ptp_r }}R</span>
+      </div>
+      <div class="ptp-row">
+        <span>Scale-out price</span>
+        <span><strong>{{ ptp_lvl | fmt_price }}</strong></span>
+      </div>
+      <div class="ptp-row">
+        <span>Remainder stop</span>
+        <span>Break-even @ {{ trade.entry_price | fmt_price }}</span>
+      </div>
+    </div>
+    {% endif %}
+
     {% else %}
     <div class="no-trade-box">
       <div class="no-trade-icon">—</div>
@@ -523,6 +1195,105 @@
   </div>
 </div>
 
+<!-- Level 2 key price levels -->
+{% set ts = signal.get("trade_setup") %}
+{% set l2 = ts.get("level2") if ts else None %}
+{% if l2 %}
+<div class="card" style="padding:1.25rem 1.5rem; margin-bottom:1rem;" id="l2Card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:.85rem; flex-wrap:wrap; gap:.5rem;">
+    <div class="section-label" style="margin:0;">Level 2 — Key Price Levels</div>
+    {% if ts and ts.tp_source %}
+    <div class="tp-src-badge">
+      <span>TP Source</span><span>{{ ts.tp_source }}</span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Metric pills — grouped: Market Structure · Trade Setup · Volatility -->
+  {% macro pill(lbl, val, color, sub=None) %}
+  {% if val is not none %}
+  <div class="l2-pill" style="border-left:3px solid {{ color }};">
+    <div class="l2-pill-lbl">{{ lbl }}</div>
+    <div class="l2-pill-val" style="color:{{ color }};">{{ val | fmt_price }}</div>
+    {% if sub %}<div class="l2-pill-sub">{{ sub }}</div>{% endif %}
+  </div>
+  {% endif %}
+  {% endmacro %}
+
+  <div class="l2-groups">
+
+    {# Market structure #}
+    <div class="l2-group">
+      <div class="l2-group-hdr">Market Structure</div>
+      <div class="l2-group-pills">
+        {{ pill("VAH",     l2.vah,     "#16a34a", "Value Area High") }}
+        {{ pill("Vol POC", l2.vol_poc, "#f59e0b", "High-vol price") }}
+        {{ pill("VAL",     l2.val,     "#dc2626", "Value Area Low") }}
+        {{ pill("VWAP",    l2.vwap,    "#6366f1", "Rolling VWAP") }}
+        {{ pill("TPO POC", l2.tpo_poc, "#8b5cf6", "Most time spent") }}
+      </div>
+    </div>
+
+    {# Trade levels — only when a valid setup exists #}
+    {% if ts and ts.trade_valid %}
+    <div class="l2-group">
+      <div class="l2-group-hdr">Trade Setup</div>
+      <div class="l2-group-pills">
+        {{ pill("Entry",       ts.entry_price, "#0f172a", "Current price") }}
+        {{ pill("Stop Loss",   ts.stop_loss,   "#dc2626", "−" ~ (ts.risk_amount | fmt_price) ~ " risk") }}
+        {{ pill("Take Profit", ts.take_profit, "#16a34a", "+" ~ (ts.reward_amount | fmt_price) ~ " · " ~ ts.tp_source) }}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Volatility #}
+    {% if l2.atr %}
+    <div class="l2-group">
+      <div class="l2-group-hdr">Volatility</div>
+      <div class="l2-group-pills">
+        <div class="l2-pill" style="border-left:3px solid #475569;">
+          <div class="l2-pill-lbl">ATR (14d)</div>
+          <div class="l2-pill-val" style="color:#0f172a;">{{ l2.atr | fmt_price }}</div>
+          <div class="l2-pill-sub">{{ l2.atr_pct }}% of price</div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- Price ladder (rendered by JS to handle label collisions) -->
+  {% if ts and l2.val and l2.vah %}
+  {% set sl  = ts.stop_loss %}
+  {% set tp  = ts.take_profit %}
+  {% set ent = ts.entry_price %}
+  <div id="l2Ladder" style="margin-top:.25rem;"
+    data-levels='{{ {
+      "VAL":   l2.val,
+      "POC":   l2.vol_poc,
+      "VWAP":  l2.vwap,
+      "VAH":   l2.vah,
+      "TPO":   l2.tpo_poc,
+      "SL":    sl,
+      "Entry": ent,
+      "TP":    tp
+    } | tojson }}'
+    data-colors='{{ {
+      "VAL":   "#dc2626",
+      "POC":   "#f59e0b",
+      "VWAP":  "#6366f1",
+      "VAH":   "#16a34a",
+      "TPO":   "#8b5cf6",
+      "SL":    "#dc2626",
+      "Entry": "#0f172a",
+      "TP":    "#16a34a"
+    } | tojson }}'
+    data-trade='{{ {"sl": sl, "entry": ent, "tp": tp, "is_buy": (sl is not none and ent is not none and sl < ent)} | tojson }}'>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 <!-- Market snapshot + Reasoning -->
 <div class="grid-2">
 
@@ -530,8 +1301,8 @@
   <div>
     <div class="section-label">Market Snapshot</div>
     {% set snap = signal.get("market_snapshot", {}) %}
-    <div class="grid-3" style="margin-bottom:0">
-      {% for key, label, unit in [("gold","Gold (GC=F)",""), ("dxy","DXY",""), ("yield_10y","US 10Y Yield","%")] %}
+    <div class="grid-4" style="margin-bottom:0">
+      {% for key, label, unit in [("gold","Gold (GC=F)",""), ("dxy","DXY",""), ("yield_10y","US 10Y Yield","%"), ("vix","VIX","")] %}
       {% set ind = snap.get(key) %}
       <div class="card market-card">
         <div class="mkt-name">{{ label }}</div>
@@ -616,7 +1387,28 @@
     {% else %}
       <div class="stat-value score-neu">—</div>
     {% endif %}
-    <div class="stat-sub">combined across all articles</div>
+    {% set tau = s.get('weighting_tau_hours') %}
+    {% set plain = s.get('average_final_score_plain') %}
+    {% set tf = s.get('weighting_timeframe') or "swing" %}
+    {% set w_total = s.get('weighting_total') %}
+    {% set w_min = s.get('weighting_min') %}
+    {% set w_thin = s.get('weighting_thin') %}
+    {% if tau %}
+      <div class="stat-sub">
+        weighted · τ={{ "%.0f" | format(tau) }}h ({{ tf }})
+        {% if w_total is not none %}
+          · Σw={{ "%.2f" | format(w_total | float) }}{% if w_min is not none %}<span style="color:#94a3b8;"> /{{ "%.1f" | format(w_min | float) }}</span>{% endif %}
+          {% if w_thin %}<span class="thin-badge" title="Σ(article weights) below floor — low conviction">thin</span>{% endif %}
+        {% endif %}
+        {% if plain is not none and s.average_final_score is not none %}
+          · plain: <span class="{{ 'score-pos' if plain > 0.05 else 'score-neg' if plain < -0.05 else 'score-neu' }}">{{ "%+.4f" | format(plain) }}</span>
+          {% set delta = (s.average_final_score | float) - (plain | float) %}
+          <span style="color:#94a3b8;">(Δ {{ "%+.4f" | format(delta) }})</span>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="stat-sub">combined across all articles</div>
+    {% endif %}
   </div>
   <div class="card stat-card">
     <div class="stat-label">Sentiment Split</div>
@@ -660,6 +1452,33 @@
   </div>
 </div>
 
+{% set drove = s.get('top_weighted') %}
+{% if drove %}
+<div class="card drove-card">
+  <div class="drove-title">Drove the Weighted Score · top {{ drove | length }}</div>
+  <div class="drove-list">
+    {% for t in drove %}
+    <div class="drove-row">
+      <div class="drove-rank">#{{ loop.index }}</div>
+      <div class="drove-body">
+        <div class="drove-headline">{{ t.get('title', '') }}</div>
+        <div class="drove-meta">
+          {{ t.get('source') or "—" }}
+          {% set fs_raw = t.get('final_score') %}
+          {% if fs_raw not in (none, "") %}
+            {% set fs = fs_raw | float %}
+            · <span class="{{ 'score-pos' if fs > 0.05 else 'score-neg' if fs < -0.05 else 'score-neu' }}">{{ "%+.4f" | format(fs) }}</span>
+          {% endif %}
+          · r{{ "%.2f" | format((t.get('relevance') or 0) | float) }} · t{{ "%.2f" | format((t.get('source_tier') or 0) | float) }} · d{{ "%.2f" | format((t.get('time_decay') or 0) | float) }}
+        </div>
+      </div>
+      <div class="drove-weight">W {{ "%.2f" | format((t.get('weight_combined') or 0) | float) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Articles table -->
 <div class="card table-card">
   <div class="table-controls">
@@ -675,10 +1494,12 @@
           <th onclick="sortTable(2)">Query <i class="sort-icon">↕</i></th>
           <th onclick="sortTable(3)">Final <i class="sort-icon">↕</i></th>
           <th onclick="sortTable(4)">Score <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(5)">VADER <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(6)">FinBERT <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(7)">Mode <i class="sort-icon">↕</i></th>
-          <th onclick="sortTable(8)">Body <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(5)" title="Combined weight = relevance × source_tier × time_decay. Drives the weighted average.">W <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(6)">VADER <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(7)">FinBERT <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(8)">Panel <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(9)">Mode <i class="sort-icon">↕</i></th>
+          <th onclick="sortTable(10)">Body <i class="sort-icon">↕</i></th>
         </tr>
       </thead>
       <tbody>
@@ -704,6 +1525,21 @@
               </span>
             {% else %}—{% endif %}
           </td>
+          {% set wc = a.get('weight_combined') %}
+          {% set rel = a.get('relevance') %}
+          {% set tier = a.get('source_tier') %}
+          {% set dec = a.get('time_decay') %}
+          <td class="weight-cell" title="relevance {{ '%.2f' | format((rel or 0) | float) }} × source_tier {{ '%.2f' | format((tier or 0) | float) }} × time_decay {{ '%.2f' | format((dec or 0) | float) }}">
+            {% if wc not in (none, "") %}
+              {% set w = wc | float %}
+              <div class="weight-bar-wrap">
+                <div class="weight-bar-track">
+                  <div class="weight-bar-fill" style="width: {{ (w * 100) | round(0, 'floor') }}%"></div>
+                </div>
+                <span class="weight-val">{{ "%.2f" | format(w) }}</span>
+              </div>
+            {% else %}<span style="color:#94a3b8">—</span>{% endif %}
+          </td>
           <td>
             {% if a.vader_label %}
               {% if a.vader_label == "positive" %}<span class="badge badge-positive">{{ a.vader_label }}</span>
@@ -721,6 +1557,16 @@
               {% else %}<span class="badge badge-neutral">{{ a.finbert_label }}</span>{% endif %}
               {% if a.finbert_confidence != "" %}
               <div class="sub-score">conf {{ "%.3f" | format(a.finbert_confidence | float) }}</div>
+              {% endif %}
+            {% else %}<span style="color:#94a3b8">—</span>{% endif %}
+          </td>
+          <td title="{{ a.panel_rationale or '' }}">
+            {% if a.panel_label %}
+              {% if a.panel_label == "positive" %}<span class="badge badge-positive">{{ a.panel_label }}</span>
+              {% elif a.panel_label == "negative" %}<span class="badge badge-negative">{{ a.panel_label }}</span>
+              {% else %}<span class="badge badge-neutral">{{ a.panel_label }}</span>{% endif %}
+              {% if a.panel_score not in ("", none) %}
+              <div class="sub-score">{{ "%+.3f" | format(a.panel_score | float) }}</div>
               {% endif %}
             {% else %}<span style="color:#94a3b8">—</span>{% endif %}
           </td>
@@ -808,6 +1654,427 @@ function filterTable(q) {
 }
 </script>
 {% endif %}
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Level 2 price ladder renderer
+// ─────────────────────────────────────────────────────────────────────────────
+(function buildLadder() {
+  const el = document.getElementById("l2Ladder");
+  if (!el) return;
+
+  const rawLevels = JSON.parse(el.dataset.levels  || "{}");
+  const colors    = JSON.parse(el.dataset.colors   || "{}");
+  const trade     = JSON.parse(el.dataset.trade    || "{}");
+
+  // Filter out null/undefined values
+  const levels = {};
+  for (const [k, v] of Object.entries(rawLevels)) {
+    if (v != null) levels[k] = v;
+  }
+  if (!Object.keys(levels).length) return;
+
+  const fmt = n => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const vals     = Object.values(levels);
+  const priceMin = Math.min(...vals) * 0.9990;
+  const priceMax = Math.max(...vals) * 1.0010;
+  const range    = priceMax - priceMin;
+  if (range <= 0) return;
+
+  // ── Canvas setup ──────────────────────────────────────────────────────────
+  const dpr    = window.devicePixelRatio || 1;
+  const W      = el.offsetWidth || el.parentElement?.offsetWidth || 800;
+  const H_TOP  = 44;   // two lines above bar (price + name)
+  const H_BAR  = 18;   // bar thickness
+  const H_BOT  = 44;   // two lines below bar (name + price)
+  const H      = H_TOP + H_BAR + H_BOT;
+
+  const cvs = document.createElement("canvas");
+  cvs.width  = W  * dpr;
+  cvs.height = H  * dpr;
+  cvs.style.width  = W  + "px";
+  cvs.style.height = H  + "px";
+  el.appendChild(cvs);
+
+  const ctx = cvs.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  const xOf  = p => (p - priceMin) / range * W;
+  const barY = H_TOP;
+
+  const FONT_BOLD = `700 9px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+  const FONT_LITE = `400 8px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+
+  // ── Background bar ────────────────────────────────────────────────────────
+  ctx.fillStyle = "#f1f5f9";
+  ctx.beginPath();
+  ctx.roundRect(0, barY, W, H_BAR, 4);
+  ctx.fill();
+
+  // ── Value area band (VAL → VAH) with label ────────────────────────────────
+  if (levels.VAL != null && levels.VAH != null) {
+    const x1 = xOf(levels.VAL), x2 = xOf(levels.VAH);
+    ctx.fillStyle = "rgba(251,191,36,0.17)";
+    ctx.fillRect(x1, barY, x2 - x1, H_BAR);
+    if (x2 - x1 > 28) {
+      ctx.font = `600 7px -apple-system, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(160,110,0,0.55)";
+      ctx.fillText("70% VA", (x1 + x2) / 2, barY + H_BAR / 2 + 2.5);
+    }
+  }
+
+  // ── Risk / Reward bands with R:R label ───────────────────────────────────
+  const { sl, entry, tp, is_buy } = trade;
+  if (sl != null && entry != null && tp != null) {
+    const rr = is_buy
+      ? ((tp - entry) / (entry - sl)).toFixed(2)
+      : ((entry - tp) / (sl - entry)).toFixed(2);
+    if (is_buy) {
+      ctx.fillStyle = "rgba(220,38,38,0.14)";
+      ctx.fillRect(xOf(sl), barY, xOf(entry) - xOf(sl), H_BAR);
+      ctx.fillStyle = "rgba(22,163,74,0.14)";
+      ctx.fillRect(xOf(entry), barY, xOf(tp) - xOf(entry), H_BAR);
+      const rrW = xOf(tp) - xOf(entry);
+      if (rrW > 24) {
+        ctx.font = `700 7px -apple-system, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(15,110,55,0.65)";
+        ctx.fillText(`${rr}R`, xOf(entry) + rrW / 2, barY + H_BAR / 2 + 2.5);
+      }
+    } else {
+      ctx.fillStyle = "rgba(220,38,38,0.14)";
+      ctx.fillRect(xOf(entry), barY, xOf(sl) - xOf(entry), H_BAR);
+      ctx.fillStyle = "rgba(22,163,74,0.14)";
+      ctx.fillRect(xOf(tp), barY, xOf(entry) - xOf(tp), H_BAR);
+      const rrW = xOf(entry) - xOf(tp);
+      if (rrW > 24) {
+        ctx.font = `700 7px -apple-system, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(15,110,55,0.65)";
+        ctx.fillText(`${rr}R`, xOf(tp) + rrW / 2, barY + H_BAR / 2 + 2.5);
+      }
+    }
+  }
+
+  // ── Build label groups ────────────────────────────────────────────────────
+  // Market structure → labels ABOVE bar
+  // Trade levels     → labels BELOW bar
+  const tradeKeys = new Set(["SL", "Entry", "TP"]);
+  const above = [], below = [];
+  for (const [k, v] of Object.entries(levels)) {
+    (tradeKeys.has(k) ? below : above).push({ k, v, x: xOf(v), color: colors[k] || "#64748b" });
+  }
+  [above, below].forEach(arr => arr.sort((a, b) => a.x - b.x));
+
+  // ── Draw marker lines + dots ──────────────────────────────────────────────
+  for (const { x, color, k } of [...above, ...below]) {
+    const isTrade = tradeKeys.has(k);
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = isTrade ? 2 : 1.5;
+    ctx.setLineDash(isTrade ? [] : [3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x, barY);
+    ctx.lineTo(x, barY + H_BAR);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Dots: trade levels at bar bottom, market structure at bar top
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, isTrade ? barY + H_BAR : barY, isTrade ? 4 : 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ── Collision-free two-line labels ────────────────────────────────────────
+  function drawLabels(arr, isAbove) {
+    const MIN_GAP = 5;
+    // Pre-measure using max of name width and price width
+    const items = arr.map(item => {
+      ctx.font = FONT_BOLD;
+      const nw = ctx.measureText(item.k).width;
+      ctx.font = FONT_LITE;
+      const pw = ctx.measureText(fmt(item.v)).width;
+      return { ...item, hw: Math.max(nw, pw) / 2 + 3 };
+    });
+
+    const placed = [];
+    for (const item of items) {
+      let lx = item.x;
+      lx = Math.max(item.hw, Math.min(W - item.hw, lx));
+      // Multi-pass nudge
+      for (let t = 0; t < 8; t++) {
+        let moved = false;
+        for (const p of placed) {
+          const dist = lx - p.lx;
+          const minD = item.hw + p.hw + MIN_GAP;
+          if (Math.abs(dist) < minD) {
+            lx = dist >= 0 ? p.lx + minD : p.lx - minD;
+            lx = Math.max(item.hw, Math.min(W - item.hw, lx));
+            moved = true;
+          }
+        }
+        if (!moved) break;
+      }
+      placed.push({ lx, hw: item.hw });
+
+      // Connector line if nudged
+      if (Math.abs(lx - item.x) > 4) {
+        ctx.strokeStyle = item.color + "44";
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(item.x, isAbove ? barY : barY + H_BAR);
+        ctx.lineTo(lx,     isAbove ? barY - 5 : barY + H_BAR + 5);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Draw two lines
+      if (isAbove) {
+        // Line 1 (top): price value in lighter weight
+        ctx.font = FONT_LITE;
+        ctx.textAlign = "center";
+        ctx.fillStyle = item.color + "99";
+        ctx.fillText(fmt(item.v), lx, H_TOP - 15);
+        // Line 2 (bottom, near bar): label name bold
+        ctx.font = FONT_BOLD;
+        ctx.fillStyle = item.color;
+        ctx.fillText(item.k, lx, H_TOP - 4);
+      } else {
+        // Line 1 (top, near bar): label name bold
+        ctx.font = FONT_BOLD;
+        ctx.textAlign = "center";
+        ctx.fillStyle = item.color;
+        ctx.fillText(item.k, lx, barY + H_BAR + 13);
+        // Line 2 (bottom): price value lighter
+        ctx.font = FONT_LITE;
+        ctx.fillStyle = item.color + "99";
+        ctx.fillText(fmt(item.v), lx, barY + H_BAR + 24);
+      }
+    }
+  }
+
+  drawLabels(above, true);
+  drawLabels(below, false);
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Loading overlay + pipeline step animator + ready toast
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STEPS = ["step-news", "step-sentiment", "step-signal", "step-trade"];
+// Approximate elapsed seconds at which each step becomes "active"
+const STEP_START = [0, 10, 30, 50];
+
+let _pollTimer   = null;
+let _elapsedTimer = null;
+let _startedAt   = null;
+let _wasRunning  = {{ 'true' if scheduler.running else 'false' }};
+
+// ── Overlay control ──────────────────────────────────────────────────────────
+
+function showOverlay() {
+  document.getElementById("fetchOverlay").classList.add("visible");
+  _startedAt = Date.now();
+  resetSteps();
+  startElapsed();
+  animateSteps();
+}
+
+function hideOverlay() {
+  document.getElementById("fetchOverlay").classList.remove("visible");
+  clearInterval(_elapsedTimer);
+  _elapsedTimer = null;
+}
+
+// ── Pipeline step animation (simulated timing) ───────────────────────────────
+
+function resetSteps() {
+  STEPS.forEach(id => setStep(id, "waiting", "Queued"));
+}
+
+function setStep(id, state, badge) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = "fetch-step " + state;
+  const b = el.querySelector(".step-badge");
+  if (b) b.textContent = badge;
+  const icon = el.querySelector(".step-icon");
+  if (icon && state === "done") icon.textContent = "✓";
+  if (icon && state === "waiting") icon.textContent = STEPS.indexOf(id) + 1;
+  if (icon && state === "active")  icon.textContent = "";
+}
+
+function animateSteps() {
+  // Drive step transitions based on elapsed time (best-effort visual guide)
+  const tick = () => {
+    const elapsed = (Date.now() - _startedAt) / 1000;
+    for (let i = 0; i < STEPS.length; i++) {
+      const el = document.getElementById(STEPS[i]);
+      if (!el) continue;
+      const alreadyDone = el.classList.contains("done");
+      if (alreadyDone) continue;
+      if (elapsed >= STEP_START[i]) {
+        // Mark previous step done
+        if (i > 0) setStep(STEPS[i - 1], "done", "Done");
+        setStep(STEPS[i], "active", "Running");
+      }
+    }
+  };
+  tick();
+  // Reuse the elapsed timer interval to also drive steps
+}
+
+// ── Elapsed counter ──────────────────────────────────────────────────────────
+
+function startElapsed() {
+  const el = document.getElementById("fetchElapsed");
+  _elapsedTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - _startedAt) / 1000);
+    if (el) el.textContent = `Elapsed: ${s}s`;
+    animateSteps(); // re-check step transitions each second
+  }, 1000);
+}
+
+// ── "Ready to explore" toast ─────────────────────────────────────────────────
+
+function showReadyToast(lastRunAt, lastSignal, lastStatus, lastError) {
+  const toast = document.getElementById("readyToast");
+  const title = document.getElementById("toastTitle");
+  const sub   = document.getElementById("toastSub");
+  const fill  = document.getElementById("toastBarFill");
+  const stats = document.getElementById("toastStats");
+  const icon  = toast.querySelector(".toast-icon");
+
+  const shortTime = lastRunAt ? lastRunAt.split("T")[1] || lastRunAt : "";
+
+  if (lastStatus === "error") {
+    if (title) title.textContent = "Run failed";
+    if (sub)   sub.textContent   = lastError ? String(lastError).slice(0, 80) : "See logs for details";
+    if (icon)  { icon.textContent = "!"; icon.style.background = "#ef4444"; }
+    toast.style.borderColor = "#ef4444";
+    if (stats) stats.style.display = "none";
+  } else if (lastSignal && lastSignal.signal) {
+    if (title) title.textContent = "Run complete";
+    if (sub)   sub.textContent   = shortTime ? `Completed at ${shortTime} — loading results…` : "Loading results…";
+    if (icon)  { icon.textContent = "✓"; icon.style.background = "#16a34a"; }
+    toast.style.borderColor = "#16a34a";
+
+    const sigEl  = document.getElementById("toastSignal");
+    const scEl   = document.getElementById("toastScore");
+    const confEl = document.getElementById("toastConfidence");
+    const artEl  = document.getElementById("toastArticles");
+
+    const sigKey = String(lastSignal.signal).toLowerCase().replace("_", "-");
+    if (sigEl) {
+      sigEl.textContent = lastSignal.signal.replace("_", " ");
+      sigEl.className = "toast-stat-value " + sigKey;
+    }
+    if (scEl) {
+      const score = Number(lastSignal.total_score);
+      scEl.textContent = isFinite(score) ? (score >= 0 ? "+" : "") + score.toFixed(2) : "—";
+    }
+    if (confEl) {
+      const conf = String(lastSignal.confidence || "").toUpperCase();
+      confEl.textContent = conf || "—";
+      confEl.className = "toast-stat-value " + conf.toLowerCase();
+    }
+    if (artEl) artEl.textContent = lastSignal.articles != null ? lastSignal.articles : "—";
+    if (stats) stats.style.display = "flex";
+  } else {
+    if (title) title.textContent = "Run complete";
+    if (sub)   sub.textContent   = shortTime ? `Completed at ${shortTime} — loading results…` : "Loading results…";
+    if (stats) stats.style.display = "none";
+  }
+
+  if (fill) {
+    const fresh = fill.cloneNode(true);
+    fill.parentNode.replaceChild(fresh, fill);
+  }
+
+  toast.classList.add("show");
+  const delay = lastStatus === "error" ? 6000 : 3500;
+  setTimeout(() => window.location.reload(), delay);
+}
+
+// ── Run Now button ───────────────────────────────────────────────────────────
+
+async function runNow() {
+  const btn = document.getElementById("runNowBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Starting…"; }
+
+  try {
+    const resp = await fetch("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ timeframe: "{{ tf_filter if tf_filter != 'all' else '' }}" }),
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      alert(data.message || "A run is already in progress");
+      if (btn) { btn.disabled = false; btn.textContent = "▶ Run Now"; }
+      return;
+    }
+    showOverlay();
+    startPolling();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = "▶ Run Now"; }
+    console.error("runNow error:", e);
+  }
+}
+
+// ── Status polling ───────────────────────────────────────────────────────────
+
+function startPolling() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(pollStatus, 3000);
+}
+
+async function pollStatus() {
+  try {
+    const resp = await fetch("/api/status");
+    const s = await resp.json();
+
+    const btn = document.getElementById("runNowBtn");
+    const prog = document.getElementById("fetchProgress");
+    if (s.running) {
+      _wasRunning = true;
+      const p = s.progress || {};
+      const label = (p.total && p.total > 0)
+        ? `⏳ Running… ${p.current || 0}/${p.total}`
+        : "⏳ Running…";
+      if (btn) { btn.disabled = true; btn.textContent = label; }
+      if (prog) {
+        if (p.total && p.total > 0) {
+          const stage = p.stage ? p.stage.charAt(0).toUpperCase() + p.stage.slice(1) : "Articles";
+          prog.textContent = `${stage}: ${p.current || 0} / ${p.total}`;
+          prog.style.display = "";
+        } else {
+          prog.style.display = "none";
+        }
+      }
+    } else {
+      if (_wasRunning) {
+        clearInterval(_pollTimer);
+        _pollTimer = null;
+        // Mark all steps done before showing toast
+        STEPS.forEach(id => setStep(id, "done", "Done"));
+        hideOverlay();
+        showReadyToast(s.last_run_at, s.last_signal, s.last_status, s.last_error);
+      }
+    }
+  } catch (e) {
+    console.warn("pollStatus error:", e);
+  }
+}
+
+// If a run was already in progress when the page loaded, show overlay immediately
+if (_wasRunning) {
+  showOverlay();
+  startPolling();
+}
+</script>
 
 </body>
 </html>
