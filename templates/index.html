@@ -563,20 +563,20 @@
     .mode-pill { font-size: .6rem; color: #64748b; background: #f1f5f9; padding: .12rem .45rem; border-radius: 999px; }
 
     /* Weight column */
-    .weight-cell { min-width: 110px; }
+    .weight-cell { min-width: 96px; white-space: nowrap; }
     .weight-bar-wrap {
-      position: relative; width: 90px; height: 14px;
-      background: #f1f5f9; border-radius: 4px; overflow: hidden;
+      display: inline-flex; align-items: center; gap: .4rem;
+    }
+    .weight-bar-track {
+      position: relative; width: 54px; height: 6px;
+      background: #e2e8f0; border-radius: 3px; overflow: hidden;
     }
     .weight-bar-fill {
       position: absolute; left:0; top:0; bottom:0;
-      background: linear-gradient(90deg, #3b82f6, #8b5cf6);
-      border-radius: 4px;
+      background: #6366f1; border-radius: 3px;
     }
     .weight-val {
-      position: relative; z-index:1; font-size: .62rem; font-weight:600;
-      color: #1e293b; padding-left: 4px; line-height: 14px;
-      mix-blend-mode: difference; filter: invert(1);
+      font-size: .72rem; font-weight: 600; color: #1e293b; line-height: 1;
     }
 
     /* Drove-the-score callout */
@@ -1533,11 +1533,10 @@
             {% if wc not in (none, "") %}
               {% set w = wc | float %}
               <div class="weight-bar-wrap">
-                <div class="weight-bar-fill" style="width: {{ (w * 100) | round(0, 'floor') }}%"></div>
+                <div class="weight-bar-track">
+                  <div class="weight-bar-fill" style="width: {{ (w * 100) | round(0, 'floor') }}%"></div>
+                </div>
                 <span class="weight-val">{{ "%.2f" | format(w) }}</span>
-              </div>
-              <div class="sub-score" style="color:#94a3b8">
-                r{{ "%.2f" | format((rel or 0) | float) }}·t{{ "%.2f" | format((tier or 0) | float) }}·d{{ "%.2f" | format((dec or 0) | float) }}
               </div>
             {% else %}<span style="color:#94a3b8">—</span>{% endif %}
           </td>
