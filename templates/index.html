@@ -483,6 +483,14 @@
     .reasoning-item:last-child { border-bottom: none; }
     .reasoning-dot { font-size: .85rem; flex-shrink: 0; margin-top: 1px; color: #94a3b8; }
 
+    /* ── Thin-weight badge (low-conviction sentiment batch) ── */
+    .thin-badge {
+      display: inline-block; font-size: .58rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em;
+      padding: .12rem .42rem; border-radius: 999px; margin-left: .4rem;
+      background: #fee2e2; color: #b91c1c; vertical-align: middle;
+    }
+
     /* ── Sentiment stats cards ── */
     .stat-card { padding: 1.1rem 1.4rem; }
     .stat-label { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; margin-bottom: .4rem; }
@@ -1381,9 +1389,16 @@
     {% set tau = s.get('weighting_tau_hours') %}
     {% set plain = s.get('average_final_score_plain') %}
     {% set tf = s.get('weighting_timeframe') or "swing" %}
+    {% set w_total = s.get('weighting_total') %}
+    {% set w_min = s.get('weighting_min') %}
+    {% set w_thin = s.get('weighting_thin') %}
     {% if tau %}
       <div class="stat-sub">
         weighted · τ={{ "%.0f" | format(tau) }}h ({{ tf }})
+        {% if w_total is not none %}
+          · Σw={{ "%.2f" | format(w_total | float) }}{% if w_min is not none %}<span style="color:#94a3b8;"> /{{ "%.1f" | format(w_min | float) }}</span>{% endif %}
+          {% if w_thin %}<span class="thin-badge" title="Σ(article weights) below floor — low conviction">thin</span>{% endif %}
+        {% endif %}
         {% if plain is not none and s.average_final_score is not none %}
           · plain: <span class="{{ 'score-pos' if plain > 0.05 else 'score-neg' if plain < -0.05 else 'score-neu' }}">{{ "%+.4f" | format(plain) }}</span>
           {% set delta = (s.average_final_score | float) - (plain | float) %}

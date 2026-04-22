@@ -182,6 +182,16 @@ SENTIMENT_TAU_HOURS: dict[str, float] = {
     "day":   12.0,
 }
 
+# Minimum Σ(weights) below which the sentiment batch is considered low-
+# conviction (all stale / all off-topic / all low-tier). signals/confidence.py
+# downgrades one level when weighting_total falls under the profile's floor.
+# Typical values: ~30 mixed-quality articles yield Σ≈2-4; <1 means the
+# weighted mean is being driven by noise.
+SENTIMENT_WEIGHT_MIN: dict[str, float] = {
+    "swing": 1.0,
+    "day":   0.6,
+}
+
 # ── Output ────────────────────────────────────────────────────────────────────
 OUTPUT_DIR: str = "outputs"
 

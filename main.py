@@ -239,6 +239,9 @@ def run_sentiment(
     sentiment_cache.append(
         avg_score=summary.get("average_final_score"),
         n_articles=summary.get("total_analyzed", 0),
+        weighted=True,
+        weighting_total=summary.get("weighting_total"),
+        timeframe=timeframe,
     )
 
     print_summary(summary)
@@ -303,6 +306,10 @@ def _build_sentiment_summary(
     weighted_avg, total_weight = weighted_mean_score(results, tau_hours=tau)
     plain_avg = round(sum(scores) / len(scores), 4) if scores else None
 
+    # Low-conviction floor — expose so the dashboard can flag thin batches.
+    weight_min_map = getattr(config, "SENTIMENT_WEIGHT_MIN", {"swing": 1.0, "day": 0.6})
+    weighting_min = float(weight_min_map.get(timeframe, 1.0))
+
     # Which articles dominated the weighted mean. Front-end shows these as
     # "drove the score" callouts.
     def _weight(row: dict) -> float:
@@ -338,6 +345,8 @@ def _build_sentiment_summary(
         "average_final_score_plain": plain_avg,
         "weighting_tau_hours":     tau,
         "weighting_total":         total_weight,
+        "weighting_min":           weighting_min,
+        "weighting_thin":          total_weight is not None and float(total_weight) < weighting_min,
         "weighting_timeframe":     timeframe,
         "top_weighted":            top_weighted_rows,
         "average_panel_variance":  avg_panel_variance,
@@ -376,6 +385,7 @@ def run_signal(
     avg_score = sentiment_summary.get("average_final_score")
 
     # Data quality context passed to confidence + reasoning
+    weight_min_map = getattr(config, "SENTIMENT_WEIGHT_MIN", {"swing": 1.0, "day": 0.6})
     data_quality = {
         "articles_fetched":     sentiment_summary["total_fetched"],
         "unique_articles":      sentiment_summary["total_unique"],
@@ -385,6 +395,8 @@ def run_signal(
         "market_data_failures": 0,
         "panel_disagreement":   sentiment_summary.get("average_panel_variance"),
         "panel_articles_scored": sentiment_summary.get("panel_articles_scored", 0),
+        "weighting_total":      sentiment_summary.get("weighting_total"),
+        "weighting_min":        float(weight_min_map.get(timeframe, 1.0)),
     }
 
     # ── Fetch market data ─────────────────────────────────────────────────────

@@ -41,8 +41,22 @@ def _path() -> str:
     return os.path.join(config.OUTPUT_DIR, CACHE_FILENAME)
 
 
-def append(avg_score: float | None, n_articles: int, run_date: date | None = None) -> None:
-    """Append one run's sentiment summary to the cache."""
+def append(
+    avg_score: float | None,
+    n_articles: int,
+    run_date: date | None = None,
+    *,
+    weighted: bool = False,
+    weighting_total: float | None = None,
+    timeframe: str | None = None,
+) -> None:
+    """
+    Append one run's sentiment summary to the cache.
+
+    `weighted` flags a Pillar-1 row (avg_score is the weighted mean). When set,
+    `weighting_total` (Σ weights) and `timeframe` (τ profile) are stored too so
+    downstream consumers can filter or re-weight.
+    """
     if avg_score is None:
         logger.info("Sentiment cache: avg_score is None — skipping append")
         return
@@ -53,6 +67,12 @@ def append(avg_score: float | None, n_articles: int, run_date: date | None = Non
         "n_articles": int(n_articles),
         "ts":         datetime.now().isoformat(timespec="seconds"),
     }
+    if weighted:
+        entry["weighted"] = True
+        if weighting_total is not None:
+            entry["weighting_total"] = round(float(weighting_total), 4)
+        if timeframe:
+            entry["timeframe"] = timeframe
     with open(_path(), "a") as f:
         f.write(json.dumps(entry) + "\n")
     logger.info(f"Sentiment cache ← {entry['date']} avg={entry['avg_score']:+.3f}")
@@ -76,6 +96,29 @@ def load() -> dict[str, float]:
                 rec = json.loads(line)
                 by_date[rec["date"]] = float(rec["avg_score"])
             except (json.JSONDecodeError, KeyError, ValueError) as e:
+                logger.warning(f"Sentiment cache: skipping bad line ({e})")
+    return by_date
+
+
+def load_full() -> dict[str, dict]:
+    """
+    Load the cache into a {date_iso: record} map with full metadata. Latest
+    entry per date wins. Records written before Pillar 1 lack the `weighted`
+    field; callers should treat missing as False (plain-mean row).
+    """
+    path = _path()
+    if not os.path.exists(path):
+        return {}
+    by_date: dict[str, dict] = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                by_date[rec["date"]] = rec
+            except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Sentiment cache: skipping bad line ({e})")
     return by_date
 

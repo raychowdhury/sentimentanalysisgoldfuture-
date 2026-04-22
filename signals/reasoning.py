@@ -120,4 +120,13 @@ def build(signal_result: dict, data_quality: dict) -> list[str]:
             "affected scores defaulted to 0, confidence reduced"
         )
 
+    w_total = data_quality.get("weighting_total")
+    w_min   = data_quality.get("weighting_min")
+    if w_total is not None and w_min is not None and float(w_total) < float(w_min):
+        reasons.append(
+            f"Weighted sentiment support is thin (Σ={float(w_total):.2f} < {float(w_min):.2f}) "
+            "— articles were mostly stale, off-topic, or from low-tier sources, "
+            "so the headline score carries less weight than usual"
+        )
+
     return reasons

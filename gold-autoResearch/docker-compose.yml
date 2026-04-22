@@ -1,0 +1,56 @@
+services:
+  autoresearch-runner:
+    build: .
+    container_name: autoresearch-runner
+    environment:
+      CONTAINER_ROLE: runner
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      FRED_API_KEY:      ${FRED_API_KEY}
+      DATABASE_URL:      ${DATABASE_URL}
+      CLAUDE_MODEL:      ${CLAUDE_MODEL:-claude-sonnet-4-20250514}
+      LOOP_INTERVAL_HOURS: ${LOOP_INTERVAL_HOURS:-24}
+      META_OPTIMIZE_EVERY: ${META_OPTIMIZE_EVERY:-10}
+    volumes:
+      - autoresearch-data:/app/data/cache
+      - autoresearch-models:/app/models/registry
+      - ./run_log.md:/app/run_log.md
+      - ./program.md:/app/program.md
+      - ../outputs/sentiment_cache.jsonl:/app/external/sentiment_cache.jsonl:ro
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  autoresearch-api:
+    build: .
+    container_name: autoresearch-api
+    environment:
+      CONTAINER_ROLE: api
+      DATABASE_URL:   ${DATABASE_URL}
+    volumes:
+      - autoresearch-data:/app/data/cache
+      - autoresearch-models:/app/models/registry
+      - ./run_log.md:/app/run_log.md
+      - ./program.md:/app/program.md
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: autoresearch-postgres
+    environment:
+      POSTGRES_USER:     autoresearch
+      POSTGRES_PASSWORD: autoresearch
+      POSTGRES_DB:       autoresearch
+    volumes:
+      - autoresearch-pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+volumes:
+  autoresearch-data:
+  autoresearch-models:
+  autoresearch-pgdata:

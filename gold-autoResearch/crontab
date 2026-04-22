@@ -1,0 +1,5 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Run the research loop once a day at 00:05 UTC.
+5 0 * * * cd /app && /usr/local/bin/python main.py once >> /var/log/autoresearch.log 2>&1

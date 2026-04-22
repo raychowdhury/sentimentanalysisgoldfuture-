@@ -10,6 +10,9 @@ Auto-downgraded when:
   - fewer than 5 unique articles were available
   - 2+ market data sources could not be fetched
   - agent panel shows high persona disagreement (contested narrative)
+  - Σ(article weights) falls below the profile's floor — the weighted mean
+    is being driven by stale/off-topic/low-tier items, so the headline
+    sentiment score is quantitatively weak regardless of its magnitude
 """
 
 import config
@@ -75,6 +78,20 @@ def compute(signal_result: dict, data_quality: dict) -> str:
     if mkt_fails >= 2:
         base = _downgrade(base)
         logger.info(f"Confidence reduced: {mkt_fails} market data fetch failures")
+
+    # Low-conviction sentiment: Σ(per-article weights) below the profile's
+    # floor means the weighted mean is dominated by stale/off-topic/low-tier
+    # articles. The score may still be numerically non-zero, but its
+    # quantitative support is thin — treat that like any other data-quality
+    # hit and downgrade one level.
+    w_total = data_quality.get("weighting_total")
+    w_min   = data_quality.get("weighting_min")
+    if w_total is not None and w_min is not None and float(w_total) < float(w_min):
+        base = _downgrade(base)
+        logger.info(
+            f"Confidence reduced: weighting_total {float(w_total):.2f} "
+            f"< floor {float(w_min):.2f}"
+        )
 
     # Panel disagreement: population variance of persona scores, averaged per
     # run. High variance = personas split = contested narrative = lower

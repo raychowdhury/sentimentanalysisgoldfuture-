@@ -365,6 +365,104 @@ def api_run():
     return jsonify({"ok": False, "message": "A run is already in progress"}), 409
 
 
+# ── TradingView webhook bridge ────────────────────────────────────────────────
+
+TV_WEBHOOK_LOG = os.path.join(OUTPUT_DIR, "tv_webhook_hits.jsonl")
+TV_WEBHOOK_SECRET = os.getenv("TV_WEBHOOK_SECRET", "")
+
+
+def _tv_sentiment_snapshot():
+    """Latest cached sentiment score + direction for agreement check."""
+    cache = sentiment_cache.load_full()
+    if not cache:
+        return {"score": None, "direction": "unknown"}
+    latest_date = max(cache.keys())
+    rec = cache[latest_date]
+    score = float(rec.get("avg_score", 0.0))
+    direction = "up" if score > 0.05 else "down" if score < -0.05 else "flat"
+    return {
+        "date":      latest_date,
+        "score":     round(score, 4),
+        "direction": direction,
+        "n":         int(rec.get("n_articles", 0)),
+    }
+
+
+@app.route("/api/tv_webhook", methods=["POST"])
+def api_tv_webhook():
+    """
+    TradingView alert webhook receiver.
+
+    Expected payload (set in the Pine alert message as JSON):
+        {
+          "secret":   "<TV_WEBHOOK_SECRET>",
+          "ticker":   "GC1!",
+          "signal":   "LONG"|"SHORT"|"FLAT",
+          "price":    2315.5,
+          "bias":     0.21,
+          "time":     "2026-04-22T13:05:00Z"
+        }
+
+    Cross-checks against current sentiment cache and returns whether the
+    Pine signal agrees with the live sentiment bias.
+    """
+    payload = request.get_json(silent=True) or {}
+
+    if TV_WEBHOOK_SECRET:
+        if payload.get("secret") != TV_WEBHOOK_SECRET:
+            return jsonify({"ok": False, "error": "bad secret"}), 403
+
+    signal = str(payload.get("signal", "")).upper()
+    if signal not in {"LONG", "SHORT", "FLAT"}:
+        return jsonify({"ok": False, "error": "signal must be LONG|SHORT|FLAT"}), 400
+
+    sentiment = _tv_sentiment_snapshot()
+
+    # Agreement check: Pine long agrees with positive sentiment, etc.
+    agreement = "unknown"
+    if sentiment["direction"] != "unknown":
+        if signal == "LONG"  and sentiment["direction"] == "up":   agreement = "agree"
+        elif signal == "SHORT" and sentiment["direction"] == "down": agreement = "agree"
+        elif signal == "FLAT": agreement = "neutral"
+        else: agreement = "disagree"
+
+    entry = {
+        "received_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "ticker":      payload.get("ticker"),
+        "signal":      signal,
+        "price":       payload.get("price"),
+        "bias":        payload.get("bias"),
+        "tv_time":     payload.get("time"),
+        "sentiment":   sentiment,
+        "agreement":   agreement,
+    }
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(TV_WEBHOOK_LOG, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+    return jsonify({"ok": True, **entry})
+
+
+@app.route("/api/tv_webhook/recent")
+def api_tv_webhook_recent():
+    """Last 20 webhook hits — consumed by the autoresearch dashboard card."""
+    if not os.path.exists(TV_WEBHOOK_LOG):
+        return jsonify([])
+    lines: list[dict] = []
+    with open(TV_WEBHOOK_LOG) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                lines.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    resp = jsonify(lines[-20:][::-1])
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
+
 if __name__ == "__main__":
     if sched.is_enabled():
         sched.init_scheduler()
