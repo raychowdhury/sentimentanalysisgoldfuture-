@@ -102,6 +102,54 @@ def _write_suggestion_to_program(suggestion: dict, path: Path = settings.program
     path.write_text(text)
 
 
+# ── Config overlay (apply `config_change` to the live hparam grid) ──────────
+
+OVERRIDES_PATH = settings.root_dir / "config" / "overrides.json"
+
+
+def _extract_grid_overrides(cc: dict) -> dict[str, list]:
+    """
+    Normalize a Claude config_change into an XGBoost hparam grid overlay.
+
+    Accepts either explicit grids (``{"xgb_hparam_grid": {"max_depth": [7]}}``)
+    or scalar picks (``{"xgb": {"max_depth": 7}}``) which become
+    single-element lists so the sampler can use them verbatim.
+    """
+    raw: dict = {}
+    if isinstance(cc.get("xgb_hparam_grid"), dict):
+        raw = cc["xgb_hparam_grid"]
+    elif isinstance(cc.get("xgb"), dict):
+        raw = {k: ([v] if not isinstance(v, list) else v) for k, v in cc["xgb"].items()}
+
+    valid_keys = {"max_depth", "learning_rate", "n_estimators"}
+    return {k: v for k, v in raw.items()
+            if k in valid_keys and isinstance(v, list) and v}
+
+
+def _apply_config_change(suggestion: dict) -> dict:
+    """
+    Persist the suggestion to ``config/overrides.json`` so ``training_agent``
+    picks it up on the next cycle. Returns the overlay actually written (for
+    logging). Features-added are recorded for visibility but NOT auto-applied
+    — pipeline changes require code, so we surface them for a human to wire.
+    """
+    cc = suggestion.get("config_change") or {}
+    xgb_grid = _extract_grid_overrides(cc)
+    features_added = cc.get("features_added") or []
+
+    overlay = {
+        "updated_at":       datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "xgb_hparam_grid":  xgb_grid,
+        "features_added":   features_added,
+        "features_applied": False,   # flipped to True manually once wired in pipeline
+    }
+    OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OVERRIDES_PATH.write_text(json.dumps(overlay, indent=2))
+    logger.info("[meta_optimizer] overlay written → %s (xgb keys=%s)",
+                OVERRIDES_PATH.name, list(xgb_grid.keys()))
+    return overlay
+
+
 def _append_suggestion_to_log(suggestion: dict) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     lines = [
@@ -130,5 +178,6 @@ async def run() -> dict:
     suggestion = _call_claude(run_log_text)
     _write_suggestion_to_program(suggestion)
     _append_suggestion_to_log(suggestion)
+    _apply_config_change(suggestion)
     logger.info("[meta_optimizer] suggestion recorded")
     return suggestion

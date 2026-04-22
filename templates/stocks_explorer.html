@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock Sentiment — Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f1f5f9; color: #1e293b; font-size: 14px; line-height: 1.5;
+    }
+
+    header {
+      background: #0f172a; color: #fff; padding: 0 1.5rem; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 200;
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+    }
+    .logo { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: .5rem; }
+    .logo-gold { color: #fbbf24; }
+    .logo-sub { font-size: .65rem; font-weight: 400; color: #64748b; letter-spacing: .06em; text-transform: uppercase; }
+
+    .main-nav { display: flex; align-items: center; gap: .25rem; }
+    .nav-tab {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      padding: .3rem .75rem; border-radius: 6px; border: 1px solid transparent;
+      color: #64748b; text-decoration: none; transition: background .12s, color .12s;
+    }
+    .nav-tab:hover { background: #1e293b; color: #e2e8f0; }
+    .nav-tab.active { background: #fbbf24; color: #0f172a; border-color: #fbbf24; }
+    .nav-sep { width:1px; height:18px; background:#334155; margin:0 .35rem; display:inline-block; }
+
+    .wrap { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
+
+    .layout {
+      display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem;
+    }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+    .ticker-rail {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem;
+      align-content: start;
+    }
+    .ticker-box {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: .55rem .7rem; cursor: pointer; text-decoration: none; color: inherit;
+      position: relative; overflow: hidden;
+      transition: transform .08s, border-color .1s;
+    }
+    .ticker-box:hover { transform: translateY(-1px); border-color: #94a3b8; }
+    .ticker-box.active { border-color: #38bdf8; box-shadow: 0 0 0 2px #bae6fd; }
+    .ticker-box::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #cbd5e1;
+    }
+    .ticker-box.pos::before { background: #16a34a; }
+    .ticker-box.neg::before { background: #dc2626; }
+    .ticker-box.err::before { background: #f59e0b; }
+    .ticker-box .tkr { font-weight: 800; font-size: .9rem; color: #0f172a; letter-spacing: -.01em; }
+    .ticker-box .sig { font-size: .58rem; font-weight: 700; text-transform: uppercase; color: #64748b; margin-top: .1rem; }
+    .ticker-box .sig.buy      { color: #047857; }
+    .ticker-box .sig.sell     { color: #991b1b; }
+    .ticker-box .sig.hold     { color: #64748b; }
+    .ticker-box .sig.no-data  { color: #94a3b8; font-style: italic; }
+
+    .detail {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+      padding: 1.25rem 1.5rem; box-shadow: 0 1px 2px rgba(0,0,0,.03);
+    }
+
+    .detail-head { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
+    .detail-head .tkr { font-size: 1.6rem; font-weight: 800; letter-spacing: -.02em; color: #0f172a; }
+    .detail-head .name { font-size: .85rem; color: #64748b; }
+    .detail-head .sector { font-size: .65rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; }
+
+    .signal-pill {
+      display: inline-block; font-size: .7rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .07em; padding: .3rem .7rem; border-radius: 999px;
+      background: #f1f5f9; color: #64748b;
+    }
+    .signal-pill.buy         { background: #ecfdf5; color: #047857; }
+    .signal-pill.sell        { background: #fef2f2; color: #991b1b; }
+    .signal-pill.strong-buy  { background: #16a34a; color: #fff; }
+    .signal-pill.strong-sell { background: #dc2626; color: #fff; }
+
+    .conf-pill {
+      display: inline-block; font-size: .6rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; padding: .2rem .5rem; border-radius: 4px;
+      background: #e2e8f0; color: #475569;
+    }
+    .conf-pill.high   { background: #dbeafe; color: #1e40af; }
+    .conf-pill.medium { background: #fef3c7; color: #92400e; }
+    .conf-pill.low    { background: #fee2e2; color: #991b1b; }
+
+    .detail-meta {
+      display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .75rem; padding-top: .75rem;
+      border-top: 1px solid #e2e8f0;
+    }
+    .detail-meta .m { display: flex; flex-direction: column; }
+    .detail-meta .label { font-size: .55rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .08em; }
+    .detail-meta .val   { font-size: .95rem; font-weight: 700; color: #0f172a; margin-top: .15rem; }
+    .detail-meta .val.pos { color: #16a34a; }
+    .detail-meta .val.neg { color: #dc2626; }
+
+    .section { margin-top: 1.25rem; }
+    .section h3 {
+      font-size: .7rem; text-transform: uppercase; letter-spacing: .1em;
+      color: #64748b; font-weight: 700; margin-bottom: .6rem;
+    }
+
+    .factor-grid {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: .5rem;
+    }
+    @media (max-width: 700px) { .factor-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    .factor {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: .55rem .7rem;
+    }
+    .factor .flabel { font-size: .6rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .factor .fval   { font-size: 1.1rem; font-weight: 800; margin-top: .15rem; }
+    .factor .fval.pos { color: #16a34a; }
+    .factor .fval.neg { color: #dc2626; }
+    .factor .fval.neu { color: #64748b; }
+    .factor .frange { font-size: .58rem; color: #94a3b8; margin-top: .1rem; }
+
+    .price-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }
+    @media (max-width: 700px) { .price-grid { grid-template-columns: repeat(2, 1fr); } }
+    .pcell {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: .55rem .7rem;
+    }
+    .pcell .plabel { font-size: .55rem; color: #64748b; text-transform: uppercase; letter-spacing: .06em; }
+    .pcell .pval   { font-size: .95rem; font-weight: 700; color: #0f172a; margin-top: .15rem; }
+
+    .headline {
+      border-top: 1px solid #f1f5f9; padding: .6rem 0;
+      display: flex; gap: .75rem; align-items: flex-start;
+    }
+    .headline:first-child { border-top: none; }
+    .headline .hlabel {
+      font-size: .55rem; font-weight: 700; text-transform: uppercase;
+      padding: .15rem .4rem; border-radius: 4px; flex-shrink: 0; letter-spacing: .06em;
+    }
+    .hlabel.positive { background: #ecfdf5; color: #047857; }
+    .hlabel.negative { background: #fef2f2; color: #991b1b; }
+    .hlabel.neutral  { background: #f1f5f9; color: #64748b; }
+    .headline .hbody { flex: 1; }
+    .headline .htitle { font-size: .85rem; font-weight: 600; color: #1e293b; }
+    .headline .htitle a { color: inherit; text-decoration: none; }
+    .headline .htitle a:hover { text-decoration: underline; color: #38bdf8; }
+    .headline .hmeta { font-size: .65rem; color: #64748b; margin-top: .15rem; }
+
+    .scrape-stats {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: .5rem .75rem; font-size: .75rem; color: #475569;
+    }
+
+    .empty {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: 2.5rem 1.5rem; text-align: center; color: #64748b;
+    }
+    .empty code {
+      background: #f1f5f9; padding: .15rem .4rem; border-radius: 4px;
+      font-family: 'SF Mono', Menlo, monospace; font-size: .85rem;
+    }
+
+    .veto-note {
+      margin-top: .5rem; padding: .5rem .75rem; background: #fef3c7;
+      border-left: 3px solid #f59e0b; border-radius: 4px; color: #92400e;
+      font-size: .8rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    Stock<span class="logo-gold">Sentiment</span>Engine
+    <span class="logo-sub">Explorer · per-ticker detail</span>
+  </div>
+  <nav class="main-nav">
+    <a class="nav-tab" href="/">Gold Bias</a>
+    <a class="nav-tab active" href="/stocks/overview">Stocks</a>
+    <a class="nav-tab" href="/autoresearch">AutoResearch</a>
+    <span class="nav-sep"></span>
+    <a class="nav-tab" href="/stocks/overview">Overview</a>
+    <a class="nav-tab active" href="/stocks/explorer">Explorer</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <div class="layout">
+
+    <aside class="ticker-rail">
+      {% set overview_by = {} %}
+      {% if overview %}
+        {% for row in overview.stocks %}
+          {% set _ = overview_by.update({row.ticker: row}) %}
+        {% endfor %}
+      {% endif %}
+      {% for s in universe %}
+        {% set row = overview_by.get(s.ticker) %}
+        {% set signal = row.signal if row else None %}
+        {% set box_cls = 'pos' if signal in ['BUY','STRONG_BUY'] else 'neg' if signal in ['SELL','STRONG_SELL'] else '' %}
+        {% if row and row.error %}{% set box_cls = 'err' %}{% endif %}
+        {% set sig_cls = 'buy' if signal in ['BUY','STRONG_BUY'] else 'sell' if signal in ['SELL','STRONG_SELL'] else 'hold' if signal == 'HOLD' else 'no-data' %}
+        <a class="ticker-box {{ box_cls }} {% if s.ticker == selected %}active{% endif %}"
+           href="/stocks/explorer?ticker={{ s.ticker }}">
+          <div class="tkr">{{ s.ticker }}</div>
+          <div class="sig {{ sig_cls }}">{{ signal or 'no data' }}</div>
+        </a>
+      {% endfor %}
+    </aside>
+
+    <main>
+      {% if detail %}
+        {% set sig = detail.signal or 'HOLD' %}
+        {% set pill_cls = {'BUY':'buy','STRONG_BUY':'strong-buy','SELL':'sell','STRONG_SELL':'strong-sell'}.get(sig, '') %}
+        {% set conf_cls = (detail.confidence or 'low')|lower %}
+
+        <div class="detail">
+          <div class="detail-head">
+            <div class="tkr">{{ detail.ticker }}</div>
+            <div class="name">{{ detail.company_name }}</div>
+            <div class="sector">{{ detail.sector or '' }}</div>
+            <span class="signal-pill {{ pill_cls }}">{{ sig }}</span>
+            <span class="conf-pill {{ conf_cls }}">{{ detail.confidence or 'LOW' }}</span>
+          </div>
+
+          {% if detail.veto_applied %}
+            <div class="veto-note">Veto applied — raw signal was {{ detail.raw_signal }}. {{ detail.veto_reason or '' }}</div>
+          {% endif %}
+
+          <div class="detail-meta">
+            <div class="m">
+              <span class="label">Sentiment</span>
+              <span class="val {% if detail.sentiment_score and detail.sentiment_score > 0.05 %}pos{% elif detail.sentiment_score and detail.sentiment_score < -0.05 %}neg{% endif %}">
+                {{ detail.sentiment_label or 'neutral' }}
+                {% if detail.sentiment_score is not none %} ({{ '%+.3f'|format(detail.sentiment_score) }}){% endif %}
+              </span>
+            </div>
+            <div class="m">
+              <span class="label">Articles</span>
+              <span class="val">{{ detail.article_count or 0 }}</span>
+            </div>
+            <div class="m">
+              <span class="label">Total Score</span>
+              <span class="val {% if detail.factor_scores and detail.factor_scores.total > 0 %}pos{% elif detail.factor_scores and detail.factor_scores.total < 0 %}neg{% endif %}">
+                {{ detail.factor_scores.total if detail.factor_scores else '—' }}
+              </span>
+            </div>
+            <div class="m">
+              <span class="label">Run</span>
+              <span class="val" style="font-size:.75rem;">{{ detail.run_timestamp }}</span>
+            </div>
+          </div>
+
+          {% if detail.factor_scores %}
+            <div class="section">
+              <h3>Factor Breakdown</h3>
+              <div class="factor-grid">
+                {% set f = detail.factor_scores %}
+                {% for key, label, rng in [
+                  ('news_sentiment',    'News Sent.', '-2..+2'),
+                  ('stock_trend',       'Stock Trend','-3..+3'),
+                  ('relative_strength', 'Rel vs SPY','-2..+2'),
+                  ('market_regime',     'Regime',    '-2..+2'),
+                  ('volume_momentum',   'Vol Mom.',  '-1..+1'),
+                ] %}
+                  {% set v = f.get(key, 0) %}
+                  {% set cls = 'pos' if v > 0 else 'neg' if v < 0 else 'neu' %}
+                  <div class="factor">
+                    <div class="flabel">{{ label }}</div>
+                    <div class="fval {{ cls }}">{{ '%+d'|format(v) }}</div>
+                    <div class="frange">{{ rng }}</div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if detail.price_summary %}
+            {% set p = detail.price_summary %}
+            <div class="section">
+              <h3>Price / Trend</h3>
+              <div class="price-grid">
+                <div class="pcell"><div class="plabel">Price</div><div class="pval">{% if p.current %}${{ '%.2f'|format(p.current) }}{% else %}—{% endif %}</div></div>
+                <div class="pcell"><div class="plabel">EMA20 / 50</div><div class="pval">{% if p.ema20 %}{{ '%.2f'|format(p.ema20) }}{% else %}—{% endif %} / {% if p.ema50 %}{{ '%.2f'|format(p.ema50) }}{% else %}—{% endif %}</div></div>
+                <div class="pcell"><div class="plabel">Return 5d</div><div class="pval">{% if p.return_5d_pct is not none %}{{ '%+.2f'|format(p.return_5d_pct) }}%{% else %}—{% endif %}</div></div>
+                <div class="pcell"><div class="plabel">Vol Ratio</div><div class="pval">{% if p.volume_ratio %}×{{ '%.2f'|format(p.volume_ratio) }}{% else %}—{% endif %}</div></div>
+              </div>
+            </div>
+          {% endif %}
+
+          {% if detail.scrape_stats %}
+            {% set ss = detail.scrape_stats %}
+            <div class="section">
+              <h3>Article Pipeline</h3>
+              <div class="scrape-stats">
+                fetched: {{ ss.fetched or 0 }} ·
+                unique: {{ ss.unique or 0 }} ·
+                processed: {{ ss.processed or 0 }} ·
+                scraped ok: {{ ss.scraped_ok or 0 }} ·
+                failed: {{ ss.failed or 0 }}
+                {% if ss.processed and ss.failed and (ss.failed / ss.processed) > 0.6 %}
+                  · <strong style="color:#dc2626;">high scrape failure rate — sentiment may be title-only</strong>
+                {% endif %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if detail.top_headlines %}
+            <div class="section">
+              <h3>Headlines ({{ detail.top_headlines|length }})</h3>
+              {% for h in detail.top_headlines %}
+                {% set hl = (h.label or 'neutral')|lower %}
+                <div class="headline">
+                  <span class="hlabel {{ hl }}">{{ h.label or 'neutral' }}</span>
+                  <div class="hbody">
+                    <div class="htitle"><a href="{{ h.url }}" target="_blank" rel="noopener">{{ h.title }}</a></div>
+                    <div class="hmeta">
+                      {{ h.source or 'unknown' }}
+                      {% if h.score is not none and h.score != '' %} · score {{ '%+.3f'|format(h.score|float) }}{% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if detail.error %}
+            <div class="section">
+              <h3>Error</h3>
+              <div class="scrape-stats" style="color:#991b1b;">{{ detail.error }}</div>
+            </div>
+          {% endif %}
+        </div>
+
+      {% else %}
+        <div class="empty">
+          <h2 style="font-size:1.1rem;color:#1e293b;margin-bottom:.5rem;">No data for {{ selected }} yet</h2>
+          <p>Run the scanner first:</p>
+          <p style="margin-top:.5rem;"><code>python main.py --stocks --ticker {{ selected }}</code></p>
+          <p style="margin-top:.5rem;">or <code>python main.py --stocks</code> to scan the full universe.</p>
+        </div>
+      {% endif %}
+    </main>
+
+  </div>
+</div>
+
+</body>
+</html>

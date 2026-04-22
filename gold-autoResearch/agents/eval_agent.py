@@ -19,18 +19,21 @@ from models.model_registry import registry
 logger = logging.getLogger(__name__)
 
 TARGET_COL = "y_next_dir"
+FWD_RET_COL = "y_next_ret"
 
 
-def _metrics(y_true: pd.Series, y_pred: np.ndarray, rets: np.ndarray) -> dict:
+def _metrics(y_true: pd.Series, y_pred: np.ndarray, fwd_rets: np.ndarray) -> dict:
     accuracy = float((y_pred == y_true.values).mean())
-    pnl = np.where(y_pred == 1, rets, -rets)
-    sharpe = float(pnl.mean() / (pnl.std() + 1e-9) * np.sqrt(252))
-    equity = np.cumprod(1 + pnl)
+    signal   = np.where(y_pred == 1, 1.0, -1.0)
+    pnl      = signal * fwd_rets
+    sharpe   = float(pnl.mean() / (pnl.std() + 1e-9) * np.sqrt(252))
+    equity   = np.cumprod(1 + pnl)
     drawdown = float((equity / np.maximum.accumulate(equity) - 1).min() * -1)
     return {
         "accuracy":     round(accuracy, 4),
         "sharpe":       round(sharpe, 4),
         "max_drawdown": round(drawdown, 4),
+        "pred_up_rate": round(float(y_pred.mean()), 4),
         "n_samples":    int(len(y_true)),
     }
 
@@ -52,11 +55,11 @@ async def run(version: str | None = None) -> dict:
         version = meta.version
 
     model, meta = registry.load(version)
-    y_true = holdout[TARGET_COL]
-    rets   = holdout["ret_1d"].values
-    y_pred = model.predict(holdout)
+    y_true   = holdout[TARGET_COL]
+    fwd_rets = holdout[FWD_RET_COL].values
+    y_pred   = model.predict(holdout)
 
-    out = _metrics(y_true, y_pred, rets)
+    out = _metrics(y_true, y_pred, fwd_rets)
     out.update({"version": version, "evaluated_at_rows": len(df)})
     logger.info("[eval_agent] %s → acc=%.4f sharpe=%.2f dd=%.2f",
                 version, out["accuracy"], out["sharpe"], out["max_drawdown"])

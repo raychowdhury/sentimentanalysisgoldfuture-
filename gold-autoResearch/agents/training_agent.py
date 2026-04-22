@@ -7,7 +7,9 @@ and the ModelMetadata that will be written to the registry if promoted.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import random
 from datetime import datetime, timezone
 from typing import Any
@@ -22,6 +24,7 @@ from models.model_registry import ModelMetadata, registry
 logger = logging.getLogger(__name__)
 
 TARGET_COL = "y_next_dir"
+FWD_RET_COL = "y_next_ret"
 RANDOM_SEED = 42
 TRAIN_WINDOW = 750  # recent-regime cap; older bars exceed this window are dropped
 
@@ -31,12 +34,17 @@ try:
 except Exception:  # ImportError, OSError, XGBoostError (native lib missing)
     _HAS_XGB = False
 
-try:
-    import torch
-    from torch import nn
-    _HAS_TORCH = True
-except Exception:
+_LSTM_DISABLED = os.getenv("DISABLE_LSTM", "").lower() in {"1", "true", "yes"}
+
+if _LSTM_DISABLED:
     _HAS_TORCH = False
+else:
+    try:
+        import torch
+        from torch import nn
+        _HAS_TORCH = True
+    except Exception:
+        _HAS_TORCH = False
 
 
 if _HAS_TORCH:
@@ -77,7 +85,8 @@ class _SignClassifier:
 # ── Feature / split helpers ──────────────────────────────────────────────────
 
 def _feature_columns(df: pd.DataFrame) -> list[str]:
-    drop = {TARGET_COL, "Open", "High", "Low", "Close", "Adj Close", "Volume"}
+    drop = {TARGET_COL, FWD_RET_COL,
+            "Open", "High", "Low", "Close", "Adj Close", "Volume"}
     return [c for c in df.columns if c not in drop]
 
 
@@ -148,6 +157,24 @@ def _sample_hparams(grid: dict) -> dict:
     return {k: random.choice(v) for k, v in grid.items()}
 
 
+def _effective_xgb_grid() -> dict:
+    """Merge settings.xgb_hparam_grid with any overrides persisted by
+    meta_optimizer. Overlay keys replace base keys; unknown keys ignored."""
+    base = {k: list(v) for k, v in settings.xgb_hparam_grid.items()}
+    overlay_path = settings.root_dir / "config" / "overrides.json"
+    if not overlay_path.exists():
+        return base
+    try:
+        overlay = json.loads(overlay_path.read_text()).get("xgb_hparam_grid") or {}
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("[training_agent] could not read overrides.json: %s", exc)
+        return base
+    for k, v in overlay.items():
+        if isinstance(v, list) and v and k in base:
+            base[k] = v
+    return base
+
+
 async def run(experiment_note: str = "") -> tuple[GoldDirectionEnsemble, ModelMetadata]:
     """Train a candidate model. Caller evaluates it and decides on promotion."""
     df = load_cached_frame()
@@ -163,7 +190,7 @@ async def run(experiment_note: str = "") -> tuple[GoldDirectionEnsemble, ModelMe
     logger.info("[training_agent] train=%d valid=%d base_rate_up=%.3f",
                 len(X_tr), len(X_va), base_rate)
 
-    xgb_hp  = _sample_hparams(settings.xgb_hparam_grid)
+    xgb_hp  = _sample_hparams(_effective_xgb_grid())
     lstm_hp = _sample_hparams(settings.lstm_hparam_grid)
 
     random.seed(RANDOM_SEED)
@@ -171,13 +198,32 @@ async def run(experiment_note: str = "") -> tuple[GoldDirectionEnsemble, ModelMe
 
     xgb_model = None
     if _HAS_XGB:
+        # Training target up-rate is usually the majority class (~0.55–0.60).
+        # Default scale_pos_weight=1 lets the tree collapse to "always predict
+        # positive" since positive minimizes logloss under imbalance. Setting
+        # sum(neg)/sum(pos) re-weights the gradient so the down class carries
+        # equal total mass — restores discriminative learning.
+        n_pos = int(y_tr.sum())
+        n_neg = int(len(y_tr) - n_pos)
+        spw   = (n_neg / n_pos) if n_pos > 0 else 1.0
         xgb_model = XGBClassifier(
-            **xgb_hp, use_label_encoder=False, eval_metric="logloss",
+            **xgb_hp, eval_metric="logloss",
+            scale_pos_weight=spw,
             n_jobs=2, random_state=RANDOM_SEED,
         )
         xgb_model.fit(X_tr, y_tr)
+        logger.info("[training_agent] xgb scale_pos_weight=%.3f (n_pos=%d, n_neg=%d)",
+                    spw, n_pos, n_neg)
 
-    lstm_model = _train_lstm(X_tr, y_tr, lstm_hp)
+    try:
+        lstm_model = _train_lstm(X_tr, y_tr, lstm_hp)
+    except Exception as exc:
+        # Torch native crashes (segfault on bleeding-edge Pythons, OOM, etc.)
+        # shouldn't take the whole cycle down — XGB alone still produces a
+        # valid candidate the promotion gate can evaluate.
+        logger.warning("[training_agent] LSTM training failed (%s) — "
+                       "falling back to XGB-only ensemble", exc)
+        lstm_model = None
 
     # Neither XGB nor torch available → fall back so the pipeline still runs.
     if xgb_model is None and lstm_model is None:
@@ -191,12 +237,14 @@ async def run(experiment_note: str = "") -> tuple[GoldDirectionEnsemble, ModelMe
     logger.info("[training_agent] holdout_acc=%.4f pred_up_rate=%.3f base_up_rate=%.3f",
                 accuracy, pred_up_rate, float(y_va.mean()))
 
-    # Lightweight Sharpe / drawdown proxy from daily direction P&L on validation.
-    rets = df_recent.loc[X_va.index, "ret_1d"].values
-    pnl  = np.where(y_pred == 1, rets, -rets)
-    sharpe = float(pnl.mean() / (pnl.std() + 1e-9) * np.sqrt(252))
-    equity = np.cumprod(1 + pnl)
-    max_dd = float((equity / np.maximum.accumulate(equity) - 1).min() * -1)
+    # Sharpe / drawdown from next-day P&L aligned to y_next_dir prediction.
+    # Signal is +1 for long, -1 for short; P&L = signal * forward 1-day return.
+    fwd_rets = df_recent.loc[X_va.index, FWD_RET_COL].values
+    signal   = np.where(y_pred == 1, 1.0, -1.0)
+    pnl      = signal * fwd_rets
+    sharpe   = float(pnl.mean() / (pnl.std() + 1e-9) * np.sqrt(252))
+    equity   = np.cumprod(1 + pnl)
+    max_dd   = float((equity / np.maximum.accumulate(equity) - 1).min() * -1)
 
     meta = ModelMetadata(
         version=registry.new_version(),
@@ -204,6 +252,7 @@ async def run(experiment_note: str = "") -> tuple[GoldDirectionEnsemble, ModelMe
         accuracy=round(accuracy, 4),
         sharpe=round(sharpe, 4),
         max_drawdown=round(max_dd, 4),
+        pred_up_rate=round(pred_up_rate, 4),
         features=features,
         hyperparams={"xgb": xgb_hp, "lstm": lstm_hp},
         notes=experiment_note,

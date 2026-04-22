@@ -35,6 +35,9 @@ class ModelMetadata:
     features:     list[str]
     hyperparams:  dict[str, Any]
     notes:        str = ""
+    # Fraction of predictions that were "up". Extreme values (all-up / all-down)
+    # reveal a degenerate classifier even when accuracy ≈ base rate.
+    pred_up_rate: float = 0.5
 
 
 class ModelRegistry:
@@ -58,7 +61,10 @@ class ModelRegistry:
         with open(self.base_dir / f"{version}.pkl", "rb") as f:
             model = pickle.load(f)
         with open(self.base_dir / f"{version}.json") as f:
-            metadata = ModelMetadata(**json.load(f))
+            raw = json.load(f)
+        # Tolerate older sidecars that predate newer fields (e.g. pred_up_rate).
+        known = {f.name for f in ModelMetadata.__dataclass_fields__.values()}
+        metadata = ModelMetadata(**{k: v for k, v in raw.items() if k in known})
         return model, metadata
 
     # ── Promotion ────────────────────────────────────────────────────────────
@@ -74,26 +80,42 @@ class ModelRegistry:
         except FileNotFoundError:
             return None
 
-    def promote(self, candidate: ModelMetadata) -> bool:
+    # Any candidate whose predictions are nearly constant (all-up or all-down)
+    # is rejected regardless of accuracy — it's learning the base rate, not a
+    # real signal. Applies in seed and incumbent paths.
+    PRED_UP_RATE_MIN = 0.25
+    PRED_UP_RATE_MAX = 0.75
+
+    def promote(
+        self,
+        candidate: ModelMetadata,
+        incumbent_current_accuracy: float | None = None,
+    ) -> bool:
         """
         Replace the production pointer with `candidate` only when it beats the
-        incumbent on accuracy and respects guard-rails. Returns True if the
-        candidate was promoted.
+        incumbent on accuracy, passes the degenerate-classifier gate, and
+        respects the Sharpe / drawdown guard-rails. Returns True if promoted.
 
-        Seed path: when no incumbent exists yet, relax the drawdown cap by
-        50% so the loop can plant a baseline. Subsequent cycles must beat
-        that baseline AND pass the tight guard-rails.
+        `incumbent_current_accuracy` is the incumbent's accuracy re-measured on
+        the current holdout (via eval_agent). When provided, it is used for the
+        comparison instead of the incumbent's stale stored accuracy — otherwise
+        candidates are judged against a holdout the incumbent never saw.
+
+        Seed path: when no incumbent exists, drawdown / Sharpe gates are
+        relaxed so the loop can plant a baseline. The pred-up-rate gate still
+        applies — a constant classifier is never production-worthy.
         """
         incumbent = self.production_metadata()
         is_seed = incumbent is None
-        # Seed path is intentionally loose: any non-catastrophic candidate
-        # can plant a baseline. Once an incumbent exists, subsequent cycles
-        # must clear the tight production guard-rails AND beat the baseline
-        # on accuracy. This keeps the loop from stalling forever when the
-        # current holdout window happens to be a regime-shift.
         dd_limit = 0.60 if is_seed else settings.max_drawdown_limit
         sharpe_floor = -5.0 if is_seed else settings.sharpe_target * 0.8
 
+        if not (self.PRED_UP_RATE_MIN <= candidate.pred_up_rate <= self.PRED_UP_RATE_MAX):
+            logger.info("promotion blocked — pred_up_rate %.2f outside [%.2f, %.2f] "
+                        "(degenerate classifier)",
+                        candidate.pred_up_rate,
+                        self.PRED_UP_RATE_MIN, self.PRED_UP_RATE_MAX)
+            return False
         if candidate.sharpe < sharpe_floor:
             logger.info("promotion blocked — Sharpe %.2f below floor %.2f (seed=%s)",
                         candidate.sharpe, sharpe_floor, is_seed)
@@ -102,10 +124,14 @@ class ModelRegistry:
             logger.info("promotion blocked — drawdown %.2f above limit %.2f (seed=%s)",
                         candidate.max_drawdown, dd_limit, is_seed)
             return False
-        if incumbent is not None and candidate.accuracy <= incumbent.accuracy:
-            logger.info("promotion blocked — candidate accuracy %.4f ≤ incumbent %.4f",
-                        candidate.accuracy, incumbent.accuracy)
-            return False
+        if incumbent is not None:
+            baseline = (incumbent_current_accuracy
+                        if incumbent_current_accuracy is not None
+                        else incumbent.accuracy)
+            if candidate.accuracy <= baseline:
+                logger.info("promotion blocked — candidate accuracy %.4f ≤ baseline %.4f",
+                            candidate.accuracy, baseline)
+                return False
 
         link = self.base_dir / PRODUCTION_LINK
         target = self.base_dir / f"{candidate.version}.pkl"

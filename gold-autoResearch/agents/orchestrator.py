@@ -108,14 +108,18 @@ async def run_cycle(cycle: int, cfg: ProgramConfig) -> dict:
             experiment_note=f"cycle-{cycle}"
         )
         training_out = {
-            "version":     meta.version,
-            "accuracy":    meta.accuracy,
-            "sharpe":      meta.sharpe,
+            "version":      meta.version,
+            "accuracy":     meta.accuracy,
+            "sharpe":       meta.sharpe,
             "max_drawdown": meta.max_drawdown,
-            "hyperparams": meta.hyperparams,
-            "notes":       meta.notes,
+            "pred_up_rate": meta.pred_up_rate,
+            "hyperparams":  meta.hyperparams,
+            "notes":        meta.notes,
         }
-        promoted = registry.promote(meta)
+        promoted = registry.promote(
+            meta,
+            incumbent_current_accuracy=eval_before.get("accuracy"),
+        )
 
     # Re-eval after potential promotion so the report captures the active model.
     eval_after = await eval_agent.run() if promoted else eval_before
@@ -139,7 +143,14 @@ async def main_loop() -> None:
         cfg = parse_program()
         cycle = state["cycle"] + 1
 
-        payload = await run_cycle(cycle, cfg)
+        try:
+            payload = await run_cycle(cycle, cfg)
+        except Exception as exc:
+            # Network blips, FRED 5xx, yfinance empties — log and retry next tick
+            # rather than killing the container and losing the schedule.
+            logger.exception("cycle %d failed: %s — will retry next tick", cycle, exc)
+            await asyncio.sleep(max(60, cfg.loop_hours * 3600))
+            continue
 
         # Track improvement streak for the stopping rule.
         acc_now = (payload["eval_after"] or {}).get("accuracy")

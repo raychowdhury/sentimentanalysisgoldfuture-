@@ -222,3 +222,57 @@ meta-optimizer reads this file verbatim every 10 cycles and appends a
 - **Experiment note**: cycle-4
 - **Promoted**: no
 
+## Cycle 4 — 2026-04-22T19:47:33+00:00
+
+- **Dataset**: rows=1457, cols=25, last=2026-04-21
+- **Eval (production)**: acc=None, sharpe=None, dd=None, version=None
+- **Candidate**: version=m1776887253, acc=0.5556, sharpe=1.0361, dd=0.1773
+- **Hyperparams**: `{"xgb": {"max_depth": 7, "learning_rate": 0.1, "n_estimators": 200}, "lstm": {"hidden": 64, "layers": 2, "dropout": 0.1}}`
+- **Experiment note**: cycle-4
+- **Promoted**: yes
+
+## Cycle 5 — 2026-04-22T20:23:42+00:00
+
+- **Dataset**: rows=1456, cols=26, last=2026-04-20
+- **Eval (production)**: acc=0.5556, sharpe=1.0361, dd=0.1773, version=m1776887253
+- **Candidate**: version=m1776889422, acc=0.5556, sharpe=1.0361, dd=0.1773
+- **Hyperparams**: `{"xgb": {"max_depth": 7, "learning_rate": 0.05, "n_estimators": 400}, "lstm": {"hidden": 64, "layers": 2, "dropout": 0.1}}`
+- **Experiment note**: cycle-5
+- **Promoted**: no
+
+## Cycle 6 — 2026-04-22T20:24:07+00:00
+
+- **Dataset**: rows=1456, cols=26, last=2026-04-20
+- **Eval (production)**: acc=0.5556, sharpe=1.0361, dd=0.1773, version=m1776887253
+- **Candidate**: version=m1776889447, acc=0.5556, sharpe=1.0361, dd=0.1773
+- **Hyperparams**: `{"xgb": {"max_depth": 5, "learning_rate": 0.05, "n_estimators": 400}, "lstm": {"hidden": 32, "layers": 1, "dropout": 0.2}}`
+- **Experiment note**: cycle-6
+- **Promoted**: no
+
+## Cycle 7 — 2026-04-22T20:26:48+00:00
+
+- **Dataset**: rows=1456, cols=26, last=2026-04-20
+- **Eval (production)**: acc=0.5556, sharpe=1.0361, dd=0.1773, version=m1776887253
+- **Candidate**: version=m1776889608, acc=0.5556, sharpe=1.0361, dd=0.1773
+- **Hyperparams**: `{"xgb": {"max_depth": 7, "learning_rate": 0.05, "n_estimators": 200}, "lstm": {"hidden": 64, "layers": 1, "dropout": 0.2}}`
+- **Experiment note**: cycle-7
+- **Promoted**: no
+
+## Cycle 8 — 2026-04-22T20:32:12+00:00
+
+- **Dataset**: rows=1456, cols=26, last=2026-04-20
+- **Eval (production)**: acc=None, sharpe=None, dd=None, version=None
+- **Candidate**: version=m1776889932, acc=0.4889, sharpe=-0.5432, dd=0.2687
+- **Hyperparams**: `{"xgb": {"max_depth": 3, "learning_rate": 0.1, "n_estimators": 400}, "lstm": {"hidden": 64, "layers": 2, "dropout": 0.1}}`
+- **Experiment note**: cycle-8
+- **Promoted**: yes
+
+## Cycle 9 — 2026-04-22T20:32:46+00:00
+
+- **Dataset**: rows=1456, cols=26, last=2026-04-20
+- **Eval (production)**: acc=0.4889, sharpe=-0.5432, dd=0.2687, version=m1776889932
+- **Candidate**: version=m1776889966, acc=0.5444, sharpe=0.9436, dd=0.1653
+- **Hyperparams**: `{"xgb": {"max_depth": 5, "learning_rate": 0.1, "n_estimators": 400}, "lstm": {"hidden": 64, "layers": 1, "dropout": 0.1}}`
+- **Experiment note**: cycle-9
+- **Promoted**: no
+

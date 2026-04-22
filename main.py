@@ -74,6 +74,14 @@ def parse_args() -> argparse.Namespace:
         "--timeframe", choices=["swing", "day"], default="swing",
         help="Trading timeframe: 'swing' (multi-day, default) or 'day' (intraday bias)",
     )
+    p.add_argument(
+        "--stocks", action="store_true",
+        help="Run the stock sentiment scanner instead of the gold pipeline",
+    )
+    p.add_argument(
+        "--ticker", default=None,
+        help="When used with --stocks, scan only the given ticker (e.g. AAPL)",
+    )
     return p.parse_args()
 
 
@@ -492,8 +500,51 @@ def run_signal(
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def run_stocks_cli(args: argparse.Namespace) -> None:
+    """Stock sentiment scan — separate from the gold pipeline."""
+    from stocks.stock_pipeline import scan_universe
+    from stocks.stock_universe import is_known
+
+    tickers: list[str] | None = None
+    if args.ticker:
+        t = args.ticker.upper()
+        if not is_known(t):
+            raise SystemExit(f"Unknown ticker: {args.ticker} — not in stocks/stock_universe.py")
+        tickers = [t]
+
+    overview = scan_universe(tickers=tickers, text_mode=args.mode)
+
+    # Terminal summary
+    sep = "─" * 62
+    print(f"\n{sep}")
+    print("  STOCK SENTIMENT SCAN — OVERVIEW")
+    print(sep)
+    ms = overview["market_summary"]
+    print(f"  Tickers scanned : {overview['universe']['size']}")
+    print(f"  Bullish         : {ms['bullish_count']}")
+    print(f"  Bearish         : {ms['bearish_count']}")
+    print(f"  Neutral         : {ms['neutral_count']}")
+    print(f"  Strongest bull  : {ms['strongest_bullish']}")
+    print(f"  Strongest bear  : {ms['strongest_bearish']}")
+    print(f"  Avg sentiment   : {ms['average_sentiment']}")
+    print(f"  Elapsed         : {overview['elapsed_sec']}s")
+    print(sep)
+    for row in overview["stocks"]:
+        print(f"  {row['ticker']:6s}  {row['signal']:12s} "
+              f"conf={row['confidence']:6s} sent={row.get('sentiment_label', '-'):8s} "
+              f"n={row.get('article_count', 0):>3}  err={row.get('error') or '-'}")
+    print(f"{sep}\n")
+
+
 if __name__ == "__main__":
     args      = parse_args()
+
+    # Stock scanner is a distinct pipeline — run it and exit before the
+    # gold path touches any shared state (FinBERT, sentiment cache, etc.).
+    if args.stocks:
+        run_stocks_cli(args)
+        raise SystemExit(0)
+
     models    = ["vader", "finbert"] if args.model == "both" else [args.model]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 

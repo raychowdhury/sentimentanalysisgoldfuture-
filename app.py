@@ -10,15 +10,15 @@ import glob
 import json
 import os
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 
 import config
 import scheduler as sched
-from market import spx_service
 from sentiment import cache as sentiment_cache
 
 app = Flask(__name__)
@@ -332,19 +332,123 @@ def index():
     )
 
 
-@app.route("/spx")
-def spx_view():
-    """SP500 top-20 influencers page."""
-    force = request.args.get("refresh") == "1"
-    data = spx_service.get_top_influencers(force_refresh=force)
-    return render_template("spx.html", spx=data, page="spx")
+# ── Gold AutoResearch dashboard ──────────────────────────────────────────────
+# Serves the standalone dashboard.html from the gold-autoResearch sub-project.
+# The page fetches live data from the FastAPI service at localhost:8000 (see
+# gold-autoResearch/api.py); that must be running separately.
+
+AUTORESEARCH_HTML = Path(__file__).parent / "gold-autoResearch" / "frontend" / "dashboard.html"
 
 
-@app.route("/api/spx/influencers")
-def api_spx_influencers():
-    """JSON payload for live polling from the SP500 page."""
-    force = request.args.get("refresh") == "1"
-    return jsonify(spx_service.get_top_influencers(force_refresh=force))
+@app.route("/autoresearch")
+def autoresearch_view():
+    if not AUTORESEARCH_HTML.exists():
+        return "AutoResearch dashboard not available.", 404
+    return send_file(AUTORESEARCH_HTML)
+
+
+# ── Stock sentiment scanner ───────────────────────────────────────────────────
+
+@app.route("/stocks/overview")
+def stocks_overview_view():
+    """Aggregated view over the fixed 20-ticker universe."""
+    from stocks.stock_output import read_overview
+    from stocks.stock_universe import UNIVERSE
+    overview = read_overview()
+    return render_template(
+        "stocks_overview.html",
+        overview=overview,
+        universe=[{"ticker": s.ticker, "name": s.name, "sector": s.sector} for s in UNIVERSE],
+        page="stocks",
+    )
+
+
+@app.route("/stocks/explorer")
+def stocks_explorer_view():
+    """Click-through explorer — one ticker detail panel at a time."""
+    from stocks.stock_output import read_overview, read_ticker
+    from stocks.stock_universe import UNIVERSE, is_known
+
+    requested = (request.args.get("ticker") or "").upper()
+    overview = read_overview()
+
+    # Pick default ticker: explicit → strongest non-HOLD in overview → first
+    selected = requested if (requested and is_known(requested)) else None
+    if not selected and overview:
+        non_hold = [
+            r for r in (overview.get("stocks") or [])
+            if r.get("signal") and r["signal"] != "HOLD" and r.get("total_score") is not None
+        ]
+        if non_hold:
+            selected = max(non_hold, key=lambda r: abs(r["total_score"]))["ticker"]
+    if not selected:
+        selected = UNIVERSE[0].ticker
+
+    detail = read_ticker(selected) if selected else None
+
+    return render_template(
+        "stocks_explorer.html",
+        overview=overview,
+        universe=[{"ticker": s.ticker, "name": s.name, "sector": s.sector} for s in UNIVERSE],
+        selected=selected,
+        detail=detail,
+        page="stocks",
+    )
+
+
+@app.route("/api/stocks/list")
+def api_stocks_list():
+    from stocks.stock_universe import UNIVERSE
+    return jsonify([
+        {"ticker": s.ticker, "name": s.name, "sector": s.sector}
+        for s in UNIVERSE
+    ])
+
+
+@app.route("/api/stocks/overview")
+def api_stocks_overview():
+    from stocks.stock_output import read_overview
+    data = read_overview()
+    if data is None:
+        return jsonify({"ok": False, "error": "no overview yet — run the scanner first"}), 404
+    return jsonify(data)
+
+
+@app.route("/api/stocks/<ticker>")
+def api_stocks_ticker(ticker: str):
+    from stocks.stock_output import read_ticker
+    from stocks.stock_universe import is_known
+    if not is_known(ticker):
+        return jsonify({"ok": False, "error": f"unknown ticker: {ticker}"}), 404
+    data = read_ticker(ticker)
+    if data is None:
+        return jsonify({"ok": False, "error": "no output yet for this ticker"}), 404
+    return jsonify(data)
+
+
+@app.route("/api/stocks/run", methods=["POST"])
+def api_stocks_run():
+    """
+    Synchronous trigger. Blocks until the scan finishes — full universe
+    takes ~2 min. Accepts optional JSON body `{"ticker": "AAPL"}` to scan
+    a single name.
+    """
+    from stocks.stock_pipeline import scan_universe
+    from stocks.stock_universe import is_known
+
+    body = request.get_json(silent=True) or {}
+    ticker = body.get("ticker")
+    tickers = None
+    if ticker:
+        if not is_known(ticker):
+            return jsonify({"ok": False, "error": f"unknown ticker: {ticker}"}), 400
+        tickers = [ticker.upper()]
+
+    try:
+        overview = scan_universe(tickers=tickers)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"scan failed: {e}"}), 500
+    return jsonify({"ok": True, "overview": overview})
 
 
 # ── Scheduler API ─────────────────────────────────────────────────────────────

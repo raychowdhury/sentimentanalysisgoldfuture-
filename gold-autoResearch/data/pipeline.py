@@ -41,9 +41,16 @@ YF_SYMBOLS = {
 
 CACHE_NAME = "feature_matrix.parquet"
 
-SENTIMENT_CACHE_PATH = os.getenv(
-    "SENTIMENT_CACHE_PATH", "/app/external/sentiment_cache.jsonl"
-)
+def _sentiment_cache_path() -> Path:
+    """Resolve sentiment cache path. Env var wins; else container mount; else
+    parent-project outputs/ (the local-dev layout)."""
+    override = os.getenv("SENTIMENT_CACHE_PATH")
+    if override:
+        return Path(override)
+    container = Path("/app/external/sentiment_cache.jsonl")
+    if container.exists():
+        return container
+    return settings.root_dir.parent / "outputs" / "sentiment_cache.jsonl"
 
 
 def _load_sentiment_series() -> pd.Series:
@@ -52,7 +59,7 @@ def _load_sentiment_series() -> pd.Series:
     entry per date wins. Missing file or empty cache returns an empty Series
     so callers fillna(0) cleanly and historical bars remain usable.
     """
-    path = Path(SENTIMENT_CACHE_PATH)
+    path = _sentiment_cache_path()
     if not path.exists():
         logger.info("sentiment cache not mounted at %s — feature will be zeros", path)
         return pd.Series(dtype=float, name="sent_score")
@@ -169,7 +176,8 @@ def build_feature_matrix(
         / (feat["sent_score"].rolling(10, min_periods=3).std() + 1e-9)
     ).fillna(0.0)
 
-    feat["y_next_dir"] = (feat["Close"].shift(-1) > feat["Close"]).astype(int)
+    feat["y_next_ret"] = feat["Close"].shift(-1) / feat["Close"] - 1.0
+    feat["y_next_dir"] = (feat["y_next_ret"] > 0).astype(int)
     feat = feat.dropna().copy()
 
     cache_path = settings.data_dir / CACHE_NAME
