@@ -148,6 +148,131 @@
       font-size: .7rem; color: #64748b; margin-left: .5rem;
     }
     .status-msg.err { color: #dc2626; }
+
+    /* ── sector section ──────────────────────────────────────────────── */
+    .sector-section { margin-bottom: 1.25rem; }
+    .sector-head {
+      display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+      padding: .75rem 1rem; background: #fff; border: 1px solid #e2e8f0;
+      border-radius: 10px 10px 0 0; border-bottom: none;
+      cursor: pointer; user-select: none;
+    }
+    .sector-head:hover { background: #f8fafc; }
+    .sector-section.collapsed .sector-head { border-radius: 10px; border-bottom: 1px solid #e2e8f0; }
+    .sector-section.collapsed .sector-body { display: none; }
+    .sector-head .chevron {
+      font-size: .75rem; color: #64748b; transition: transform .15s;
+      width: 12px; text-align: center;
+    }
+    .sector-section.collapsed .sector-head .chevron { transform: rotate(-90deg); }
+    .sector-name { font-size: .95rem; font-weight: 800; color: #0f172a; letter-spacing: -.01em; }
+    .sector-count { font-size: .7rem; color: #64748b; }
+    .sector-tally { display: flex; gap: .5rem; margin-left: auto; flex-wrap: wrap; }
+    .tally {
+      font-size: .6rem; font-weight: 700; padding: .15rem .5rem; border-radius: 999px;
+      letter-spacing: .05em; text-transform: uppercase;
+    }
+    .tally.bull { background: #dcfce7; color: #166534; }
+    .tally.bear { background: #fee2e2; color: #991b1b; }
+    .tally.flat { background: #f1f5f9; color: #475569; }
+    .tally.scan { background: #e0e7ff; color: #3730a3; }
+    .tally.zero { background: #f8fafc; color: #94a3b8; }
+
+    .sector-body {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 0 0 10px 10px;
+      padding: .75rem; padding-top: .25rem;
+    }
+
+    .tile { padding: .65rem .8rem; }
+    .tile.unscanned {
+      opacity: .55; background: #f8fafc;
+    }
+    .tile.unscanned::before { background: #cbd5e1; }
+    .tile .industry {
+      font-size: .56rem; color: #64748b; margin-top: .15rem;
+      background: #f1f5f9; display: inline-block; padding: .05rem .35rem; border-radius: 3px;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .tile .no-data {
+      font-size: .65rem; color: #94a3b8; font-style: italic; margin-top: .4rem;
+    }
+
+    /* bigger grid now — more tiles per row */
+    .grid { grid-template-columns: repeat(5, 1fr); }
+    @media (max-width: 1400px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 1100px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 800px)  { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px)  { .grid { grid-template-columns: 1fr; } }
+
+    /* ── clickable summary card ──────────────────────────────────────── */
+    .summary-card[data-modal] { cursor: pointer; transition: transform .08s, box-shadow .1s; }
+    .summary-card[data-modal]:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,.08);
+      border-color: #94a3b8;
+    }
+    .summary-card .hint {
+      font-size: .55rem; color: #94a3b8; margin-top: .25rem;
+      text-transform: uppercase; letter-spacing: .06em;
+    }
+
+    /* ── modal ──────────────────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(15,23,42,.6);
+      display: none; align-items: center; justify-content: center;
+      z-index: 1000; padding: 1.5rem;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: #fff; border-radius: 12px; max-width: 720px; width: 100%;
+      max-height: 85vh; display: flex; flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,.4); overflow: hidden;
+    }
+    .modal-head {
+      padding: 1rem 1.25rem; border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    }
+    .modal-title { font-size: 1rem; font-weight: 800; color: #0f172a; }
+    .modal-sub   { font-size: .7rem; color: #64748b; margin-top: .15rem; }
+    .modal-close {
+      background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px;
+      width: 28px; height: 28px; cursor: pointer; font-size: 1rem; line-height: 1;
+      color: #64748b;
+    }
+    .modal-close:hover { background: #e2e8f0; color: #0f172a; }
+    .modal-body {
+      overflow-y: auto; padding: .5rem .75rem 1rem .75rem;
+    }
+    .modal-toolbar {
+      padding: .5rem .75rem; display: flex; gap: .5rem; flex-wrap: wrap;
+      border-bottom: 1px solid #f1f5f9; align-items: center;
+    }
+    .modal-search {
+      flex: 1; min-width: 160px; padding: .35rem .55rem; border: 1px solid #cbd5e1;
+      border-radius: 6px; font-size: .8rem;
+    }
+    .sort-btn {
+      padding: .3rem .6rem; font-size: .65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .05em;
+      background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px;
+      cursor: pointer; color: #475569;
+    }
+    .sort-btn.active { background: #fbbf24; border-color: #fbbf24; color: #0f172a; }
+    .modal-row {
+      display: grid; grid-template-columns: 70px 1fr auto auto auto;
+      gap: .75rem; align-items: center;
+      padding: .55rem .6rem; border-bottom: 1px solid #f1f5f9;
+      text-decoration: none; color: inherit; font-size: .8rem;
+    }
+    .modal-row:hover { background: #f8fafc; }
+    .modal-row .mtkr { font-weight: 800; color: #0f172a; }
+    .modal-row .mname { font-size: .7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .modal-row .mscore { font-weight: 700; min-width: 30px; text-align: right; }
+    .modal-row .mscore.pos { color: #16a34a; }
+    .modal-row .mscore.neg { color: #dc2626; }
+    .modal-row .mml { font-size: .65rem; color: #64748b; min-width: 50px; text-align: right; }
+    .modal-row .mhidden { display: none; }
+    .modal-empty { padding: 2rem; text-align: center; color: #94a3b8; font-size: .85rem; }
   </style>
 </head>
 <body>
@@ -155,7 +280,7 @@
 <header>
   <div class="logo">
     Stock<span class="logo-gold">Sentiment</span>Engine
-    <span class="logo-sub">Top 20 · Aggregated</span>
+    <span class="logo-sub">S&P 500 · Sector View</span>
   </div>
   <nav class="main-nav">
     <a class="nav-tab" href="/">Gold Bias</a>
@@ -163,6 +288,7 @@
     <a class="nav-tab" href="/autoresearch">AutoResearch</a>
     <span class="nav-sep"></span>
     <a class="nav-tab active" href="/stocks/overview">Overview</a>
+    <a class="nav-tab" href="/stocks/aggregate">Trader Desk</a>
     <a class="nav-tab" href="/stocks/explorer">Explorer</a>
   </nav>
   <div>
@@ -191,92 +317,263 @@
     </div>
 
     <div class="summary-grid">
-      <div class="summary-card">
+      <div class="summary-card" data-modal="bullish">
         <div class="label">Bullish</div>
         <div class="val pos">{{ ms.bullish_count }}</div>
         <div class="sub">BUY / STRONG_BUY</div>
+        <div class="hint">click to list</div>
       </div>
-      <div class="summary-card">
+      <div class="summary-card" data-modal="bearish">
         <div class="label">Bearish</div>
         <div class="val neg">{{ ms.bearish_count }}</div>
         <div class="sub">SELL / STRONG_SELL</div>
+        <div class="hint">click to list</div>
       </div>
-      <div class="summary-card">
+      <div class="summary-card" data-modal="neutral">
         <div class="label">Neutral</div>
         <div class="val neu">{{ ms.neutral_count }}</div>
         <div class="sub">HOLD</div>
+        <div class="hint">click to list</div>
       </div>
-      <div class="summary-card">
-        <div class="label">Strongest Bull</div>
-        <div class="val pos">{{ ms.strongest_bullish or "—" }}</div>
-        <div class="sub">highest total score</div>
-      </div>
-      <div class="summary-card">
-        <div class="label">Strongest Bear</div>
-        <div class="val neg">{{ ms.strongest_bearish or "—" }}</div>
-        <div class="sub">lowest total score</div>
-      </div>
-      <div class="summary-card">
+      {% if ms.strongest_bullish %}
+        <a class="summary-card" href="/stocks/explorer?ticker={{ ms.strongest_bullish }}" style="text-decoration:none;color:inherit;display:block;">
+          <div class="label">Strongest Bull</div>
+          <div class="val pos">{{ ms.strongest_bullish }}</div>
+          <div class="sub">highest total score</div>
+          <div class="hint">click to open</div>
+        </a>
+      {% else %}
+        <div class="summary-card"><div class="label">Strongest Bull</div><div class="val pos">—</div><div class="sub">highest total score</div></div>
+      {% endif %}
+      {% if ms.strongest_bearish %}
+        <a class="summary-card" href="/stocks/explorer?ticker={{ ms.strongest_bearish }}" style="text-decoration:none;color:inherit;display:block;">
+          <div class="label">Strongest Bear</div>
+          <div class="val neg">{{ ms.strongest_bearish }}</div>
+          <div class="sub">lowest total score</div>
+          <div class="hint">click to open</div>
+        </a>
+      {% else %}
+        <div class="summary-card"><div class="label">Strongest Bear</div><div class="val neg">—</div><div class="sub">lowest total score</div></div>
+      {% endif %}
+      <div class="summary-card" data-modal="sentiment">
         <div class="label">Avg Sentiment</div>
         <div class="val {% if ms.average_sentiment and ms.average_sentiment > 0.05 %}pos{% elif ms.average_sentiment and ms.average_sentiment < -0.05 %}neg{% else %}neu{% endif %}">
           {% if ms.average_sentiment is not none %}{{ '%+.3f'|format(ms.average_sentiment) }}{% else %}—{% endif %}
         </div>
         <div class="sub">across universe</div>
+        <div class="hint">click for distribution</div>
       </div>
     </div>
 
-    <div class="grid">
-      {% for row in overview.stocks %}
-        {% set signal = row.signal or 'HOLD' %}
-        {% set cls = 'pos' if signal in ['BUY','STRONG_BUY'] else 'neg' if signal in ['SELL','STRONG_SELL'] else '' %}
-        {% if row.error %}{% set cls = 'err' %}{% endif %}
-        {% set pill_cls = {'BUY':'buy','STRONG_BUY':'strong-buy','SELL':'sell','STRONG_SELL':'strong-sell'}.get(signal, '') %}
-        {% set conf_cls = (row.confidence or 'low')|lower %}
-        <a class="tile {{ cls }}" href="/stocks/explorer?ticker={{ row.ticker }}">
-          <div class="tile-head">
-            <div class="tkr">{{ row.ticker }}</div>
-            <span class="signal-pill {{ pill_cls }}">{{ signal }}</span>
-          </div>
-          <div class="name">{{ row.company_name }}</div>
-          <div class="sector">{{ row.sector or '' }}</div>
-          <div class="tile-row">
-            <span class="price">{% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</span>
-            <span class="day {% if row.return_5d_pct and row.return_5d_pct > 0 %}pos{% elif row.return_5d_pct and row.return_5d_pct < 0 %}neg{% else %}neu{% endif %}">
-              {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}% 5d{% else %}—{% endif %}
-            </span>
-          </div>
-          <div class="meta-line">
-            <span class="conf-pill {{ conf_cls }}">{{ row.confidence or 'LOW' }}</span>
-            <span>sent: {{ row.sentiment_label or 'neutral' }}</span>
-            <span>n={{ row.article_count or 0 }}</span>
-            <span>score: {{ row.total_score if row.total_score is not none else '—' }}</span>
-            {% if row.ml_prob_up is not none %}
-              {% set ml_cls = 'up' if row.ml_prob_up >= 0.55 else 'dn' if row.ml_prob_up <= 0.45 else 'neu' %}
-              <span class="ml-pill {{ ml_cls }}" title="ML prob(up) — {{ row.ml_source }}">
-                ML {{ '%.0f'|format(row.ml_prob_up * 100) }}%{% if row.ml_source == 'hybrid' %}<sup>H</sup>{% endif %}
-              </span>
+  {% endif %}
+
+  {% if sectors %}
+    {% for sec in sectors %}
+      {% set start_open = sec.scanned > 0 %}
+      <section class="sector-section {% if not start_open %}collapsed{% endif %}" data-sector="{{ sec.sector }}">
+        <div class="sector-head">
+          <span class="chevron">▼</span>
+          <span class="sector-name">{{ sec.sector }}</span>
+          <span class="sector-count">{{ sec.count }} tickers</span>
+          <div class="sector-tally">
+            {% if sec.scanned > 0 %}
+              <span class="tally scan">scanned {{ sec.scanned }}/{{ sec.count }}</span>
+              <span class="tally {% if sec.bullish %}bull{% else %}zero{% endif %}">bull {{ sec.bullish }}</span>
+              <span class="tally {% if sec.bearish %}bear{% else %}zero{% endif %}">bear {{ sec.bearish }}</span>
+              <span class="tally {% if sec.neutral %}flat{% else %}zero{% endif %}">hold {{ sec.neutral }}</span>
+            {% else %}
+              <span class="tally zero">not scanned</span>
             {% endif %}
           </div>
-          {% if row.error %}<div class="meta-line" style="color:#dc2626;">error: {{ row.error[:80] }}</div>{% endif %}
-        </a>
-      {% endfor %}
-    </div>
-
+        </div>
+        <div class="sector-body">
+          <div class="grid">
+            {% for t in sec.tiles %}
+              {% set signal = t.signal or 'HOLD' %}
+              {% set cls = 'pos' if signal in ['BUY','STRONG_BUY'] else 'neg' if signal in ['SELL','STRONG_SELL'] else '' %}
+              {% if t.error %}{% set cls = 'err' %}{% endif %}
+              {% set pill_cls = {'BUY':'buy','STRONG_BUY':'strong-buy','SELL':'sell','STRONG_SELL':'strong-sell'}.get(signal, '') %}
+              {% set conf_cls = (t.confidence or 'low')|lower %}
+              <a class="tile {{ cls }} {% if not t.scanned %}unscanned{% endif %}" href="/stocks/explorer?ticker={{ t.ticker }}">
+                <div class="tile-head">
+                  <div class="tkr">{{ t.ticker }}</div>
+                  {% if t.scanned %}
+                    <span class="signal-pill {{ pill_cls }}">{{ signal }}</span>
+                  {% endif %}
+                </div>
+                <div class="name" title="{{ t.name }}">{{ t.name }}</div>
+                <div class="industry" title="{{ t.industry }}">{{ t.industry }}</div>
+                {% if t.scanned %}
+                  <div class="tile-row">
+                    <span class="price">{% if t.price is not none %}${{ '%.2f'|format(t.price) }}{% else %}—{% endif %}</span>
+                    <span class="day {% if t.return_5d_pct and t.return_5d_pct > 0 %}pos{% elif t.return_5d_pct and t.return_5d_pct < 0 %}neg{% else %}neu{% endif %}">
+                      {% if t.return_5d_pct is not none %}{{ '%+.2f'|format(t.return_5d_pct) }}% 5d{% else %}—{% endif %}
+                    </span>
+                  </div>
+                  <div class="meta-line">
+                    <span class="conf-pill {{ conf_cls }}">{{ t.confidence or 'LOW' }}</span>
+                    <span>sent: {{ t.sentiment_label or 'neutral' }}</span>
+                    <span>score: {{ t.total_score if t.total_score is not none else '—' }}</span>
+                    {% if t.ml_prob_up is not none %}
+                      {% set ml_cls = 'up' if t.ml_prob_up >= 0.55 else 'dn' if t.ml_prob_up <= 0.45 else 'neu' %}
+                      <span class="ml-pill {{ ml_cls }}" title="ML prob(up) — {{ t.ml_source }}">
+                        ML {{ '%.0f'|format(t.ml_prob_up * 100) }}%{% if t.ml_source == 'hybrid' %}<sup>H</sup>{% endif %}
+                      </span>
+                    {% endif %}
+                  </div>
+                  {% if t.error %}<div class="meta-line" style="color:#dc2626;">error: {{ t.error[:80] }}</div>{% endif %}
+                {% else %}
+                  <div class="no-data">not scanned yet</div>
+                {% endif %}
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+    {% endfor %}
   {% else %}
     <div class="empty">
-      <h2>No scan yet</h2>
-      <p>Run the stock sentiment scanner first:</p>
-      <p style="margin-top: .75rem;"><code>python main.py --stocks</code></p>
-      <p style="margin-top: .75rem;">or hit the <strong>Run Scan</strong> button above (takes ~2 minutes).</p>
+      <h2>No universe loaded</h2>
+      <p>Check <code>stocks/stock_universe.py</code>.</p>
     </div>
   {% endif %}
 
 </div>
 
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="modal-title">—</div>
+        <div class="modal-sub" id="modal-sub"></div>
+      </div>
+      <button class="modal-close" id="modal-close" aria-label="Close">×</button>
+    </div>
+    <div class="modal-toolbar">
+      <input id="modal-search" class="modal-search" type="text" placeholder="Filter ticker / company…" autocomplete="off">
+      <button class="sort-btn active" data-sort="score">Sort: Score</button>
+      <button class="sort-btn" data-sort="sent">Sentiment</button>
+      <button class="sort-btn" data-sort="ml">ML Prob</button>
+      <button class="sort-btn" data-sort="ticker">A–Z</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script id="overview-data" type="application/json">
+{{ overview.stocks | tojson }}
+</script>
+
 <script>
   (function () {
     const runBtn = document.getElementById("run-btn");
     const status = document.getElementById("status-msg");
+
+    // Sector collapse/expand
+    document.querySelectorAll(".sector-head").forEach(h => {
+      h.addEventListener("click", () => {
+        h.parentElement.classList.toggle("collapsed");
+      });
+    });
+
+    // ── Modal ─────────────────────────────────────────────────────────
+    const dataEl = document.getElementById("overview-data");
+    const ALL = dataEl ? JSON.parse(dataEl.textContent) : [];
+    const backdrop = document.getElementById("modal-backdrop");
+    const body     = document.getElementById("modal-body");
+    const title    = document.getElementById("modal-title");
+    const sub      = document.getElementById("modal-sub");
+    const search   = document.getElementById("modal-search");
+    const sortBtns = document.querySelectorAll(".sort-btn");
+
+    let activeKind = null;
+    let currentRows = [];
+    let currentSort = "score";
+
+    const KIND = {
+      bullish:  { title: "Bullish — BUY / STRONG_BUY", filter: r => ["BUY","STRONG_BUY"].includes(r.signal) },
+      bearish:  { title: "Bearish — SELL / STRONG_SELL", filter: r => ["SELL","STRONG_SELL"].includes(r.signal) },
+      neutral:  { title: "Neutral — HOLD",               filter: r => r.signal === "HOLD" },
+      sentiment:{ title: "Sentiment Distribution",       filter: r => r.sentiment_score !== null && r.sentiment_score !== undefined },
+    };
+
+    function pillClass(sig) {
+      return ({BUY:"buy", STRONG_BUY:"strong-buy", SELL:"sell", STRONG_SELL:"strong-sell"}[sig]) || "";
+    }
+    function fmtScore(v) {
+      if (v === null || v === undefined) return "—";
+      return (v >= 0 ? "+" : "") + v;
+    }
+    function fmtSent(v) {
+      if (v === null || v === undefined) return "—";
+      return (v >= 0 ? "+" : "") + v.toFixed(3);
+    }
+    function fmtMl(v) {
+      if (v === null || v === undefined) return "—";
+      return (v * 100).toFixed(0) + "%";
+    }
+
+    function sortRows(rows, key) {
+      const sorted = rows.slice();
+      if (key === "score")  sorted.sort((a,b) => (b.total_score ?? -999) - (a.total_score ?? -999));
+      if (key === "sent")   sorted.sort((a,b) => (b.sentiment_score ?? -999) - (a.sentiment_score ?? -999));
+      if (key === "ml")     sorted.sort((a,b) => (b.ml_prob_up ?? -1) - (a.ml_prob_up ?? -1));
+      if (key === "ticker") sorted.sort((a,b) => (a.ticker || "").localeCompare(b.ticker || ""));
+      return sorted;
+    }
+
+    function render() {
+      const q = (search.value || "").trim().toLowerCase();
+      const filtered = currentRows.filter(r => {
+        if (!q) return true;
+        const t = (r.ticker || "").toLowerCase();
+        const n = (r.company_name || "").toLowerCase();
+        return t.includes(q) || n.includes(q);
+      });
+      const sorted = sortRows(filtered, currentSort);
+      if (!sorted.length) { body.innerHTML = '<div class="modal-empty">No matches.</div>'; return; }
+      body.innerHTML = sorted.map(r => {
+        const sCls = (r.total_score ?? 0) > 0 ? "pos" : (r.total_score ?? 0) < 0 ? "neg" : "";
+        return `
+          <a class="modal-row" href="/stocks/explorer?ticker=${encodeURIComponent(r.ticker)}">
+            <span class="mtkr">${r.ticker}</span>
+            <span class="mname" title="${(r.company_name||'').replace(/"/g,'&quot;')}">${r.company_name || ''}</span>
+            <span class="mscore ${sCls}">${fmtScore(r.total_score)}</span>
+            <span class="mml" title="sentiment ${fmtSent(r.sentiment_score)}">sent ${fmtSent(r.sentiment_score)}</span>
+            <span class="mml" title="ML prob(up)">ML ${fmtMl(r.ml_prob_up)}</span>
+          </a>`;
+      }).join("");
+    }
+
+    function openModal(kind) {
+      const cfg = KIND[kind];
+      if (!cfg) return;
+      activeKind = kind;
+      const rows = ALL.filter(cfg.filter);
+      currentRows = rows;
+      title.textContent = cfg.title;
+      sub.textContent = `${rows.length} of ${ALL.length} tickers`;
+      currentSort = (kind === "sentiment") ? "sent" : "score";
+      sortBtns.forEach(b => b.classList.toggle("active", b.dataset.sort === currentSort));
+      search.value = "";
+      render();
+      backdrop.classList.add("open");
+    }
+
+    function closeModal() { backdrop.classList.remove("open"); activeKind = null; }
+
+    document.querySelectorAll(".summary-card[data-modal]").forEach(c => {
+      c.addEventListener("click", () => openModal(c.dataset.modal));
+    });
+    document.getElementById("modal-close").addEventListener("click", closeModal);
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) closeModal(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+    search.addEventListener("input", render);
+    sortBtns.forEach(b => b.addEventListener("click", () => {
+      currentSort = b.dataset.sort;
+      sortBtns.forEach(x => x.classList.toggle("active", x === b));
+      render();
+    }));
 
     runBtn.addEventListener("click", async () => {
       runBtn.disabled = true;

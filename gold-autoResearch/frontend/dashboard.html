@@ -176,6 +176,38 @@
     text-align: center;
   }
 
+  /* ── Live signal card ── */
+  .signal-card { margin-bottom: 1.25rem; }
+  .signal-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 1rem; margin-bottom: .85rem;
+  }
+  .signal-head h2 { margin: 0; }
+  .signal-sub { color: var(--text-faint); font-size: .76rem; }
+  .signal-body { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .signal-badge {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 1.6rem; font-weight: 700; letter-spacing: .12em;
+    padding: .55rem 1.1rem; border-radius: 10px;
+    border: 1px solid currentColor;
+  }
+  .signal-badge.LONG  { color: var(--ok);  background: rgba(34,197,94,.08); }
+  .signal-badge.SHORT { color: var(--err); background: rgba(239,68,68,.08); }
+  .signal-meta { display: flex; flex-direction: column; gap: .2rem; font-size: .82rem; }
+  .signal-meta .row { color: var(--text-dim); }
+  .signal-meta .row b { color: var(--text); font-family: "JetBrains Mono", monospace; }
+  .signal-bar {
+    flex: 1 1 220px; min-width: 220px;
+    height: 10px; border-radius: 6px;
+    background: linear-gradient(90deg, rgba(239,68,68,.18) 0%, rgba(148,163,184,.12) 50%, rgba(34,197,94,.18) 100%);
+    position: relative;
+  }
+  .signal-bar::after {
+    content: ""; position: absolute; top: -3px; bottom: -3px;
+    width: 3px; background: var(--text); border-radius: 2px;
+    left: calc(var(--p, 50) * 1%); transform: translateX(-50%);
+  }
+
   /* ── Gate explainer ── */
   .gate-rules {
     display: flex; flex-direction: column; gap: .5rem; margin-top: .25rem;
@@ -537,6 +569,17 @@
   </div>
 </section>
 
+<!-- Live next-day signal from production model -->
+<div class="card signal-card" id="signalCard">
+  <div class="signal-head">
+    <h2>Next-Day Signal</h2>
+    <span class="signal-sub" id="signalSub">production model · awaiting first run</span>
+  </div>
+  <div class="signal-body" id="signalBody">
+    <div class="empty">No production model — promote a candidate to surface a live signal.</div>
+  </div>
+</div>
+
 <div class="two">
   <!-- Production + chart -->
   <div class="card chart-card">
@@ -792,6 +835,28 @@ function renderBlockReason(cand) {
   return `<div class="reason"><strong>Blocked:</strong> ${fails.join(" · ")}</div>`;
 }
 
+function renderSignal(s) {
+  const sub = $("signalSub");
+  const body = $("signalBody");
+  if (!s) {
+    sub.textContent = "production model · awaiting first run";
+    body.innerHTML = '<div class="empty">No live signal — promote a candidate first.</div>';
+    return;
+  }
+  const dir = s.direction === "LONG" ? "LONG" : "SHORT";
+  const pct = Math.round(s.proba_up * 100);
+  const asof = s.asof ? new Date(s.asof).toLocaleDateString() : "—";
+  sub.textContent = `production model · features as of ${esc(asof)}`;
+  body.innerHTML = `
+    <div class="signal-badge ${dir}">${dir}</div>
+    <div class="signal-meta">
+      <span class="row">P(up) <b>${pct}%</b></span>
+      <span class="row">model <b>${esc(s.model_version)}</b></span>
+    </div>
+    <div class="signal-bar" style="--p:${pct}"></div>
+  `;
+}
+
 function renderProduction(p) {
   if (!p) {
     return '<div class="empty">No model promoted yet — every candidate gated out by the guard-rails.</div>';
@@ -968,6 +1033,22 @@ async function tick() {
 
 tick();
 setInterval(tick, POLL_MS);
+
+// ── Live next-day signal poller (own endpoint, isolated failures) ──
+const SIGNAL_URL = "http://localhost:8000/api/research/signal";
+
+async function tickSignal() {
+  try {
+    const r = await fetch(SIGNAL_URL, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+    renderSignal(s && s.direction ? s : null);
+  } catch {
+    renderSignal(null);
+  }
+}
+tickSignal();
+setInterval(tickSignal, POLL_MS);
 
 // ── Webhook hits poller ──
 const WH_URL = "http://localhost:5001/api/tv_webhook/recent";

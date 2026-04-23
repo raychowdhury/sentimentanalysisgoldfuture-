@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trader Desk — S&P 500 Next Session</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f1f5f9; color: #1e293b; font-size: 13px; line-height: 1.5;
+    }
+    header {
+      background: #0f172a; color: #fff; padding: 0 1.5rem; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 200;
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+    }
+    .logo { font-size: 1rem; font-weight: 700; }
+    .logo-gold { color: #fbbf24; }
+    .logo-sub  { font-size: .75rem; color: #94a3b8; margin-left: .5rem; font-weight: 400; }
+    .main-nav { display: flex; gap: .25rem; align-items: center; }
+    .nav-tab {
+      color: #cbd5e1; text-decoration: none; padding: .35rem .75rem;
+      border-radius: 6px; font-size: .85rem;
+    }
+    .nav-tab:hover { background: #1e293b; color: #fff; }
+    .nav-tab.active { background: #fbbf24; color: #0f172a; font-weight: 600; }
+    .nav-sep { width: 1px; height: 20px; background: #334155; margin: 0 .5rem; }
+    .wrap { max-width: 1500px; margin: 0 auto; padding: 1rem 1.5rem; }
+    .card { background: #fff; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    h2 { font-size: .95rem; margin-bottom: .75rem; color: #0f172a;
+         text-transform: uppercase; letter-spacing: .05em; }
+    /* Lean banner */
+    .banner-row { display: grid; grid-template-columns: auto 1fr; gap: 1.5rem; align-items: center; }
+    .lean-pill { font-size: 2.2rem; font-weight: 800; padding: .4rem 1.5rem;
+                 border-radius: 12px; letter-spacing: .05em; text-align: center; }
+    .lean-LONG    { background: #dcfce7; color: #166534; }
+    .lean-SHORT   { background: #fee2e2; color: #991b1b; }
+    .lean-NEUTRAL { background: #e2e8f0; color: #334155; }
+    /* Composite score */
+    .composite-card { display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; }
+    .composite-pill { text-align: center; padding: 1rem; border-radius: 10px; }
+    .composite-pill .score-num { font-size: 3rem; font-weight: 900; line-height: 1; }
+    .composite-pill .bias { font-size: 1.1rem; font-weight: 700; letter-spacing: .05em;
+                            margin-top: .35rem; text-transform: uppercase; }
+    .composite-pill .conf-tier { display: inline-block; margin-top: .5rem;
+                                 padding: .2rem .7rem; border-radius: 999px;
+                                 font-size: .7rem; font-weight: 700; letter-spacing: .05em; }
+    .composite-pill.bias-STRONG-LONG  { background: #bbf7d0; color: #14532d; }
+    .composite-pill.bias-LONG         { background: #dcfce7; color: #166534; }
+    .composite-pill.bias-NEUTRAL      { background: #e2e8f0; color: #334155; }
+    .composite-pill.bias-SHORT        { background: #fee2e2; color: #991b1b; }
+    .composite-pill.bias-STRONG-SHORT { background: #fecaca; color: #7f1d1d; }
+    .conf-HIGH   { background: #fbbf24; color: #0f172a; }
+    .conf-MEDIUM { background: #fde68a; color: #78350f; }
+    .conf-LOW    { background: #fef2f2; color: #7f1d1d; border: 1px solid #fca5a5; }
+    .components { display: flex; flex-direction: column; gap: .35rem; }
+    .comp-row { display: grid; grid-template-columns: 130px 1fr 80px 50px; gap: .5rem;
+                align-items: center; font-size: .8rem; }
+    .comp-row .lbl { color: #475569; font-weight: 600; text-transform: uppercase;
+                     letter-spacing: .04em; font-size: .7rem; }
+    .comp-row .bar-track { background: #f1f5f9; height: 12px; border-radius: 6px;
+                           position: relative; overflow: hidden; }
+    .comp-row .bar-track::after { content:''; position:absolute; left:50%; top:0; bottom:0;
+                                  width:1px; background:#94a3b8; }
+    .comp-row .bar-fill { position: absolute; top:0; bottom:0; }
+    .comp-row .bar-fill.pos { background: #16a34a; left: 50%; }
+    .comp-row .bar-fill.neg { background: #dc2626; right: 50%; }
+    .comp-row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .comp-row .val.pos { color: #15803d; }
+    .comp-row .val.neg { color: #b91c1c; }
+    .comp-row .wt { text-align: right; color: #64748b; font-size: .7rem; }
+    .comp-notes { font-size: .75rem; color: #b91c1c; margin-top: .5rem; font-style: italic; }
+    .macro-strip { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .75rem;
+                   font-size: .75rem; color: #475569; }
+    .macro-strip span { background: #f1f5f9; padding: .2rem .6rem; border-radius: 4px; }
+    .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: .75rem; }
+    .stat { background: #f8fafc; padding: .55rem .75rem; border-radius: 6px; }
+    .stat-label { font-size: .65rem; color: #64748b; text-transform: uppercase;
+                  letter-spacing: .05em; }
+    .stat-value { font-size: 1.15rem; font-weight: 700; color: #0f172a; }
+    .meta { font-size: .75rem; color: #64748b; margin-top: .5rem; }
+    code { background: #f1f5f9; padding: .15rem .4rem; border-radius: 4px;
+           font-family: 'SF Mono', Menlo, monospace; font-size: .75rem; }
+    /* Risk allocator */
+    .risk-row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+    .risk-row label { font-size: .75rem; color: #475569; text-transform: uppercase;
+                      letter-spacing: .05em; font-weight: 600; }
+    .risk-row input[type=number] { width: 110px; padding: .35rem .5rem;
+                  border: 1px solid #cbd5e1; border-radius: 6px; font-size: .9rem; }
+    .risk-row .hint { font-size: .75rem; color: #64748b; }
+    /* Trade plan tables */
+    .desk { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+    table.trade { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    table.trade th { text-align: left; padding: .35rem .5rem; background: #f1f5f9;
+         color: #475569; font-weight: 600; font-size: .65rem;
+         text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #e2e8f0; }
+    table.trade th.num, table.trade td.num { text-align: right; }
+    table.trade td { padding: .4rem .5rem; border-top: 1px solid #f1f5f9; vertical-align: middle; }
+    table.trade tr:hover td { background: #f8fafc; }
+    .ticker-cell a { color: #1e40af; text-decoration: none; font-weight: 700; font-size: .9rem; }
+    .ticker-cell a:hover { text-decoration: underline; }
+    .ticker-cell .co { display: block; font-size: .65rem; color: #64748b;
+                       max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { font-size: .6rem; padding: .1rem .35rem; border-radius: 3px;
+             text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+    .b-pooled   { background: #e0e7ff; color: #3730a3; }
+    .b-residual { background: #fef3c7; color: #854d0e; }
+    .b-pos { background: #dcfce7; color: #166534; }
+    .b-neg { background: #fee2e2; color: #991b1b; }
+    .b-neu { background: #e2e8f0; color: #475569; }
+    .sig-STRONG_BUY  { color: #15803d; font-weight: 700; }
+    .sig-BUY         { color: #16a34a; font-weight: 600; }
+    .sig-HOLD        { color: #64748b; }
+    .sig-SELL        { color: #dc2626; font-weight: 600; }
+    .sig-STRONG_SELL { color: #991b1b; font-weight: 700; }
+    .num.up   { color: #15803d; font-weight: 600; }
+    .num.down { color: #b91c1c; font-weight: 600; }
+    .conflict { background: #fef2f2; color: #991b1b; font-size: .65rem;
+                padding: .1rem .35rem; border-radius: 3px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: .04em; }
+    .price-key { font-weight: 700; color: #0f172a; }
+    .stop  { color: #dc2626; }
+    .tp    { color: #15803d; }
+    /* Sector panel */
+    .sector-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .5rem; }
+    .sec-card { background: #f8fafc; padding: .5rem .75rem; border-radius: 6px;
+                border-left: 4px solid #cbd5e1; }
+    .sec-card.long  { border-left-color: #16a34a; }
+    .sec-card.short { border-left-color: #dc2626; }
+    .sec-name { font-size: .75rem; font-weight: 700; color: #0f172a; }
+    .sec-stats { font-size: .7rem; color: #64748b; margin-top: .15rem; }
+    .sec-bar { height: 4px; background: #e2e8f0; border-radius: 2px; margin-top: .3rem;
+               overflow: hidden; display: flex; }
+    .sec-bar .up   { background: #16a34a; }
+    .sec-bar .down { background: #dc2626; }
+    .empty { padding: 2rem; text-align: center; color: #64748b; }
+    .legend { font-size: .7rem; color: #64748b; margin-top: .5rem; }
+    /* Stale + warning banners */
+    .stale-banner, .warning-banner {
+      padding: .6rem 1rem; border-radius: 6px; font-size: .8rem;
+      margin-bottom: 1rem; display: flex; align-items: center; gap: .5rem;
+    }
+    .stale-banner.fresh   { background: #dcfce7; color: #166534; }
+    .stale-banner.stale   { background: #fee2e2; color: #991b1b; }
+    .stale-banner.warn    { background: #fef3c7; color: #854d0e; }
+    .warning-banner       { background: #fef3c7; color: #854d0e; }
+    /* Refresh */
+    .refresh-btn {
+      background: #fbbf24; color: #0f172a; border: 0; padding: .35rem .9rem;
+      border-radius: 6px; font-weight: 700; font-size: .8rem; cursor: pointer;
+    }
+    .refresh-btn:disabled { opacity: .6; cursor: wait; }
+    .refresh-status { font-size: .75rem; color: #94a3b8; margin-left: .5rem; }
+    /* Action badges + HTB */
+    .act-TAKE     { background: #dcfce7; color: #166534; }
+    .act-DOWNSIZE { background: #fef3c7; color: #854d0e; }
+    .act-SKIP     { background: #fee2e2; color: #991b1b; }
+    .htb-flag {
+      background: #fee2e2; color: #991b1b; padding: .1rem .35rem;
+      border-radius: 3px; font-size: .65rem; font-weight: 700;
+      letter-spacing: .04em; margin-left: .25rem;
+    }
+    /* Portfolio risk cap */
+    .risk-summary {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem;
+      margin-top: .75rem;
+    }
+    .risk-summary .stat { background: #f1f5f9; padding: .5rem .75rem; border-radius: 6px; }
+    .risk-summary .stat.warn { background: #fef3c7; }
+    .risk-summary .stat.danger { background: #fee2e2; color: #991b1b; }
+    /* Sector cluster panel */
+    .cluster-warn { font-size: .75rem; color: #b45309; margin-top: .35rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    Stock<span class="logo-gold">Sentiment</span>Engine
+    <span class="logo-sub">Trader Desk · Next Session</span>
+  </div>
+  <nav class="main-nav">
+    <a class="nav-tab" href="/">Gold Bias</a>
+    <a class="nav-tab active" href="/stocks/overview">Stocks</a>
+    <a class="nav-tab" href="/autoresearch">AutoResearch</a>
+    <span class="nav-sep"></span>
+    <a class="nav-tab" href="/stocks/overview">Overview</a>
+    <a class="nav-tab active" href="/stocks/aggregate">Trader Desk</a>
+    <a class="nav-tab" href="/stocks/explorer">Explorer</a>
+  </nav>
+  <div></div>
+</header>
+
+<div class="wrap">
+
+  {% if not aggregate %}
+    <div class="card empty">
+      No aggregate snapshot yet. Click <strong>Refresh Now</strong> below or run:
+      <br><br>
+      <code>cd stocks-autoResearch && python predict_next_session.py</code>
+      <br><br>
+      <button class="refresh-btn" id="refresh-btn">Refresh Now</button>
+      <span class="refresh-status" id="refresh-status"></span>
+    </div>
+  {% else %}
+
+    <!-- ── Staleness + market-hours banners ── -->
+    <div id="stale-banner" class="stale-banner"
+         data-asof="{{ aggregate.asof_close }}">
+      Computing freshness…
+    </div>
+    {% if aggregate.market_warning %}
+    <div class="warning-banner">⚠ {{ aggregate.market_warning }}</div>
+    {% endif %}
+
+    <!-- ── Refresh ── -->
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;">
+      <div style="font-size:.85rem;color:#475569;">
+        Snapshot generated {{ aggregate.generated_at }}
+        · model <code>{{ aggregate.model_version }}</code>
+        · residuals active {{ aggregate.residuals_active or 0 }} / rejected {{ aggregate.residuals_rejected or 0 }}
+      </div>
+      <div>
+        <button class="refresh-btn" id="refresh-btn">Refresh Now</button>
+        <span class="refresh-status" id="refresh-status"></span>
+      </div>
+    </div>
+
+    <!-- ── Composite SPX score ── -->
+    {% if aggregate.composite %}
+    {% set c = aggregate.composite %}
+    <div class="card">
+      <h2>SPX Composite — Next Session</h2>
+      <div class="composite-card">
+        <div class="composite-pill bias-{{ c.bias | replace(' ', '-') }}">
+          <div class="score-num">{{ '%+.0f' | format(c.score) }}</div>
+          <div style="font-size:.65rem;color:rgba(0,0,0,.5);">scale −100…+100</div>
+          <div class="bias">{{ c.bias }}</div>
+          <div class="conf-tier conf-{{ c.confidence }}">{{ c.confidence }} CONFIDENCE</div>
+        </div>
+        <div>
+          <div class="components">
+            {% for k, v in c.components.items() %}
+              {% set pct = (v if v >= 0 else -v) %}
+              <div class="comp-row">
+                <div class="lbl">{{ k | replace('_', ' ') }}</div>
+                <div class="bar-track">
+                  {% if v >= 0 %}
+                    <div class="bar-fill pos" style="width: {{ pct/2 }}%;"></div>
+                  {% else %}
+                    <div class="bar-fill neg" style="width: {{ pct/2 }}%;"></div>
+                  {% endif %}
+                </div>
+                <div class="val {{ 'pos' if v >= 0 else 'neg' }}">{{ '%+.1f' | format(v) }}</div>
+                <div class="wt">×{{ '%.2f' | format(c.weights[k]) }}</div>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="macro-strip">
+            {% if aggregate.sentiment %}
+              <span>Sent (gold swing): {{ '%+.3f' | format(aggregate.sentiment.avg_score) }}
+                · n={{ aggregate.sentiment.n_articles }}
+                · {{ aggregate.sentiment.date }}</span>
+            {% endif %}
+            {% if aggregate.real10y %}
+              <span>Real 10Y: {{ '%.2f%%' | format(aggregate.real10y.current) }}
+                · 5d Δ {{ '%+.3f' | format(aggregate.real10y.chg_5d) }} pp
+                · 20d Δ {{ '%+.3f' | format(aggregate.real10y.chg_20d) }} pp</span>
+            {% endif %}
+            {% if aggregate.event %}
+              <span>Event gate: {{ 'BLOCKED' if aggregate.event.blocked else 'clear' }}
+                {% if aggregate.event.next_event %}
+                  · next {{ aggregate.event.next_event.kind }} in
+                  {{ aggregate.event.next_event.days_away }}d
+                  ({{ aggregate.event.next_event.date }})
+                {% endif %}</span>
+            {% endif %}
+            <span>Signals agree: {{ c.agree_count }}/{{ c.n_components }}</span>
+          </div>
+          {% if c.reasons %}
+            <div class="comp-notes">⚠ {{ c.reasons | join(' · ') }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ── Lean banner ── -->
+    <div class="card">
+      <div class="banner-row">
+        <div class="lean-pill lean-{{ aggregate.lean }}">{{ aggregate.lean }}</div>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">Mean P(up)</div>
+            <div class="stat-value">{{ '%.3f' | format(aggregate.mean_prob_up) }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Breadth</div>
+            <div class="stat-value">{{ '%.0f%%' | format(aggregate.breadth_up * 100) }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Up / Down</div>
+            <div class="stat-value">{{ aggregate.n_up }} / {{ aggregate.n_down }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">After Close</div>
+            <div class="stat-value">{{ aggregate.asof_close }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Holdout Acc</div>
+            <div class="stat-value">{{ '%.3f' | format(aggregate.model_holdout_acc) }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        Model <code>{{ aggregate.model_version }}</code>
+        · Sharpe {{ '%.2f' | format(aggregate.model_sharpe) }}
+        · generated {{ aggregate.generated_at }}
+        · universe {{ aggregate.n_tickers }} tickers
+      </div>
+    </div>
+
+    <!-- ── Risk allocator ── -->
+    <div class="card">
+      <h2>Position Sizer</h2>
+      <div class="risk-row">
+        <label for="risk-input">Risk per trade ($):</label>
+        <input id="risk-input" type="number" value="100" min="1" step="10">
+        <label for="equity-input" style="margin-left:1rem;">Account equity ($):</label>
+        <input id="equity-input" type="number" value="50000" min="1" step="1000">
+        <label for="cap-input" style="margin-left:1rem;">Portfolio risk cap (%):</label>
+        <input id="cap-input" type="number" value="2.0" min="0.1" step="0.1">
+        <label for="sector-cap" style="margin-left:1rem;">Sector cap (positions):</label>
+        <input id="sector-cap" type="number" value="3" min="1" step="1">
+      </div>
+      <div class="risk-summary" id="risk-summary">
+        <div class="stat"><div class="stat-label">Σ Risk Long</div><div class="stat-value" id="sum-risk-long">–</div></div>
+        <div class="stat"><div class="stat-label">Σ Risk Short</div><div class="stat-value" id="sum-risk-short">–</div></div>
+        <div class="stat"><div class="stat-label">Σ Risk Total</div><div class="stat-value" id="sum-risk-total">–</div></div>
+        <div class="stat"><div class="stat-label">vs Equity Cap</div><div class="stat-value" id="vs-cap">–</div></div>
+      </div>
+      <div class="cluster-warn" id="cluster-warn"></div>
+      <div class="legend">
+        Risk = entry − stop. Sector cap caps positions per GICS sector.
+        Conflict <strong>SKIP</strong> rows excluded from sums; <strong>DOWNSIZE</strong> rows half-sized.
+        VIX size_mult ({{ aggregate.vix_regime.size_mult if aggregate.vix_regime else 1 }})
+        scales every ticker.
+      </div>
+    </div>
+
+    <!-- ── Sector breakdown ── -->
+    <div class="card">
+      <h2>Sector Bias (rotation signal)</h2>
+      <div class="sector-grid">
+        {% for s in aggregate.sectors %}
+          {% set up_pct = (s.breadth_up * 100) | round(0) %}
+          {% set tone = 'long' if s.mean_proba >= 0.5 else 'short' %}
+          <div class="sec-card {{ tone }}">
+            <div class="sec-name">{{ s.sector }}</div>
+            <div class="sec-stats">
+              μP {{ '%.3f' | format(s.mean_proba) }}
+              · {{ s.n_up }}/{{ s.n }} up ({{ up_pct }}%)
+            </div>
+            <div class="sec-bar">
+              <div class="up"   style="width: {{ up_pct }}%;"></div>
+              <div class="down" style="width: {{ 100 - up_pct }}%;"></div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- ── LONG trade plan ── -->
+    <div class="card">
+      <h2 style="color:#15803d;">▲ Long Setups (top {{ aggregate.top_long | length }})</h2>
+      <table class="trade">
+        <thead><tr>
+          <th>Ticker</th>
+          <th class="num">P(up)</th>
+          <th class="num">Price</th>
+          <th class="num">Entry</th>
+          <th class="num">Stop</th>
+          <th class="num">TP1 / R</th>
+          <th class="num">TP2 / R</th>
+          <th class="num">Risk %</th>
+          <th class="num">5d %</th>
+          <th>Sig</th>
+          <th>Sent</th>
+          <th class="num">Shares</th>
+          <th class="num">$ Size</th>
+          <th>Notes</th>
+        </tr></thead>
+        <tbody>
+        {% for r in aggregate.top_long %}
+          {% set tp = r.trade_plan or {} %}
+          <tr data-side="LONG"
+              data-entry="{{ tp.entry or 0 }}"
+              data-stop="{{ tp.stop or 0 }}"
+              data-sector="{{ r.sector or 'Unknown' }}"
+              data-action="{{ r.conflict_action or 'TAKE' }}">
+            <td class="ticker-cell">
+              <a href="/stocks/explorer?ticker={{ r.ticker }}">{{ r.ticker }}</a>
+              {% if r.htb %}<span class="htb-flag" title="Hard to borrow">HTB</span>{% endif %}
+              <span class="co">{{ r.company or '' }} · {{ r.sector or '' }}</span>
+            </td>
+            <td class="num"><strong>{{ '%.3f' | format(r.proba) }}</strong>
+              <span class="badge b-{{ r.model_used }}">{{ r.model_used }}</span></td>
+            <td class="num">{{ '$%.2f' | format(r.price) if r.price else '–' }}</td>
+            <td class="num price-key">{{ '$%.2f' | format(tp.entry) if tp.entry else '–' }}</td>
+            <td class="num stop">{{ '$%.2f' | format(tp.stop) if tp.stop else '–' }}</td>
+            <td class="num tp">
+              {{ '$%.2f' | format(tp.tp1) if tp.tp1 else '–' }}
+              {% if tp.rr_tp1 %}<span style="color:#64748b;font-weight:400;">· {{ tp.rr_tp1 }}R</span>{% endif %}
+            </td>
+            <td class="num tp">
+              {{ '$%.2f' | format(tp.tp2) if tp.tp2 else '–' }}
+              {% if tp.rr_tp2 %}<span style="color:#64748b;font-weight:400;">· {{ tp.rr_tp2 }}R</span>{% endif %}
+            </td>
+            <td class="num">{{ '%.2f%%' | format(tp.risk_pct) if tp.risk_pct else '–' }}</td>
+            <td class="num {{ 'up' if (r.return_5d_pct or 0) > 0 else 'down' }}">
+              {{ '%+.2f%%' | format(r.return_5d_pct) if r.return_5d_pct is not none else '–' }}
+            </td>
+            <td><span class="sig-{{ r.signal or 'HOLD' }}">{{ r.signal or '–' }}</span></td>
+            <td>
+              {% if r.sent_label %}
+                <span class="badge b-{{ {'positive':'pos','negative':'neg','neutral':'neu'}.get(r.sent_label,'neu') }}">
+                  {{ '%+.2f' | format(r.sent_score) if r.sent_score is not none else r.sent_label }}
+                </span>
+              {% endif %}
+            </td>
+            <td class="num shares-cell">–</td>
+            <td class="num size-cell">–</td>
+            <td>
+              <span class="badge act-{{ r.conflict_action or 'TAKE' }}">{{ r.conflict_action or 'TAKE' }}</span>
+              {% if r.conflict %}<div class="conflict" style="margin-top:.2rem;">{{ r.conflict }}</div>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="legend">R = risk multiple (entry−stop). 1.5 ATR stop / 2x / 3x ATR targets.
+        Action: TAKE = full size · DOWNSIZE = half · SKIP = excluded.</div>
+    </div>
+
+    <!-- ── SHORT trade plan ── -->
+    <div class="card">
+      <h2 style="color:#b91c1c;">▼ Short Setups (top {{ aggregate.top_short | length }})</h2>
+      <table class="trade">
+        <thead><tr>
+          <th>Ticker</th>
+          <th class="num">P(up)</th>
+          <th class="num">Price</th>
+          <th class="num">Entry</th>
+          <th class="num">Stop</th>
+          <th class="num">TP1 / R</th>
+          <th class="num">TP2 / R</th>
+          <th class="num">Risk %</th>
+          <th class="num">5d %</th>
+          <th>Sig</th>
+          <th>Sent</th>
+          <th class="num">Shares</th>
+          <th class="num">$ Size</th>
+          <th>Notes</th>
+        </tr></thead>
+        <tbody>
+        {% for r in aggregate.top_short %}
+          {% set tp = r.trade_plan or {} %}
+          <tr data-side="SHORT"
+              data-entry="{{ tp.entry or 0 }}"
+              data-stop="{{ tp.stop or 0 }}"
+              data-sector="{{ r.sector or 'Unknown' }}"
+              data-action="{{ r.conflict_action or 'TAKE' }}">
+            <td class="ticker-cell">
+              <a href="/stocks/explorer?ticker={{ r.ticker }}">{{ r.ticker }}</a>
+              {% if r.htb %}<span class="htb-flag" title="Hard to borrow — short execution risk">HTB</span>{% endif %}
+              <span class="co">{{ r.company or '' }} · {{ r.sector or '' }}</span>
+            </td>
+            <td class="num"><strong>{{ '%.3f' | format(r.proba) }}</strong>
+              <span class="badge b-{{ r.model_used }}">{{ r.model_used }}</span></td>
+            <td class="num">{{ '$%.2f' | format(r.price) if r.price else '–' }}</td>
+            <td class="num price-key">{{ '$%.2f' | format(tp.entry) if tp.entry else '–' }}</td>
+            <td class="num stop">{{ '$%.2f' | format(tp.stop) if tp.stop else '–' }}</td>
+            <td class="num tp">
+              {{ '$%.2f' | format(tp.tp1) if tp.tp1 else '–' }}
+              {% if tp.rr_tp1 %}<span style="color:#64748b;font-weight:400;">· {{ tp.rr_tp1 }}R</span>{% endif %}
+            </td>
+            <td class="num tp">
+              {{ '$%.2f' | format(tp.tp2) if tp.tp2 else '–' }}
+              {% if tp.rr_tp2 %}<span style="color:#64748b;font-weight:400;">· {{ tp.rr_tp2 }}R</span>{% endif %}
+            </td>
+            <td class="num">{{ '%.2f%%' | format(tp.risk_pct) if tp.risk_pct else '–' }}</td>
+            <td class="num {{ 'up' if (r.return_5d_pct or 0) > 0 else 'down' }}">
+              {{ '%+.2f%%' | format(r.return_5d_pct) if r.return_5d_pct is not none else '–' }}
+            </td>
+            <td><span class="sig-{{ r.signal or 'HOLD' }}">{{ r.signal or '–' }}</span></td>
+            <td>
+              {% if r.sent_label %}
+                <span class="badge b-{{ {'positive':'pos','negative':'neg','neutral':'neu'}.get(r.sent_label,'neu') }}">
+                  {{ '%+.2f' | format(r.sent_score) if r.sent_score is not none else r.sent_label }}
+                </span>
+              {% endif %}
+            </td>
+            <td class="num shares-cell">–</td>
+            <td class="num size-cell">–</td>
+            <td>
+              <span class="badge act-{{ r.conflict_action or 'TAKE' }}">{{ r.conflict_action or 'TAKE' }}</span>
+              {% if r.conflict %}<div class="conflict" style="margin-top:.2rem;">{{ r.conflict }}</div>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="legend">Short setups invert. HTB flag = borrow may be expensive/unavailable.</div>
+    </div>
+
+  {% endif %}
+
+</div>
+
+<script>
+  const VIX_MULT = parseFloat({{ aggregate.vix_regime.size_mult if aggregate and aggregate.vix_regime and aggregate.vix_regime.size_mult is not none else 1 }});
+  const fmtMoney = v => '$' + Math.round(v).toLocaleString();
+
+  function recalcSizing() {
+    const risk      = parseFloat(document.getElementById('risk-input').value || 0);
+    const equity    = parseFloat(document.getElementById('equity-input').value || 0);
+    const capPct    = parseFloat(document.getElementById('cap-input').value || 0);
+    const sectorCap = parseInt(document.getElementById('sector-cap').value || 0, 10);
+    const sectorCount = {};   // per-sector positions taken so far (long+short combined)
+    let sumLong = 0, sumShort = 0;
+
+    document.querySelectorAll('table.trade tbody tr').forEach(tr => {
+      const entry  = parseFloat(tr.dataset.entry || 0);
+      const stop   = parseFloat(tr.dataset.stop  || 0);
+      const side   = tr.dataset.side;
+      const sector = tr.dataset.sector || 'Unknown';
+      const action = tr.dataset.action || 'TAKE';
+      const sharesCell = tr.querySelector('.shares-cell');
+      const sizeCell   = tr.querySelector('.size-cell');
+
+      if (!entry || !stop || !risk) {
+        sharesCell.textContent = '–'; sizeCell.textContent = '–'; return;
+      }
+
+      // Conflict policy: SKIP excluded, DOWNSIZE half-sized.
+      let mult = 1.0;
+      if (action === 'SKIP')     mult = 0.0;
+      if (action === 'DOWNSIZE') mult = 0.5;
+
+      // VIX regime damper.
+      mult *= VIX_MULT;
+
+      // Sector cluster cap: skip beyond N positions per sector.
+      if (mult > 0) {
+        sectorCount[sector] = (sectorCount[sector] || 0) + 1;
+        if (sectorCount[sector] > sectorCap) {
+          mult = 0.0;
+          tr.classList.add('cluster-skipped');
+        } else {
+          tr.classList.remove('cluster-skipped');
+        }
+      }
+
+      const adjustedRisk = risk * mult;
+      if (adjustedRisk <= 0) {
+        sharesCell.textContent = '0';
+        sizeCell.textContent   = '$0';
+        tr.style.opacity = '0.55';
+        return;
+      }
+      tr.style.opacity = '1';
+      const perShareRisk = Math.abs(entry - stop);
+      const shares = Math.floor(adjustedRisk / perShareRisk);
+      const size   = shares * entry;
+      sharesCell.textContent = shares.toLocaleString();
+      sizeCell.textContent   = fmtMoney(size);
+
+      const realisedRisk = shares * perShareRisk;
+      if (side === 'LONG') sumLong += realisedRisk;
+      else                 sumShort += realisedRisk;
+    });
+
+    const total  = sumLong + sumShort;
+    const capUsd = equity * capPct / 100;
+    const utilPct = capUsd > 0 ? (total / capUsd * 100) : 0;
+
+    document.getElementById('sum-risk-long').textContent  = fmtMoney(sumLong);
+    document.getElementById('sum-risk-short').textContent = fmtMoney(sumShort);
+    document.getElementById('sum-risk-total').textContent = fmtMoney(total);
+    document.getElementById('vs-cap').textContent =
+      capUsd > 0 ? `${utilPct.toFixed(0)}% of ${fmtMoney(capUsd)}` : '–';
+
+    // Cap utilization badge color
+    const vsBox = document.getElementById('vs-cap').parentElement;
+    vsBox.className = 'stat';
+    if (utilPct > 100) vsBox.classList.add('danger');
+    else if (utilPct > 80) vsBox.classList.add('warn');
+
+    // Cluster warning text
+    const overflows = Object.entries(sectorCount).filter(([_, n]) => n > sectorCap);
+    const warn = document.getElementById('cluster-warn');
+    if (overflows.length) {
+      warn.textContent = '⚠ Sector cap reached: ' + overflows.map(
+        ([s, n]) => `${s} (${n} candidates, ${sectorCap} taken)`
+      ).join(' · ') + '. Excess positions zeroed.';
+    } else {
+      warn.textContent = '';
+    }
+  }
+
+  function updateStaleness() {
+    const el = document.getElementById('stale-banner');
+    if (!el) return;
+    const asof = el.dataset.asof;
+    if (!asof) return;
+    const now  = new Date();
+    const ay   = new Date(asof + 'T00:00:00Z');
+    const days = Math.floor((now - ay) / (1000 * 60 * 60 * 24));
+    let cls, msg;
+    // Account for weekends — Mon should not flag if asof is Fri.
+    const weekday = now.getUTCDay();
+    const tradingDaysOld = days - (weekday === 1 ? 2 : weekday === 0 ? 1 : 0);
+    if (tradingDaysOld <= 0) { cls = 'fresh'; msg = `Snapshot is current (close ${asof}).`; }
+    else if (tradingDaysOld === 1) { cls = 'warn'; msg = `Snapshot is 1 trading day stale (close ${asof}). Refresh recommended.`; }
+    else { cls = 'stale'; msg = `Snapshot is ${tradingDaysOld} trading days stale (close ${asof}). REFRESH NOW.`; }
+    el.className = 'stale-banner ' + cls;
+    el.textContent = msg;
+  }
+
+  async function refreshNow() {
+    const btn = document.getElementById('refresh-btn');
+    const status = document.getElementById('refresh-status');
+    if (!btn) return;
+    btn.disabled = true;
+    status.textContent = 'starting…';
+    try {
+      const r = await fetch('/api/stocks/aggregate/refresh', { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (j.started) {
+        status.textContent = 'job started · this takes ~90s · page will reload when done';
+        pollDone();
+      } else if (j.error) {
+        status.textContent = 'error: ' + j.error;
+        btn.disabled = false;
+      }
+    } catch (e) {
+      status.textContent = 'request failed: ' + e.message;
+      btn.disabled = false;
+    }
+  }
+
+  function pollDone() {
+    const status = document.getElementById('refresh-status');
+    const start = Date.now();
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch('/api/stocks/aggregate/status');
+        const j = await r.json();
+        if (!j.running) {
+          clearInterval(t);
+          status.textContent = 'done · reloading…';
+          setTimeout(() => location.reload(), 700);
+        } else {
+          const elapsed = Math.round((Date.now() - start) / 1000);
+          status.textContent = `running… (${elapsed}s)`;
+        }
+      } catch {}
+    }, 2500);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ['risk-input', 'equity-input', 'cap-input', 'sector-cap'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', recalcSizing);
+    });
+    recalcSizing();
+    updateStaleness();
+    const btn = document.getElementById('refresh-btn');
+    if (btn) btn.addEventListener('click', refreshNow);
+  });
+</script>
+
+</body>
+</html>

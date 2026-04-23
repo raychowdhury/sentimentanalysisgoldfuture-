@@ -86,29 +86,33 @@ class ModelRegistry:
     PRED_UP_RATE_MIN = 0.25
     PRED_UP_RATE_MAX = 0.75
 
+    # Seed gate: a cold-start model becomes "production" for the dashboard, so
+    # the floors matter. Prior code accepted Sharpe down to -5 and DD up to 0.60
+    # to "plant a baseline" — in practice it planted junk and blocked better
+    # candidates from replacing it. Seed now requires a real signal.
+    SEED_SHARPE_FLOOR  = 0.0
+    SEED_DD_LIMIT      = 0.30
+    SEED_ACCURACY_MIN  = 0.52
+
     def promote(
         self,
         candidate: ModelMetadata,
         incumbent_current_accuracy: float | None = None,
     ) -> bool:
         """
-        Replace the production pointer with `candidate` only when it beats the
-        incumbent on accuracy, passes the degenerate-classifier gate, and
-        respects the Sharpe / drawdown guard-rails. Returns True if promoted.
+        Replace the production pointer with `candidate` only when it clears
+        every gate: pred-up-rate, Sharpe, drawdown, and accuracy vs incumbent
+        (or a seed-accuracy floor when no incumbent exists).
 
         `incumbent_current_accuracy` is the incumbent's accuracy re-measured on
         the current holdout (via eval_agent). When provided, it is used for the
         comparison instead of the incumbent's stale stored accuracy — otherwise
         candidates are judged against a holdout the incumbent never saw.
-
-        Seed path: when no incumbent exists, drawdown / Sharpe gates are
-        relaxed so the loop can plant a baseline. The pred-up-rate gate still
-        applies — a constant classifier is never production-worthy.
         """
         incumbent = self.production_metadata()
         is_seed = incumbent is None
-        dd_limit = 0.60 if is_seed else settings.max_drawdown_limit
-        sharpe_floor = -5.0 if is_seed else settings.sharpe_target * 0.8
+        dd_limit     = self.SEED_DD_LIMIT     if is_seed else settings.max_drawdown_limit
+        sharpe_floor = self.SEED_SHARPE_FLOOR if is_seed else settings.sharpe_target * 0.8
 
         if not (self.PRED_UP_RATE_MIN <= candidate.pred_up_rate <= self.PRED_UP_RATE_MAX):
             logger.info("promotion blocked — pred_up_rate %.2f outside [%.2f, %.2f] "
@@ -124,7 +128,12 @@ class ModelRegistry:
             logger.info("promotion blocked — drawdown %.2f above limit %.2f (seed=%s)",
                         candidate.max_drawdown, dd_limit, is_seed)
             return False
-        if incumbent is not None:
+        if is_seed:
+            if candidate.accuracy < self.SEED_ACCURACY_MIN:
+                logger.info("promotion blocked — seed accuracy %.4f below floor %.2f",
+                            candidate.accuracy, self.SEED_ACCURACY_MIN)
+                return False
+        else:
             baseline = (incumbent_current_accuracy
                         if incumbent_current_accuracy is not None
                         else incumbent.accuracy)
@@ -144,6 +153,36 @@ class ModelRegistry:
     @staticmethod
     def new_version() -> str:
         return f"m{int(time.time())}"
+
+    # ── Demotion ─────────────────────────────────────────────────────────────
+
+    def demote_if_unfit(
+        self,
+        current_accuracy: float | None,
+        current_sharpe:   float | None,
+        current_drawdown: float | None,
+    ) -> bool:
+        """
+        Unlink `production.pkl` when the live model's re-measured metrics fall
+        below hard floors. Prevents a bad seed from locking production forever:
+        once demoted, the next cycle's seed path can install a fresh candidate
+        under the tightened seed gate. Returns True if demoted.
+        """
+        link = self.base_dir / PRODUCTION_LINK
+        if not link.exists():
+            return False
+        fails: list[str] = []
+        if current_accuracy is not None and current_accuracy < self.SEED_ACCURACY_MIN:
+            fails.append(f"acc={current_accuracy:.4f}<{self.SEED_ACCURACY_MIN}")
+        if current_sharpe is not None and current_sharpe < self.SEED_SHARPE_FLOOR:
+            fails.append(f"sharpe={current_sharpe:.2f}<{self.SEED_SHARPE_FLOOR}")
+        if current_drawdown is not None and current_drawdown > self.SEED_DD_LIMIT:
+            fails.append(f"dd={current_drawdown:.2f}>{self.SEED_DD_LIMIT}")
+        if not fails:
+            return False
+        link.unlink()
+        logger.warning("production demoted — unfit on re-eval: %s", ", ".join(fails))
+        return True
 
 
 registry = ModelRegistry()

@@ -351,16 +351,133 @@ def autoresearch_view():
 
 @app.route("/stocks/overview")
 def stocks_overview_view():
-    """Aggregated view over the fixed 20-ticker universe."""
+    """Aggregated view over the full S&P 500 universe, grouped by GICS sector."""
     from stocks.stock_output import read_overview
-    from stocks.stock_universe import UNIVERSE
+    from stocks.stock_universe import UNIVERSE, by_sector
+
     overview = read_overview()
+    scanned_by_ticker = {
+        row["ticker"]: row for row in (overview.get("stocks") if overview else []) or []
+    }
+
+    sectors_data = []
+    for sector, stocks in by_sector().items():
+        tiles = []
+        bullish = bearish = neutral = scanned = 0
+        for s in stocks:
+            row = scanned_by_ticker.get(s.ticker)
+            tile = {
+                "ticker":   s.ticker,
+                "name":     s.name,
+                "sector":   s.sector,
+                "industry": s.industry,
+                "scanned":  row is not None,
+            }
+            if row:
+                scanned += 1
+                tile.update({
+                    "signal":          row.get("signal"),
+                    "confidence":      row.get("confidence"),
+                    "sentiment_label": row.get("sentiment_label"),
+                    "total_score":     row.get("total_score"),
+                    "article_count":   row.get("article_count"),
+                    "price":           row.get("price"),
+                    "return_5d_pct":   row.get("return_5d_pct"),
+                    "ml_prob_up":      row.get("ml_prob_up"),
+                    "ml_source":       row.get("ml_source"),
+                    "error":           row.get("error"),
+                })
+                sig = row.get("signal")
+                if sig in ("BUY", "STRONG_BUY"):
+                    bullish += 1
+                elif sig in ("SELL", "STRONG_SELL"):
+                    bearish += 1
+                elif sig == "HOLD":
+                    neutral += 1
+            tiles.append(tile)
+
+        sectors_data.append({
+            "sector":   sector,
+            "count":    len(stocks),
+            "scanned":  scanned,
+            "bullish":  bullish,
+            "bearish":  bearish,
+            "neutral":  neutral,
+            "tiles":    tiles,
+        })
+
     return render_template(
         "stocks_overview.html",
         overview=overview,
-        universe=[{"ticker": s.ticker, "name": s.name, "sector": s.sector} for s in UNIVERSE],
+        sectors=sectors_data,
+        universe_size=len(UNIVERSE),
         page="stocks",
     )
+
+
+@app.route("/stocks/aggregate")
+def stocks_aggregate_view():
+    """S&P 500 next-session bias aggregate (breadth + lean) from
+    stocks-autoResearch pooled model. Reads outputs/stocks/_aggregate.json
+    written by stocks-autoResearch/predict_next_session.py."""
+    agg_path = Path(__file__).parent / "outputs" / "stocks" / "_aggregate.json"
+    aggregate = None
+    if agg_path.exists():
+        try:
+            aggregate = json.loads(agg_path.read_text())
+        except json.JSONDecodeError:
+            aggregate = None
+    return render_template(
+        "stocks_aggregate.html",
+        aggregate=aggregate,
+        page="stocks",
+    )
+
+
+# ── Aggregate refresh job (item 17) ────────────────────────────────────────
+import subprocess, threading
+
+_refresh_state = {"proc": None, "started_at": None}
+_refresh_lock = threading.Lock()
+
+
+def _refresh_running() -> bool:
+    p = _refresh_state.get("proc")
+    return bool(p and p.poll() is None)
+
+
+@app.route("/api/stocks/aggregate/refresh", methods=["POST"])
+def api_aggregate_refresh():
+    with _refresh_lock:
+        if _refresh_running():
+            return jsonify({"started": False, "error": "refresh already running",
+                            "started_at": _refresh_state["started_at"]}), 409
+        script = Path(__file__).parent / "stocks-autoResearch" / "predict_next_session.py"
+        if not script.exists():
+            return jsonify({"started": False, "error": "predict script not found"}), 500
+        venv_python = Path(__file__).parent / ".venv" / "bin" / "python"
+        cmd = [str(venv_python) if venv_python.exists() else "python", str(script)]
+        log_path = Path("/tmp") / "stocks_aggregate_refresh.log"
+        log_fh = open(log_path, "w")
+        proc = subprocess.Popen(
+            cmd, cwd=str(script.parent),
+            stdout=log_fh, stderr=subprocess.STDOUT,
+        )
+        _refresh_state["proc"] = proc
+        _refresh_state["started_at"] = datetime.utcnow().isoformat(timespec="seconds")
+    return jsonify({"started": True, "pid": proc.pid,
+                    "log": str(log_path),
+                    "started_at": _refresh_state["started_at"]})
+
+
+@app.route("/api/stocks/aggregate/status")
+def api_aggregate_status():
+    p = _refresh_state.get("proc")
+    return jsonify({
+        "running":    _refresh_running(),
+        "started_at": _refresh_state.get("started_at"),
+        "exit_code":  None if (p is None or p.poll() is None) else p.returncode,
+    })
 
 
 @app.route("/stocks/explorer")
@@ -386,10 +503,35 @@ def stocks_explorer_view():
 
     detail = read_ticker(selected) if selected else None
 
+    from stocks.stock_universe import by_sector
+    scanned_by_ticker = {
+        row["ticker"]: row for row in (overview.get("stocks") if overview else []) or []
+    }
+    rail_sectors = []
+    for sector, stocks in by_sector().items():
+        entries = []
+        for s in stocks:
+            row = scanned_by_ticker.get(s.ticker)
+            entries.append({
+                "ticker":  s.ticker,
+                "name":    s.name,
+                "sector":  s.sector,
+                "signal":  row.get("signal") if row else None,
+                "scanned": row is not None,
+                "error":   bool(row and row.get("error")),
+            })
+        rail_sectors.append({
+            "sector":  sector,
+            "count":   len(entries),
+            "scanned": sum(1 for e in entries if e["scanned"]),
+            "entries": entries,
+            "has_selected": any(e["ticker"] == selected for e in entries),
+        })
+
     return render_template(
         "stocks_explorer.html",
         overview=overview,
-        universe=[{"ticker": s.ticker, "name": s.name, "sector": s.sector} for s in UNIVERSE],
+        rail_sectors=rail_sectors,
         selected=selected,
         detail=detail,
         page="stocks",
@@ -438,6 +580,7 @@ def api_stocks_run():
 
     body = request.get_json(silent=True) or {}
     ticker = body.get("ticker")
+    fast = bool(body.get("fast", True))   # default fast for web trigger
     tickers = None
     if ticker:
         if not is_known(ticker):
@@ -445,7 +588,7 @@ def api_stocks_run():
         tickers = [ticker.upper()]
 
     try:
-        overview = scan_universe(tickers=tickers)
+        overview = scan_universe(tickers=tickers, fast=fast)
     except Exception as e:
         return jsonify({"ok": False, "error": f"scan failed: {e}"}), 500
     return jsonify({"ok": True, "overview": overview})

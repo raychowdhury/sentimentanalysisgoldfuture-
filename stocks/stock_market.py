@@ -52,6 +52,54 @@ def fetch_indicators(ticker: str, lookback_days: int = STOCK_LOOKBACK_DAYS) -> d
     return compute_indicators(df, name=ticker, tf=STOCK_PROFILE)
 
 
+def fetch_ohlcv_bulk(
+    tickers: list[str],
+    lookback_days: int = STOCK_LOOKBACK_DAYS,
+) -> dict[str, pd.DataFrame | None]:
+    """
+    Batched OHLCV fetch via yf.download multi-symbol API.
+
+    Single HTTP call replaces N per-ticker calls — critical for 500-name scans.
+    Returns {ticker: DataFrame|None}. Missing/empty histories map to None so
+    callers use the same None-guarded path as fetch_ohlcv().
+    """
+    if not tickers:
+        return {}
+    try:
+        data = yf.download(
+            tickers=tickers,
+            period=f"{lookback_days}d",
+            interval="1d",
+            auto_adjust=True,
+            group_by="ticker",
+            threads=True,
+            progress=False,
+        )
+    except Exception as e:
+        logger.warning(f"yf.download bulk failed for {len(tickers)} tickers: {e}")
+        return {t: None for t in tickers}
+
+    out: dict[str, pd.DataFrame | None] = {}
+    # yf.download returns a single-level frame when only one ticker is passed,
+    # and a MultiIndex-columned frame otherwise.
+    if len(tickers) == 1:
+        t = tickers[0]
+        out[t] = data if data is not None and not data.empty else None
+        return out
+
+    for t in tickers:
+        try:
+            sub = data[t]
+        except KeyError:
+            out[t] = None
+            continue
+        if sub is None or sub.empty or sub["Close"].dropna().empty:
+            out[t] = None
+        else:
+            out[t] = sub.dropna(how="all")
+    return out
+
+
 def fetch_market_context() -> dict:
     """
     SPY + VIX snapshot used by relative-strength and regime scoring.

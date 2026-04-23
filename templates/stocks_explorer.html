@@ -35,8 +35,31 @@
 
     .layout {
       display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem;
+      align-items: start;
     }
     @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+    /* sticky rail with own scroll — header is 52px, +1rem breathing room */
+    .layout > aside {
+      position: sticky;
+      top: calc(52px + 1rem);
+      max-height: calc(100vh - 52px - 2rem);
+      overflow-y: auto;
+      padding-right: .35rem;
+    }
+    .layout > aside::-webkit-scrollbar { width: 8px; }
+    .layout > aside::-webkit-scrollbar-thumb {
+      background: #cbd5e1; border-radius: 4px;
+    }
+    .layout > aside::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .rail-search {
+      position: sticky; top: 0; z-index: 5;
+    }
+    @media (max-width: 900px) {
+      .layout > aside {
+        position: static; max-height: none; overflow-y: visible;
+      }
+    }
 
     .ticker-rail {
       display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem;
@@ -170,6 +193,49 @@
       border-left: 3px solid #f59e0b; border-radius: 4px; color: #92400e;
       font-size: .8rem;
     }
+
+    .plan-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }
+    @media (max-width: 700px) { .plan-grid { grid-template-columns: repeat(2, 1fr); } }
+    .pcell.entry { background: #eff6ff; border-color: #bfdbfe; }
+    .pcell.sl    { background: #fef2f2; border-color: #fecaca; }
+    .pcell.tp    { background: #ecfdf5; border-color: #bbf7d0; }
+    .pcell .pval.entry { color: #1e40af; }
+    .pcell .pval.sl    { color: #991b1b; }
+    .pcell .pval.tp    { color: #047857; }
+    .pcell .psub { font-size: .6rem; color: #64748b; margin-top: .1rem; }
+    .plan-note {
+      margin-top: .5rem; font-size: .7rem; color: #64748b; font-style: italic;
+    }
+
+    /* ── rail search + sector grouping ───────────────────────────────── */
+    .rail-search {
+      width: 100%; padding: .45rem .6rem; border: 1px solid #cbd5e1;
+      border-radius: 6px; font-size: .8rem; margin-bottom: .5rem;
+      background: #fff; color: #0f172a;
+    }
+    .rail-search:focus { outline: none; border-color: #38bdf8; }
+    .rail-sector { margin-bottom: .35rem; }
+    .rail-sector-head {
+      display: flex; align-items: center; gap: .4rem;
+      padding: .35rem .5rem; background: #e2e8f0; border-radius: 6px;
+      cursor: pointer; user-select: none;
+      font-size: .6rem; font-weight: 800; letter-spacing: .05em;
+      text-transform: uppercase; color: #334155;
+    }
+    .rail-sector-head:hover { background: #cbd5e1; }
+    .rail-sector-head .rs-count { margin-left: auto; color: #64748b; font-weight: 700; }
+    .rail-sector-head .rs-chev {
+      font-size: .6rem; color: #64748b; transition: transform .15s;
+    }
+    .rail-sector.collapsed .rs-chev { transform: rotate(-90deg); }
+    .rail-sector.collapsed .rs-body { display: none; }
+    .rs-body {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: .35rem;
+      padding: .35rem 0 .2rem 0;
+    }
+    .ticker-box.unscanned { opacity: .6; }
+    .ticker-box.unscanned::before { background: #cbd5e1; }
+    .ticker-box.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -185,6 +251,7 @@
     <a class="nav-tab" href="/autoresearch">AutoResearch</a>
     <span class="nav-sep"></span>
     <a class="nav-tab" href="/stocks/overview">Overview</a>
+    <a class="nav-tab" href="/stocks/aggregate">Trader Desk</a>
     <a class="nav-tab active" href="/stocks/explorer">Explorer</a>
   </nav>
 </header>
@@ -192,25 +259,34 @@
 <div class="wrap">
   <div class="layout">
 
-    <aside class="ticker-rail">
-      {% set overview_by = {} %}
-      {% if overview %}
-        {% for row in overview.stocks %}
-          {% set _ = overview_by.update({row.ticker: row}) %}
+    <aside>
+      <input id="rail-search" class="rail-search" type="text" placeholder="Search ticker or company…" autocomplete="off">
+      <div id="rail-root">
+        {% for sec in rail_sectors %}
+          {% set open_default = sec.has_selected or sec.scanned > 0 %}
+          <div class="rail-sector {% if not open_default %}collapsed{% endif %}" data-sector="{{ sec.sector }}">
+            <div class="rail-sector-head">
+              <span class="rs-chev">▼</span>
+              <span>{{ sec.sector }}</span>
+              <span class="rs-count">{{ sec.scanned }}/{{ sec.count }}</span>
+            </div>
+            <div class="rs-body">
+              {% for e in sec.entries %}
+                {% set signal = e.signal %}
+                {% set box_cls = 'pos' if signal in ['BUY','STRONG_BUY'] else 'neg' if signal in ['SELL','STRONG_SELL'] else '' %}
+                {% if e.error %}{% set box_cls = 'err' %}{% endif %}
+                {% set sig_cls = 'buy' if signal in ['BUY','STRONG_BUY'] else 'sell' if signal in ['SELL','STRONG_SELL'] else 'hold' if signal == 'HOLD' else 'no-data' %}
+                <a class="ticker-box {{ box_cls }} {% if not e.scanned %}unscanned{% endif %} {% if e.ticker == selected %}active{% endif %}"
+                   data-ticker="{{ e.ticker }}" data-name="{{ e.name|lower }}"
+                   href="/stocks/explorer?ticker={{ e.ticker }}">
+                  <div class="tkr">{{ e.ticker }}</div>
+                  <div class="sig {{ sig_cls }}">{{ signal or '—' }}</div>
+                </a>
+              {% endfor %}
+            </div>
+          </div>
         {% endfor %}
-      {% endif %}
-      {% for s in universe %}
-        {% set row = overview_by.get(s.ticker) %}
-        {% set signal = row.signal if row else None %}
-        {% set box_cls = 'pos' if signal in ['BUY','STRONG_BUY'] else 'neg' if signal in ['SELL','STRONG_SELL'] else '' %}
-        {% if row and row.error %}{% set box_cls = 'err' %}{% endif %}
-        {% set sig_cls = 'buy' if signal in ['BUY','STRONG_BUY'] else 'sell' if signal in ['SELL','STRONG_SELL'] else 'hold' if signal == 'HOLD' else 'no-data' %}
-        <a class="ticker-box {{ box_cls }} {% if s.ticker == selected %}active{% endif %}"
-           href="/stocks/explorer?ticker={{ s.ticker }}">
-          <div class="tkr">{{ s.ticker }}</div>
-          <div class="sig {{ sig_cls }}">{{ signal or 'no data' }}</div>
-        </a>
-      {% endfor %}
+      </div>
     </aside>
 
     <main>
@@ -312,6 +388,49 @@
             </div>
           {% endif %}
 
+          {% set p = detail.price_summary %}
+          {% set long = sig in ['BUY', 'STRONG_BUY'] %}
+          {% set short = sig in ['SELL', 'STRONG_SELL'] %}
+          {% if p and p.current and p.atr_pct and (long or short) %}
+            {% set atr_abs = p.current * p.atr_pct / 100 %}
+            {% set dir_mult = 1 if long else -1 %}
+            {% set entry = p.current %}
+            {% set sl    = p.current - dir_mult * 1.5 * atr_abs %}
+            {% set tp1   = p.current + dir_mult * 2.0 * atr_abs %}
+            {% set tp2   = p.current + dir_mult * 3.0 * atr_abs %}
+            {% set sl_pct  = (sl  - p.current) / p.current * 100 %}
+            {% set tp1_pct = (tp1 - p.current) / p.current * 100 %}
+            {% set tp2_pct = (tp2 - p.current) / p.current * 100 %}
+            <div class="section">
+              <h3>Trade Plan — {{ 'Long' if long else 'Short' }} (ATR-based)</h3>
+              <div class="plan-grid">
+                <div class="pcell entry">
+                  <div class="plabel">Entry</div>
+                  <div class="pval entry">${{ '%.2f'|format(entry) }}</div>
+                  <div class="psub">market</div>
+                </div>
+                <div class="pcell sl">
+                  <div class="plabel">Stop Loss · 1.5 ATR</div>
+                  <div class="pval sl">${{ '%.2f'|format(sl) }}</div>
+                  <div class="psub">{{ '%+.2f'|format(sl_pct) }}%</div>
+                </div>
+                <div class="pcell tp">
+                  <div class="plabel">TP1 · 2.0 ATR · R 1.33</div>
+                  <div class="pval tp">${{ '%.2f'|format(tp1) }}</div>
+                  <div class="psub">{{ '%+.2f'|format(tp1_pct) }}%</div>
+                </div>
+                <div class="pcell tp">
+                  <div class="plabel">TP2 · 3.0 ATR · R 2.0</div>
+                  <div class="pval tp">${{ '%.2f'|format(tp2) }}</div>
+                  <div class="psub">{{ '%+.2f'|format(tp2_pct) }}%</div>
+                </div>
+              </div>
+              <div class="plan-note">
+                ATR {{ '%.2f'|format(p.atr_pct) }}% (≈ ${{ '%.2f'|format(atr_abs) }}). Heuristic levels — not backtested. Position sizing left to user.
+              </div>
+            </div>
+          {% endif %}
+
           {% if detail.price_summary %}
             {% set p = detail.price_summary %}
             <div class="section">
@@ -331,12 +450,16 @@
               <h3>Article Pipeline</h3>
               <div class="scrape-stats">
                 fetched: {{ ss.fetched or 0 }} ·
-                unique: {{ ss.unique or 0 }} ·
-                processed: {{ ss.processed or 0 }} ·
-                scraped ok: {{ ss.scraped_ok or 0 }} ·
-                failed: {{ ss.failed or 0 }}
-                {% if ss.processed and ss.failed and (ss.failed / ss.processed) > 0.6 %}
-                  · <strong style="color:#dc2626;">high scrape failure rate — sentiment may be title-only</strong>
+                unique: {{ ss.unique or 0 }}
+                {% if ss.mode == 'titles_only' or ss.skipped %}
+                  · scrape: <strong>skipped</strong> · sentiment from titles ({{ ss.skipped or ss.unique or 0 }} articles)
+                {% else %}
+                  · processed: {{ ss.processed or 0 }} ·
+                  scraped ok: {{ ss.scraped_ok or 0 }} ·
+                  failed: {{ ss.failed or 0 }}
+                  {% if ss.processed and ss.failed and (ss.failed / ss.processed) > 0.6 %}
+                    · <strong style="color:#dc2626;">high scrape failure rate — sentiment fell back to titles</strong>
+                  {% endif %}
                 {% endif %}
               </div>
             </div>
@@ -381,6 +504,43 @@
 
   </div>
 </div>
+
+<script>
+  (function () {
+    // Sector collapse/expand in rail
+    document.querySelectorAll(".rail-sector-head").forEach(h => {
+      h.addEventListener("click", () => {
+        h.parentElement.classList.toggle("collapsed");
+      });
+    });
+
+    // Search filter over rail
+    const search = document.getElementById("rail-search");
+    const boxes  = Array.from(document.querySelectorAll(".ticker-box"));
+    const sections = Array.from(document.querySelectorAll(".rail-sector"));
+
+    search.addEventListener("input", () => {
+      const q = search.value.trim().toLowerCase();
+      if (!q) {
+        boxes.forEach(b => b.classList.remove("hidden"));
+        sections.forEach(s => s.classList.remove("force-open"));
+        return;
+      }
+      sections.forEach(sec => {
+        let anyVisible = false;
+        sec.querySelectorAll(".ticker-box").forEach(b => {
+          const t = (b.dataset.ticker || "").toLowerCase();
+          const n = b.dataset.name || "";
+          const match = t.includes(q) || n.includes(q);
+          b.classList.toggle("hidden", !match);
+          if (match) anyVisible = true;
+        });
+        // Auto-expand sections with matches
+        if (anyVisible) sec.classList.remove("collapsed");
+      });
+    });
+  })();
+</script>
 
 </body>
 </html>

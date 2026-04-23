@@ -40,6 +40,8 @@ YF_SYMBOLS = {
 }
 
 CACHE_NAME = "feature_matrix.parquet"
+LIVE_ROW_NAME = "live_row.parquet"
+TARGET_COLS = ["y_next_ret", "y_next_dir"]
 
 def _sentiment_cache_path() -> Path:
     """Resolve sentiment cache path. Env var wins; else container mount; else
@@ -124,6 +126,8 @@ def _add_price_features(df: pd.DataFrame, lookback: int) -> pd.DataFrame:
     out["ema_50"]  = out["Close"].ewm(span=50).mean()
     out["ema_gap"] = (out["ema_10"] - out["ema_50"]) / out["ema_50"]
     out["rsi_14"]  = _rsi(out["Close"], 14)
+    out["atr_14"]     = _atr(out["High"], out["Low"], out["Close"], 14)
+    out["atr_pct_14"] = out["atr_14"] / out["Close"]
     return out
 
 
@@ -133,6 +137,17 @@ def _rsi(series: pd.Series, period: int) -> pd.Series:
     loss = (-delta.clip(upper=0)).rolling(period).mean()
     rs = gain / loss.replace(0, np.nan)
     return 100 - 100 / (1 + rs)
+
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
+    """Average True Range — Wilder smoothing. Scale for vol-aware labelling."""
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / period, adjust=False).mean()
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -178,12 +193,25 @@ def build_feature_matrix(
 
     feat["y_next_ret"] = feat["Close"].shift(-1) / feat["Close"] - 1.0
     feat["y_next_dir"] = (feat["y_next_ret"] > 0).astype(int)
+
+    # Snapshot rows with valid features but unknown next-day target — these are
+    # the live-inference rows. dropna() below removes them from the training
+    # cache; the API reads this sidecar to predict tomorrow's direction.
+    feature_cols = [c for c in feat.columns if c not in TARGET_COLS]
+    live_mask = (
+        feat[feature_cols].notna().all(axis=1)
+        & feat[TARGET_COLS].isna().any(axis=1)
+    )
+    live_row = feat.loc[live_mask, feature_cols]
+    if not live_row.empty:
+        live_row.to_parquet(settings.data_dir / LIVE_ROW_NAME)
+
     feat = feat.dropna().copy()
 
     cache_path = settings.data_dir / CACHE_NAME
     feat.to_parquet(cache_path)
-    logger.info("feature matrix cached → %s (%d rows, %d cols)",
-                cache_path, len(feat), feat.shape[1])
+    logger.info("feature matrix cached → %s (%d rows, %d cols); live rows=%d",
+                cache_path, len(feat), feat.shape[1], len(live_row))
     return feat
 
 

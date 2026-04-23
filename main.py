@@ -82,6 +82,14 @@ def parse_args() -> argparse.Namespace:
         "--ticker", default=None,
         help="When used with --stocks, scan only the given ticker (e.g. AAPL)",
     )
+    p.add_argument(
+        "--fast", action="store_true",
+        help="Fast scan: VADER-only (skip FinBERT), 5 articles/ticker, fewer queries. ~5-10× faster.",
+    )
+    p.add_argument(
+        "--full", action="store_true",
+        help="Full scan (FinBERT + up to 20 articles/ticker). Overrides --fast if both given.",
+    )
     return p.parse_args()
 
 
@@ -512,7 +520,8 @@ def run_stocks_cli(args: argparse.Namespace) -> None:
             raise SystemExit(f"Unknown ticker: {args.ticker} — not in stocks/stock_universe.py")
         tickers = [t]
 
-    overview = scan_universe(tickers=tickers, text_mode=args.mode)
+    fast = bool(args.fast) and not bool(args.full)
+    overview = scan_universe(tickers=tickers, text_mode=args.mode, fast=fast)
 
     # Terminal summary
     sep = "─" * 62
