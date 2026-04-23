@@ -28,6 +28,7 @@ from sentiment.vader_analyzer import analyze as vader_analyze
 from utils.logger import setup_logger
 from utils.text_cleaner import clean_text
 
+from . import ml_predictor
 from .stock_confidence import compute as compute_confidence
 from .stock_market import (
     fetch_indicators,
@@ -205,6 +206,8 @@ def scan_ticker(
                 "volume_ratio":   round(vol_ratio, 3) if vol_ratio is not None else None,
             }
 
+        ml_signal = ml_predictor.predict(stock.ticker)
+
         payload = {
             "ticker":           stock.ticker,
             "company_name":     stock.name,
@@ -219,6 +222,7 @@ def scan_ticker(
             "sentiment_label":  sentiment_label,
             "sentiment_score":  avg_score,
             "factor_scores":    scores,
+            "ml":               ml_signal,
             "article_count":    len(results),
             "scrape_stats": {
                 "fetched":     len(raw),
@@ -269,6 +273,13 @@ def scan_ticker(
 def _load_finbert():
     """Load FinBERT once. Returns None if unavailable — pipeline still runs
     (aggregator falls back to VADER-only)."""
+    # Warm the ML stack BEFORE FinBERT. Unpickling XGBoost after FinBERT
+    # initialises OpenMP / torch threading triggers a native crash on
+    # macOS; pre-loading keeps XGBoost's runtime attached to the parent.
+    try:
+        ml_predictor._load()
+    except Exception as e:
+        logger.warning(f"ml_predictor preload failed: {e}")
     try:
         from sentiment.finbert_analyzer import FinBERTAnalyzer
         logger.info("Loading FinBERT model (first run downloads ~440 MB)...")

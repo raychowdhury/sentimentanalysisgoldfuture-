@@ -187,3 +187,79 @@
 - **Experiment note**: cycle-12
 - **Promoted**: no
 
+## Cycle 13 — 2026-04-22T22:34:54+00:00
+
+- **Dataset**: rows=16033, cols=23, last=2026-04-20, tickers=20
+- **Eval (production)**: mean_acc=0.5208, sharpe=2.2259, dd=0.032, version=s1776896677
+- **Per-ticker**: top=[MA:0.63, MSFT:0.62, UNH:0.60, AAPL:0.58, V:0.58], bottom=[META:0.43, AMZN:0.42, COST:0.37]
+- **Candidate**: version=s1776897294, mean_acc=0.505, sharpe=0.927, dd=0.0541
+- **Hyperparams**: `{"xgb": {"max_depth": 4, "learning_rate": 0.05, "n_estimators": 300}, "ticker_map_size": 20}`
+- **Experiment note**: cycle-13
+- **Promoted**: no
+
+## Cycle 14 — 2026-04-22T22:51:34+00:00
+
+- **Dataset**: rows=15231, cols=23, last=2026-04-20, tickers=19
+- **Eval (production)**: mean_acc=0.5289, sharpe=2.5708, dd=0.0322, version=s1776896677
+- **Per-ticker**: top=[MA:0.63, MSFT:0.62, UNH:0.60, AAPL:0.58, V:0.58], bottom=[BRK-B:0.45, META:0.43, AMZN:0.42]
+- **Candidate**: version=s1776898294, mean_acc=0.4658, sharpe=-1.7295, dd=0.0767
+- **Hyperparams**: `{"xgb": {"max_depth": 6, "learning_rate": 0.1, "n_estimators": 500}, "ticker_map_size": 19}`
+- **Experiment note**: cycle-14
+- **Promoted**: no
+- **Residuals**: trained=19/19, promoted_this_cycle=5
+  | ticker | residual_acc | pooled_acc | promoted |
+  |--------|--------------|------------|----------|
+  | AAPL | 0.5667 | 0.5833 | no |
+  | AMZN | 0.4000 | 0.4167 | no |
+  | AVGO | 0.5000 | 0.5000 | no |
+  | BRK-B | 0.4333 | 0.4500 | no |
+  | GOOG | 0.5500 | 0.5500 | no |
+  | GOOGL | 0.5000 | 0.5000 | no |
+  | HD | 0.5667 | 0.5333 | yes |
+  | JNJ | 0.4833 | 0.4833 | no |
+  | JPM | 0.4833 | 0.4833 | no |
+  | LLY | 0.6000 | 0.5500 | yes |
+  | MA | 0.6000 | 0.6333 | no |
+  | META | 0.4167 | 0.4333 | no |
+  | MSFT | 0.6167 | 0.6167 | no |
+  | NVDA | 0.5500 | 0.5500 | no |
+  | PG | 0.4833 | 0.4667 | yes |
+  | TSLA | 0.5833 | 0.5667 | yes |
+  | UNH | 0.5833 | 0.6000 | no |
+  | V | 0.5500 | 0.5833 | no |
+  | XOM | 0.5667 | 0.5500 | yes |
+
+## Cycle 15 — 2026-04-22T23:29:55+00:00
+
+- **Dataset**: rows=16033, cols=23, last=2026-04-20, tickers=20
+- **Eval (production)**: mean_acc=0.5208, sharpe=2.2259, dd=0.032, version=s1776896677
+- **Per-ticker**: top=[MA:0.63, MSFT:0.62, UNH:0.60, AAPL:0.58, V:0.58], bottom=[META:0.43, AMZN:0.42, COST:0.37]
+- **Candidate**: version=s1776900594, mean_acc=0.4858, sharpe=-1.0241, dd=0.0581
+- **Hyperparams**: `{"xgb": {"max_depth": 8, "learning_rate": 0.05, "n_estimators": 300}, "ticker_map_size": 20}`
+- **Experiment note**: cycle-15
+- **Promoted**: no
+- **Residuals**: trained=20/20, promoted_this_cycle=6
+  | ticker | residual_acc | pooled_acc | promoted |
+  |--------|--------------|------------|----------|
+  | AAPL | 0.5667 | 0.5833 | no |
+  | AMZN | 0.4000 | 0.4167 | no |
+  | AVGO | 0.5000 | 0.5000 | no |
+  | BRK-B | 0.4333 | 0.4500 | no |
+  | COST | 0.3833 | 0.3667 | yes |
+  | GOOG | 0.5500 | 0.5500 | no |
+  | GOOGL | 0.5000 | 0.5000 | no |
+  | HD | 0.5667 | 0.5333 | yes |
+  | JNJ | 0.4833 | 0.4833 | no |
+  | JPM | 0.4833 | 0.4833 | no |
+  | LLY | 0.6000 | 0.5500 | yes |
+  | MA | 0.6000 | 0.6333 | no |
+  | META | 0.4167 | 0.4333 | no |
+  | MSFT | 0.6167 | 0.6167 | no |
+  | NVDA | 0.5500 | 0.5500 | no |
+  | PG | 0.4833 | 0.4667 | yes |
+  | TSLA | 0.5833 | 0.5667 | yes |
+  | UNH | 0.5833 | 0.6000 | no |
+  | V | 0.5500 | 0.5833 | no |
+  | XOM | 0.5667 | 0.5500 | yes |
+- **Hybrid eval**: hybrid_acc=0.5275, pooled_acc=0.5208, residuals_active=5
+

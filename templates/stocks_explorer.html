@@ -250,11 +250,43 @@
                 {{ detail.factor_scores.total if detail.factor_scores else '—' }}
               </span>
             </div>
+            {% if detail.ml %}
+              <div class="m">
+                <span class="label">ML Prob(Up){% if detail.ml.source == 'hybrid' %} · Hybrid{% else %} · Pooled{% endif %}</span>
+                <span class="val {% if detail.ml.prob_up >= 0.55 %}pos{% elif detail.ml.prob_up <= 0.45 %}neg{% endif %}">
+                  {{ '%.1f'|format(detail.ml.prob_up * 100) }}%
+                </span>
+              </div>
+            {% endif %}
             <div class="m">
               <span class="label">Run</span>
               <span class="val" style="font-size:.75rem;">{{ detail.run_timestamp }}</span>
             </div>
           </div>
+
+          {% if detail.ml %}
+            <div class="section">
+              <h3>AutoResearch — Next-Day Direction Model</h3>
+              <div class="price-grid">
+                <div class="pcell">
+                  <div class="plabel">Prob(Up)</div>
+                  <div class="pval">{{ '%.1f'|format(detail.ml.prob_up * 100) }}%</div>
+                </div>
+                <div class="pcell">
+                  <div class="plabel">Pooled Prob</div>
+                  <div class="pval">{{ '%.1f'|format(detail.ml.pooled_prob * 100) }}%</div>
+                </div>
+                <div class="pcell">
+                  <div class="plabel">Source</div>
+                  <div class="pval">{{ detail.ml.source }}{% if detail.ml.source == 'hybrid' %} (pooled + per-ticker residual){% endif %}</div>
+                </div>
+                <div class="pcell">
+                  <div class="plabel">As Of</div>
+                  <div class="pval">{{ detail.ml.asof_date }}</div>
+                </div>
+              </div>
+            </div>
+          {% endif %}
 
           {% if detail.factor_scores %}
             <div class="section">

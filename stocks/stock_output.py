@@ -62,6 +62,7 @@ def summarize_for_overview(ticker_payload: dict) -> dict[str, Any]:
     """Compact per-ticker row used in overview.json and the overview page."""
     scores = ticker_payload.get("factor_scores") or {}
     price  = ticker_payload.get("price_summary") or {}
+    ml     = ticker_payload.get("ml") or {}
     return {
         "ticker":         ticker_payload.get("ticker"),
         "company_name":   ticker_payload.get("company_name"),
@@ -74,5 +75,7 @@ def summarize_for_overview(ticker_payload: dict) -> dict[str, Any]:
         "article_count":  ticker_payload.get("article_count"),
         "price":          price.get("current"),
         "return_5d_pct":  price.get("return_5d_pct"),
+        "ml_prob_up":     ml.get("prob_up"),
+        "ml_source":      ml.get("source"),
         "error":          ticker_payload.get("error"),
     }

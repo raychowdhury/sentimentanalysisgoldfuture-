@@ -1,0 +1,32 @@
+{
+  "COST": {
+    "pooled_acc_at_promotion": 0.3667,
+    "residual_acc": 0.3833,
+    "updated_at": "2026-04-22T23:29:55+00:00"
+  },
+  "HD": {
+    "pooled_acc_at_promotion": 0.5333,
+    "residual_acc": 0.5667,
+    "updated_at": "2026-04-22T23:29:55+00:00"
+  },
+  "LLY": {
+    "pooled_acc_at_promotion": 0.55,
+    "residual_acc": 0.6,
+    "updated_at": "2026-04-22T23:29:55+00:00"
+  },
+  "PG": {
+    "pooled_acc_at_promotion": 0.4667,
+    "residual_acc": 0.4833,
+    "updated_at": "2026-04-22T23:29:55+00:00"
+  },
+  "TSLA": {
+    "pooled_acc_at_promotion": 0.5667,
+    "residual_acc": 0.5833,
+    "updated_at": "2026-04-22T23:29:55+00:00"
+  },
+  "XOM": {
+    "pooled_acc_at_promotion": 0.55,
+    "residual_acc": 0.5667,
+    "updated_at": "2026-04-22T23:29:55+00:00"
+  }
+}

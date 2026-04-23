@@ -1,6 +1,6 @@
 {
-  "cycle": 12,
-  "stale_streak": 1,
+  "cycle": 15,
+  "stale_streak": 2,
   "last_accuracy": 0.5208,
   "flag_for_human_review": false
 }

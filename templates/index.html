@@ -1234,14 +1234,30 @@
       </div>
     </div>
 
-    {# Trade levels — only when a valid setup exists #}
-    {% if ts and ts.trade_valid %}
+    {# Trend & Range — moving averages and 14d swing extremes #}
+    {% if l2.ema20 or l2.sma200 or l2.recent_high_14d %}
     <div class="l2-group">
-      <div class="l2-group-hdr">Trade Setup</div>
+      <div class="l2-group-hdr">Trend / Range</div>
       <div class="l2-group-pills">
-        {{ pill("Entry",       ts.entry_price, "#0f172a", "Current price") }}
-        {{ pill("Stop Loss",   ts.stop_loss,   "#dc2626", "−" ~ (ts.risk_amount | fmt_price) ~ " risk") }}
-        {{ pill("Take Profit", ts.take_profit, "#16a34a", "+" ~ (ts.reward_amount | fmt_price) ~ " · " ~ ts.tp_source) }}
+        {{ pill("EMA20",    l2.ema20,           "#0ea5e9", "Fast trend") }}
+        {{ pill("EMA50",    l2.ema50,           "#3b82f6", "Mid trend") }}
+        {{ pill("SMA200",   l2.sma200,          "#1e293b", "Macro regime") }}
+        {{ pill("14D High", l2.recent_high_14d, "#16a34a", "Swing high") }}
+        {{ pill("14D Low",  l2.recent_low_14d,  "#dc2626", "Swing low") }}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Trade levels — Entry always shown (= current price); SL/TP only when valid setup exists #}
+    {% if ts and ts.entry_price %}
+    <div class="l2-group">
+      <div class="l2-group-hdr">{{ "Trade Setup" if ts.trade_valid else "Current Price" }}</div>
+      <div class="l2-group-pills">
+        {{ pill("Entry", ts.entry_price, "#0f172a", "Current price") }}
+        {% if ts.trade_valid %}
+          {{ pill("Stop Loss",   ts.stop_loss,   "#dc2626", "−" ~ (ts.risk_amount | fmt_price) ~ " risk") }}
+          {{ pill("Take Profit", ts.take_profit, "#16a34a", "+" ~ (ts.reward_amount | fmt_price) ~ " · " ~ ts.tp_source) }}
+        {% endif %}
       </div>
     </div>
     {% endif %}

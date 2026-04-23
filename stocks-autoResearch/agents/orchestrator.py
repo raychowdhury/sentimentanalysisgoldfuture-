@@ -12,7 +12,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from agents import data_agent, eval_agent, meta_optimizer, report_agent, training_agent
+from agents import (
+    data_agent,
+    eval_agent,
+    meta_optimizer,
+    report_agent,
+    residual_agent,
+    training_agent,
+)
 from config.settings import settings
 from models.model_registry import registry
 
@@ -121,12 +128,21 @@ async def run_cycle(cycle: int, cfg: ProgramConfig) -> dict:
 
     eval_after = await eval_agent.run() if promoted else eval_before
 
+    # Per-ticker residuals use whatever's now in production (newly promoted
+    # candidate or incumbent). Skipped when no production pooled exists.
+    try:
+        residuals_out = await residual_agent.run()
+    except Exception as exc:
+        logger.exception("residual_agent failed: %s", exc)
+        residuals_out = {}
+
     return {
         "data":         data_out,
         "eval_before":  eval_before,
         "eval_after":   eval_after,
         "training":     training_out,
         "promoted":     promoted,
+        "residuals":    residuals_out,
         "flags":        [],
     }
 
