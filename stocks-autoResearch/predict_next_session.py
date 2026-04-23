@@ -170,26 +170,172 @@ def _event_status(target: date) -> dict:
 
 
 _DEFAULT_WEIGHTS = {
-    "model_signal":   0.45,
-    "breadth_signal": 0.20,
-    "stock_sent":     0.15,
+    "model_signal":   0.35,
+    "stock_sent":     0.12,
     "real_yield":     0.10,
     "sector_agree":   0.10,
+    "trend":          0.13,
+    "credit":         0.08,
+    "vix_slope":      0.05,
+    "fomc_prox":      0.03,
+    "tom":            0.02,
+    "dow":            0.02,
 }
 
 
-def _load_fitted_weights(parent_root: Path) -> dict | None:
-    """Load data-fitted composite weights if available (item 2)."""
+def _load_fitted_weights(parent_root: Path, vix: float | None) -> tuple[dict | None, dict, str]:
+    """Load fitted composite weights + calibration info, regime-aware.
+
+    Schemas supported, newest first:
+      - Tier-3 xgb_v1:    regimes + shared XGBoost model file for p_up.
+      - Tier-2 regime_v1: regimes + per-regime intercept/coefs (LR).
+      - Tier-1 flat:      {weights, raw_coefs, intercept}.
+
+    Returns (weights_dict | None, calibration_dict, regime_label).
+    """
     p = parent_root / "outputs" / "stocks" / "_composite_weights.json"
+    if not p.exists():
+        return None, {}, "default"
+    try:
+        d = json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None, {}, "default"
+
+    # Tier-3: XGBoost. Regime-aware — prefer per-regime model file, fall back to shared.
+    if isinstance(d, dict) and d.get("schema") == "xgb_v1":
+        thresh = float(d.get("vix_threshold", 18.0))
+        regimes = d.get("regimes") or {}
+        regime_label = "high_vix" if (vix is not None and vix >= thresh) else "low_vix"
+        fit = regimes.get(regime_label) or {}
+        model_file = fit.get("model_file") or d.get("model_file") or "_composite_model.ubj"
+        calib = {
+            "schema":          "xgb_v1",
+            "model_file":      model_file,
+            "components_used": d.get("components_used") or [],
+            "target":          d.get("target"),
+            "walk_forward":    fit.get("wf") or d.get("walk_forward"),
+        }
+        return fit.get("weights"), calib, regime_label
+
+    # Tier-2 regime-aware schema.
+    if isinstance(d, dict) and d.get("schema") == "regime_v1":
+        thresh = float(d.get("vix_threshold", 18.0))
+        regimes = d.get("regimes") or {}
+        regime_label = "high_vix" if (vix is not None and vix >= thresh) else "low_vix"
+        fit = regimes.get(regime_label) or {}
+        if not fit:
+            return None, {}, "default"
+        calib = {
+            "schema":          "regime_v1",
+            "intercept":       fit.get("intercept"),
+            "raw_coefs":       fit.get("raw_coefs") or {},
+            "components_used": d.get("components_used") or [],
+            "target":          d.get("target"),
+            "walk_forward":    fit.get("wf"),
+        }
+        return fit.get("weights"), calib, regime_label
+
+    # Tier-1 flat schema fallback.
+    if isinstance(d, dict) and "weights" in d:
+        calib = {
+            "schema":      "flat",
+            "intercept":   d.get("intercept"),
+            "raw_coefs":   d.get("raw_coefs") or {},
+            "components_used": d.get("components_used") or [],
+        }
+        return d["weights"], calib, "flat"
+
+    return None, {}, "default"
+
+
+def _load_reliability(parent_root: Path) -> dict | None:
+    """Load walk-forward reliability JSON if present."""
+    p = parent_root / "outputs" / "stocks" / "_reliability.json"
     if not p.exists():
         return None
     try:
-        d = json.loads(p.read_text())
-        if isinstance(d, dict) and "weights" in d:
-            return d["weights"]
+        return json.loads(p.read_text())
     except (json.JSONDecodeError, OSError):
-        pass
+        return None
+
+
+def _calibration_bin(p_up: float | None, reliability: dict | None) -> dict | None:
+    """Find the reliability bin that contains p_up.
+
+    Returns {p_lo, p_hi, n, predicted, actual, gap} or None.
+    """
+    if p_up is None or not reliability:
+        return None
+    bins = reliability.get("bins") or []
+    for b in bins:
+        if b.get("n", 0) == 0:
+            continue
+        lo = float(b.get("p_lo", 0))
+        hi = float(b.get("p_hi", 1))
+        # Last bin is inclusive on the top edge.
+        if (p_up >= lo and p_up < hi) or (hi >= 1.0 and p_up <= hi):
+            gap = float(b["actual"]) - float(b["predicted"])
+            return {
+                "p_lo":      lo,
+                "p_hi":      hi,
+                "n":         int(b["n"]),
+                "predicted": float(b["predicted"]),
+                "actual":    float(b["actual"]),
+                "gap":       round(gap, 4),
+            }
     return None
+
+
+_XGB_MODEL_CACHE: dict | None = None
+
+
+def _load_xgb_model(parent_root: Path, model_file: str):
+    """Lazy-load the fitted XGBoost composite model from disk."""
+    global _XGB_MODEL_CACHE
+    if _XGB_MODEL_CACHE and _XGB_MODEL_CACHE.get("file") == model_file:
+        return _XGB_MODEL_CACHE["model"]
+    try:
+        from xgboost import XGBClassifier
+        m = XGBClassifier()
+        m.load_model(str(parent_root / "outputs" / "stocks" / model_file))
+        _XGB_MODEL_CACHE = {"file": model_file, "model": m}
+        return m
+    except Exception as e:
+        logger.warning(f"xgb model load failed: {e}")
+        return None
+
+
+def _calibrated_p_up(components: dict, calib: dict, parent_root: Path | None = None) -> float | None:
+    """Compute p_up. Uses XGBoost predict_proba if available, else LR coefs.
+
+    Missing components default to 0. Component x/100 scaling matches fit.
+    """
+    schema = (calib or {}).get("schema")
+
+    if schema == "xgb_v1" and parent_root is not None:
+        model = _load_xgb_model(parent_root, calib.get("model_file") or "_composite_model.ubj")
+        feats = calib.get("components_used") or list(components.keys())
+        if model is not None:
+            try:
+                x = np.array([[float(components.get(k, 0.0)) / 100.0 for k in feats]])
+                p = float(model.predict_proba(x)[0, 1])
+                return p
+            except Exception as e:
+                logger.warning(f"xgb predict failed: {e}")
+
+    # LR fallback (Tier-1/2 schemas)
+    intercept = (calib or {}).get("intercept")
+    coefs     = (calib or {}).get("raw_coefs") or {}
+    if intercept is None or not coefs:
+        return None
+    try:
+        z = float(intercept)
+        for k, beta in coefs.items():
+            x = float(components.get(k, 0.0)) / 100.0
+            z += float(beta) * x
+        return float(1.0 / (1.0 + np.exp(-z)))
+    except (ValueError, TypeError):
+        return None
 
 
 def _vix_regime(vix: float | None) -> dict:
@@ -214,28 +360,39 @@ def _composite_score(
     real10y: dict | None,
     event: dict,
     vix_regime: dict,
+    trend: dict | None = None,
+    credit: dict | None = None,
+    vix_slope_snap: dict | None = None,
+    fomc_prox_val: float | None = None,
+    tom_val: float | None = None,
+    dow_val: float | None = None,
     weights: dict | None = None,
+    calibration: dict | None = None,
+    reliability: dict | None = None,
+    parent_root: Path | None = None,
 ) -> dict:
     """
     Composite directional score (-100..+100) + monotonic confidence tier.
 
-    Inputs:
-      mean_p           model mean P(up) across universe
-      breadth          share of tickers with P(up) >= 0.5
-      holdout_acc      model holdout accuracy (used for confidence)
-      sectors          per-sector dict list (for dispersion)
-      stock_sent_mean  universe-mean per-ticker sentiment_score (item 9 — replaces gold proxy)
-      real10y          DFII10 + 5d/20d change in pp
-      event            {blocked, reason, next_event}
-      vix_regime       {vix, regime, size_mult}
-      weights          optional fitted weights (item 2)
+    Components (after Tier-1 rework):
+      model_signal     (mean_p - 0.5) × 200
+      stock_sent       per-ticker sentiment mean × 250
+      real_yield       -DFII10 5d Δ × 1000
+      sector_agree     net long-short sectors / N × 100
+      trend            SPY 20d return z × 33   (NEW — momentum)
+      credit           HYG/IEF 60d z × 33      (NEW — risk appetite)
+
+    `breadth_signal` removed: collinear with model_signal (same per-ticker
+    proba). Regression now fits orthogonal factor set.
+
+    p_up returned alongside score when calibration data available.
     """
+    from research.macro_overlays import z_to_component
+
     components = {}
 
-    components["model_signal"]   = round(max(-100.0, min(100.0, (mean_p   - 0.5) * 200)), 1)
-    components["breadth_signal"] = round(max(-100.0, min(100.0, (breadth - 0.5) * 200)), 1)
+    components["model_signal"] = round(max(-100.0, min(100.0, (mean_p - 0.5) * 200)), 1)
 
-    # Stock sentiment: positive = bullish stocks (direct, no sign flip)
     if stock_sent_mean is not None:
         components["stock_sent"] = round(max(-100.0, min(100.0, stock_sent_mean * 250)), 1)
     else:
@@ -252,6 +409,19 @@ def _composite_score(
         components["sector_agree"] = round((sec_long - sec_short) / len(sectors) * 100, 1)
     else:
         components["sector_agree"] = 0.0
+
+    components["trend"]  = round(z_to_component(
+        (trend or {}).get("trend_z") if trend else None
+    ), 1)
+    components["credit"] = round(z_to_component(
+        (credit or {}).get("credit_z") if credit else None
+    ), 1)
+    components["vix_slope"] = round(z_to_component(
+        (vix_slope_snap or {}).get("slope_z") if vix_slope_snap else None
+    ), 1)
+    components["fomc_prox"] = round(float(fomc_prox_val or 0.0) * 100.0, 1)
+    components["tom"]       = round(float(tom_val or 0.0)  * 100.0, 1)
+    components["dow"]       = round(float(dow_val or 0.0)  * 100.0, 1)
 
     weights = weights or dict(_DEFAULT_WEIGHTS)
     raw_score = sum(components[k] * weights.get(k, 0.0) for k in components)
@@ -312,6 +482,20 @@ def _composite_score(
     if vix_regime.get("regime") == "PANIC":
         _demote("VIX PANIC regime")
 
+    # ── Calibration-based demotions (walk-forward reliability) ──
+    p_up = _calibrated_p_up(components, calibration or {}, parent_root)
+    calib_bin = _calibration_bin(p_up, reliability)
+    if reliability:
+        ece = reliability.get("ece")
+        if ece is not None and ece > 0.10:
+            _demote(f"global ECE {ece:.3f} > 0.10 (model mis-calibrated)")
+    if calib_bin:
+        gap = abs(calib_bin["gap"])
+        if gap > 0.15:
+            _demote(f"p_up bin {calib_bin['p_lo']:.1f}-{calib_bin['p_hi']:.1f} gap {calib_bin['gap']:+.2f} (poorly calibrated)")
+        if calib_bin["n"] < 30:
+            _demote(f"p_up bin n={calib_bin['n']} (thin sample)")
+
     confidence = tiers[tier_idx]
 
     if score >= 30:
@@ -329,6 +513,8 @@ def _composite_score(
         "score":          round(score, 1),
         "bias":           bias,
         "confidence":     confidence,
+        "p_up":           round(p_up, 4) if p_up is not None else None,
+        "calib_bin":      calib_bin,
         "components":     components,
         "weights":        weights,
         "weights_source": "fitted" if weights != _DEFAULT_WEIGHTS else "default",
@@ -581,15 +767,46 @@ def main() -> None:
     last_vix = float(live["vix"].iloc[0]) if "vix" in live.columns and len(live) else None
     vix_reg = _vix_regime(last_vix)
 
-    # Item 2: load fitted weights if regression has been run.
-    fitted_weights = _load_fitted_weights(parent_root)
+    # Item 2: load fitted weights + calibration (intercept/coefs for p_up).
+    # Tier-2: regime-aware — pick low_vix/high_vix weight set from current VIX.
+    fitted_weights, calibration, regime_label = _load_fitted_weights(parent_root, last_vix)
+    reliability_data = _load_reliability(parent_root)
+
+    # Tier-1/3 overlays: SPY momentum, HYG/IEF credit, VIX term slope, event/seasonal.
+    from research.macro_overlays import (
+        spy_trend, credit_zscore, vix_slope,
+        turn_of_month_flag, day_of_week_feat, fomc_proximity,
+    )
+    trend_snap  = spy_trend(next_session)
+    credit_snap = credit_zscore(next_session)
+    vslope_snap = vix_slope(next_session)
+
+    # FOMC proximity from event gate
+    fomc_days = None
+    nxt_ev = (event.get("next_event") or {})
+    if nxt_ev.get("kind") == "FOMC":
+        fomc_days = nxt_ev.get("days_away")
+    fomc_val = fomc_proximity(fomc_days)
+    tom_val  = turn_of_month_flag(next_session)
+    dow_val  = day_of_week_feat(next_session)
 
     composite = _composite_score(
         mean_p=mean_p, breadth=breadth, holdout_acc=meta.accuracy,
         sectors=sector_rows, stock_sent_mean=stock_sent_mean,
         real10y=real10y, event=event, vix_regime=vix_reg,
-        weights=fitted_weights,
+        trend=trend_snap, credit=credit_snap,
+        vix_slope_snap=vslope_snap,
+        fomc_prox_val=fomc_val, tom_val=tom_val, dow_val=dow_val,
+        weights=fitted_weights, calibration=calibration,
+        reliability=reliability_data,
+        parent_root=parent_root,
     )
+    composite["trend_snap"]  = trend_snap
+    composite["credit_snap"] = credit_snap
+    composite["vix_slope_snap"] = vslope_snap
+    composite["regime"]      = regime_label
+    composite["target"]      = calibration.get("target") if calibration else None
+    composite["walk_forward"] = calibration.get("walk_forward") if calibration else None
     print()
     print(f"=== SPX COMPOSITE === score={composite['score']:+.1f}  "
           f"bias={composite['bias']}  confidence={composite['confidence']}  "

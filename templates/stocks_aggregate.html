@@ -6,10 +6,83 @@
   <title>Trader Desk — S&P 500 Next Session</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:           #f8fafc;
+      --bg-alt:       #eef2f7;
+      --surface:      #ffffff;
+      --border:       #e2e8f0;
+      --border-soft:  #edf2f7;
+      --text:         #0f172a;
+      --text-dim:     #475569;
+      --text-faint:   #94a3b8;
+      --accent:       #d97706;
+      --accent-soft:  #fef3c7;
+      --pos:          #15803d;
+      --pos-bg:       #dcfce7;
+      --neg:          #b91c1c;
+      --neg-bg:       #fee2e2;
+      --neu:          #475569;
+      --neu-bg:       #e2e8f0;
+      --shadow-sm:    0 1px 2px rgba(15,23,42,.04);
+      --shadow-md:    0 4px 14px rgba(15,23,42,.06);
+      --radius:       10px;
+      --mono:         'SF Mono', ui-monospace, Menlo, monospace;
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #f1f5f9; color: #1e293b; font-size: 13px; line-height: 1.5;
+      background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5;
+      font-variant-numeric: tabular-nums;
     }
+    /* Section label above card groups */
+    .section-label {
+      font-size: .65rem; font-weight: 700; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: .12em;
+      margin: 1.25rem 0 .4rem; display: flex; align-items: center; gap: .6rem;
+    }
+    .section-label::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+    .section-label:first-child { margin-top: 0; }
+    /* Collapsible research block */
+    details.research {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-sm);
+      margin-bottom: 1rem; overflow: hidden;
+    }
+    details.research > summary {
+      padding: .9rem 1.25rem; cursor: pointer; list-style: none;
+      display: flex; align-items: center; justify-content: space-between;
+      user-select: none; font-weight: 600; color: var(--text);
+      font-size: .85rem; text-transform: uppercase; letter-spacing: .05em;
+    }
+    details.research > summary::-webkit-details-marker { display: none; }
+    details.research > summary::after {
+      content: '▼'; font-size: .65rem; color: var(--text-faint);
+      transition: transform .15s;
+    }
+    details.research[open] > summary::after { transform: rotate(180deg); }
+    details.research > summary:hover { background: var(--bg-alt); }
+    details.research > .research-body { padding: 0 1.25rem 1rem; }
+    details.research > .research-body > .card { box-shadow: none; border: 1px solid var(--border-soft); margin-bottom: .75rem; }
+    details.research > .research-body > .card:last-child { margin-bottom: 0; }
+    /* Hero status ribbon — replaces the old refresh card */
+    .status-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; padding: .75rem 1rem; margin-bottom: 1rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-sm);
+      flex-wrap: wrap;
+    }
+    .status-bar .meta {
+      font-size: .72rem; color: var(--text-dim); display: flex;
+      gap: .75rem; flex-wrap: wrap; align-items: center;
+    }
+    .status-bar .meta .chip {
+      background: var(--bg-alt); padding: .2rem .55rem; border-radius: 999px;
+      font-size: .65rem; color: var(--text-dim); border: 1px solid var(--border-soft);
+    }
+    .status-bar .meta .chip strong { color: var(--text); }
+    .status-bar .actions { display: flex; align-items: center; gap: .6rem; }
     header {
       background: #0f172a; color: #fff; padding: 0 1.5rem; height: 52px;
       display: flex; align-items: center; justify-content: space-between;
@@ -27,11 +100,16 @@
     .nav-tab:hover { background: #1e293b; color: #fff; }
     .nav-tab.active { background: #fbbf24; color: #0f172a; font-weight: 600; }
     .nav-sep { width: 1px; height: 20px; background: #334155; margin: 0 .5rem; }
-    .wrap { max-width: 1500px; margin: 0 auto; padding: 1rem 1.5rem; }
-    .card { background: #fff; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    h2 { font-size: .95rem; margin-bottom: .75rem; color: #0f172a;
-         text-transform: uppercase; letter-spacing: .05em; }
+    .wrap { max-width: 1500px; margin: 0 auto; padding: 1.25rem 1.5rem 2rem; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1rem 1.25rem;
+      margin-bottom: 1rem; box-shadow: var(--shadow-sm);
+    }
+    h2 {
+      font-size: .78rem; margin-bottom: .85rem; color: var(--text);
+      text-transform: uppercase; letter-spacing: .08em; font-weight: 700;
+    }
     /* Lean banner */
     .banner-row { display: grid; grid-template-columns: auto 1fr; gap: 1.5rem; align-items: center; }
     .lean-pill { font-size: 2.2rem; font-weight: 800; padding: .4rem 1.5rem;
@@ -149,11 +227,14 @@
     .warning-banner       { background: #fef3c7; color: #854d0e; }
     /* Refresh */
     .refresh-btn {
-      background: #fbbf24; color: #0f172a; border: 0; padding: .35rem .9rem;
-      border-radius: 6px; font-weight: 700; font-size: .8rem; cursor: pointer;
+      background: var(--text); color: #fff; border: 0; padding: .4rem .85rem;
+      border-radius: 6px; font-weight: 600; font-size: .72rem; cursor: pointer;
+      letter-spacing: .04em; text-transform: uppercase;
+      transition: background .15s;
     }
-    .refresh-btn:disabled { opacity: .6; cursor: wait; }
-    .refresh-status { font-size: .75rem; color: #94a3b8; margin-left: .5rem; }
+    .refresh-btn:hover { background: #1e293b; }
+    .refresh-btn:disabled { opacity: .55; cursor: wait; }
+    .refresh-status { font-size: .7rem; color: var(--text-faint); margin-left: .5rem; }
     /* Action badges + HTB */
     .act-TAKE     { background: #dcfce7; color: #166534; }
     .act-DOWNSIZE { background: #fef3c7; color: #854d0e; }
@@ -163,6 +244,18 @@
       border-radius: 3px; font-size: .65rem; font-weight: 700;
       letter-spacing: .04em; margin-left: .25rem;
     }
+    /* Live price ticks */
+    .live-price { transition: background-color .5s ease-out; }
+    .live-price.flash-up   { background: #bbf7d0; }
+    .live-price.flash-down { background: #fecaca; }
+    .live-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #94a3b8; margin-right: .35rem; vertical-align: middle;
+    }
+    .live-dot.on { background: #16a34a; box-shadow: 0 0 6px #16a34a; animation: pulse 1.8s infinite; }
+    .live-dot.off { background: #94a3b8; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+    .live-status { font-size: .7rem; color: #64748b; margin-left: .75rem; }
     /* Portfolio risk cap */
     .risk-summary {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem;
@@ -183,9 +276,8 @@
     <span class="logo-sub">Trader Desk · Next Session</span>
   </div>
   <nav class="main-nav">
-    <a class="nav-tab" href="/">Gold Bias</a>
+    <a class="nav-tab" href="/">Gold</a>
     <a class="nav-tab active" href="/stocks/overview">Stocks</a>
-    <a class="nav-tab" href="/autoresearch">AutoResearch</a>
     <span class="nav-sep"></span>
     <a class="nav-tab" href="/stocks/overview">Overview</a>
     <a class="nav-tab active" href="/stocks/aggregate">Trader Desk</a>
@@ -216,18 +308,24 @@
     <div class="warning-banner">⚠ {{ aggregate.market_warning }}</div>
     {% endif %}
 
-    <!-- ── Refresh ── -->
-    <div class="card" style="display:flex;align-items:center;justify-content:space-between;">
-      <div style="font-size:.85rem;color:#475569;">
-        Snapshot generated {{ aggregate.generated_at }}
-        · model <code>{{ aggregate.model_version }}</code>
-        · residuals active {{ aggregate.residuals_active or 0 }} / rejected {{ aggregate.residuals_rejected or 0 }}
+    <!-- ── Status ribbon ── -->
+    <div class="status-bar">
+      <div class="meta">
+        <span class="chip">Generated <strong>{{ aggregate.generated_at }}</strong></span>
+        <span class="chip">Model <strong>{{ aggregate.model_version }}</strong></span>
+        <span class="chip">Residuals <strong>{{ aggregate.residuals_active or 0 }}</strong>/{{ aggregate.residuals_rejected or 0 }}</span>
+        <span class="chip">Universe <strong>{{ aggregate.n_tickers }}</strong></span>
       </div>
-      <div>
-        <button class="refresh-btn" id="refresh-btn">Refresh Now</button>
+      <div class="actions">
+        <span class="live-status" id="live-status">
+          <span class="live-dot off" id="live-dot"></span><span id="live-label">Live: checking…</span>
+        </span>
+        <button class="refresh-btn" id="refresh-btn">Refresh</button>
         <span class="refresh-status" id="refresh-status"></span>
       </div>
     </div>
+
+    <div class="section-label">Signal · SPX Next Session</div>
 
     <!-- ── Composite SPX score ── -->
     {% if aggregate.composite %}
@@ -239,6 +337,18 @@
           <div class="score-num">{{ '%+.0f' | format(c.score) }}</div>
           <div style="font-size:.65rem;color:rgba(0,0,0,.5);">scale −100…+100</div>
           <div class="bias">{{ c.bias }}</div>
+          {% if c.p_up is not none %}
+            <div style="font-size:.75rem;font-weight:700;margin-top:.35rem;color:rgba(0,0,0,.65);">
+              P(up) = {{ '%.3f' | format(c.p_up) }}
+            </div>
+            {% if c.calib_bin %}
+              <div style="font-size:.6rem;color:rgba(0,0,0,.55);margin-top:.15rem;">
+                bin {{ '%.1f' | format(c.calib_bin.p_lo) }}-{{ '%.1f' | format(c.calib_bin.p_hi) }}
+                · n={{ c.calib_bin.n }}
+                · gap {{ '%+.2f' | format(c.calib_bin.gap) }}
+              </div>
+            {% endif %}
+          {% endif %}
           <div class="conf-tier conf-{{ c.confidence }}">{{ c.confidence }} CONFIDENCE</div>
         </div>
         <div>
@@ -255,7 +365,7 @@
                   {% endif %}
                 </div>
                 <div class="val {{ 'pos' if v >= 0 else 'neg' }}">{{ '%+.1f' | format(v) }}</div>
-                <div class="wt">×{{ '%.2f' | format(c.weights[k]) }}</div>
+                <div class="wt">×{{ '%.2f' | format(c.weights.get(k, 0)) }}</div>
               </div>
             {% endfor %}
           </div>
@@ -269,6 +379,30 @@
               <span>Real 10Y: {{ '%.2f%%' | format(aggregate.real10y.current) }}
                 · 5d Δ {{ '%+.3f' | format(aggregate.real10y.chg_5d) }} pp
                 · 20d Δ {{ '%+.3f' | format(aggregate.real10y.chg_20d) }} pp</span>
+            {% endif %}
+            {% if c.trend_snap %}
+              <span>SPY trend: 20d {{ '%+.2f%%' | format((c.trend_snap.ret_20d or 0) * 100) }}
+                · z {{ '%+.2f' | format(c.trend_snap.trend_z) }}</span>
+            {% endif %}
+            {% if c.credit_snap %}
+              <span>HYG/IEF z: {{ '%+.2f' | format(c.credit_snap.credit_z) }}</span>
+            {% endif %}
+            {% if c.vix_slope_snap %}
+              <span>VIX/VIX3M: {{ '%.2f' | format(c.vix_slope_snap.ratio) }}
+                · z {{ '%+.2f' | format(c.vix_slope_snap.slope_z) }}</span>
+            {% endif %}
+            {% if c.regime and c.regime != 'default' and c.regime != 'flat' %}
+              {% set wf = c.walk_forward or {} %}
+              <span>Regime: <strong>{{ c.regime }}</strong>
+                {% if c.target %}· tgt {{ c.target }}{% endif %}
+                {% if wf.get('mean_ll') is not none %}
+                  · WF LL {{ '%.3f' | format(wf.get('mean_ll')) }}
+                  vs base {{ '%.3f' | format(wf.get('baseline_ll') or 0) }}
+                  (hit {{ '%.0f%%' | format((wf.get('mean_hit') or 0) * 100) }})
+                {% elif wf.get('n_folds') == 0 %}
+                  · WF folds: 0 (regime too thin)
+                {% endif %}
+              </span>
             {% endif %}
             {% if aggregate.event %}
               <span>Event gate: {{ 'BLOCKED' if aggregate.event.blocked else 'clear' }}
@@ -323,6 +457,8 @@
       </div>
     </div>
 
+    <div class="section-label">Execution</div>
+
     <!-- ── Risk allocator ── -->
     <div class="card">
       <h2>Position Sizer</h2>
@@ -373,6 +509,8 @@
       </div>
     </div>
 
+    <div class="section-label">Trade Plan</div>
+
     <!-- ── LONG trade plan ── -->
     <div class="card">
       <h2 style="color:#15803d;">▲ Long Setups (top {{ aggregate.top_long | length }})</h2>
@@ -397,6 +535,7 @@
         {% for r in aggregate.top_long %}
           {% set tp = r.trade_plan or {} %}
           <tr data-side="LONG"
+              data-ticker="{{ r.ticker }}"
               data-entry="{{ tp.entry or 0 }}"
               data-stop="{{ tp.stop or 0 }}"
               data-sector="{{ r.sector or 'Unknown' }}"
@@ -408,7 +547,7 @@
             </td>
             <td class="num"><strong>{{ '%.3f' | format(r.proba) }}</strong>
               <span class="badge b-{{ r.model_used }}">{{ r.model_used }}</span></td>
-            <td class="num">{{ '$%.2f' | format(r.price) if r.price else '–' }}</td>
+            <td class="num live-price" data-static="{{ r.price or '' }}">{{ '$%.2f' | format(r.price) if r.price else '–' }}</td>
             <td class="num price-key">{{ '$%.2f' | format(tp.entry) if tp.entry else '–' }}</td>
             <td class="num stop">{{ '$%.2f' | format(tp.stop) if tp.stop else '–' }}</td>
             <td class="num tp">
@@ -469,6 +608,7 @@
         {% for r in aggregate.top_short %}
           {% set tp = r.trade_plan or {} %}
           <tr data-side="SHORT"
+              data-ticker="{{ r.ticker }}"
               data-entry="{{ tp.entry or 0 }}"
               data-stop="{{ tp.stop or 0 }}"
               data-sector="{{ r.sector or 'Unknown' }}"
@@ -480,7 +620,7 @@
             </td>
             <td class="num"><strong>{{ '%.3f' | format(r.proba) }}</strong>
               <span class="badge b-{{ r.model_used }}">{{ r.model_used }}</span></td>
-            <td class="num">{{ '$%.2f' | format(r.price) if r.price else '–' }}</td>
+            <td class="num live-price" data-static="{{ r.price or '' }}">{{ '$%.2f' | format(r.price) if r.price else '–' }}</td>
             <td class="num price-key">{{ '$%.2f' | format(tp.entry) if tp.entry else '–' }}</td>
             <td class="num stop">{{ '$%.2f' | format(tp.stop) if tp.stop else '–' }}</td>
             <td class="num tp">
@@ -516,6 +656,261 @@
       <div class="legend">Short setups invert. HTB flag = borrow may be expensive/unavailable.</div>
     </div>
 
+    <div class="section-label">Research &amp; Diagnostics</div>
+
+    <details class="research">
+      <summary>Model calibration · regime · ablation · backtest · refresh</summary>
+      <div class="research-body">
+
+        {% set c = aggregate.composite %}
+        {% if c and c.regime and weights_meta %}
+        <!-- ── Active Regime card ── -->
+        <div class="card">
+          <h2>Active Regime · VIX split</h2>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;font-size:.78rem;margin-bottom:.75rem;">
+            <div class="stat"><div class="stat-label">Current VIX</div>
+              <div class="stat-value">{{ '%.2f' | format(aggregate.vix_regime.vix) if aggregate.vix_regime and aggregate.vix_regime.vix is not none else '—' }}</div></div>
+            <div class="stat"><div class="stat-label">Threshold</div>
+              <div class="stat-value">{{ weights_meta.vix_threshold }}</div></div>
+            <div class="stat"><div class="stat-label">Regime</div>
+              <div class="stat-value" style="color:{{ '#b91c1c' if c.regime=='high_vix' else '#15803d' }};">{{ c.regime }}</div></div>
+            <div class="stat"><div class="stat-label">Target</div>
+              <div class="stat-value" style="font-size:.8rem;">{{ c.target or '—' }}</div></div>
+          </div>
+          <table class="trade">
+            <thead><tr>
+              <th>Regime</th><th class="num">n_train</th><th class="num">up_rate</th>
+              <th class="num">WF folds</th><th class="num">WF LL</th>
+              <th class="num">Baseline LL</th><th class="num">Edge</th><th class="num">Hit</th>
+            </tr></thead>
+            <tbody>
+            {% for name, r in weights_meta.regimes.items() %}
+              {% set wf = r.wf or {} %}
+              <tr style="{% if name == c.regime %}background:var(--accent-soft);{% endif %}">
+                <td><strong>{{ name }}</strong>{% if name == c.regime %} <span class="badge b-pos" style="font-size:.55rem;">ACTIVE</span>{% endif %}</td>
+                <td class="num">{{ r.n_train_rows }}</td>
+                <td class="num">{{ '%.3f' | format(r.up_rate) if r.up_rate is not none else '—' }}</td>
+                <td class="num">{{ wf.get('n_folds', 0) }}</td>
+                <td class="num">{% if wf.get('mean_ll') is not none %}{{ '%.4f' | format(wf.get('mean_ll')) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if wf.get('baseline_ll') is not none %}{{ '%.4f' | format(wf.get('baseline_ll')) }}{% else %}—{% endif %}</td>
+                <td class="num {{ 'up' if (wf.get('edge_vs_baseline') or 0) > 0 else 'down' }}">
+                  {% if wf.get('edge_vs_baseline') is not none %}{{ '%+.4f' | format(wf.get('edge_vs_baseline')) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if wf.get('mean_hit') is not none %}{{ '%.1f%%' | format(wf.get('mean_hit') * 100) }}{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="legend">Active regime picked by current VIX relative to threshold. Uses per-regime fitted XGBoost model.</div>
+        </div>
+
+        <!-- ── Feature gain per regime ── -->
+        <div class="card">
+          <h2>Feature Gain · Regime Comparison</h2>
+          <table class="trade">
+            <thead><tr>
+              <th>Feature</th>
+              {% for name in weights_meta.regimes.keys() %}
+                <th class="num">{{ name }}</th>
+              {% endfor %}
+            </tr></thead>
+            <tbody>
+            {% for feat in weights_meta.components_used %}
+              <tr>
+                <td><code>{{ feat }}</code></td>
+                {% for name, r in weights_meta.regimes.items() %}
+                  {% set gain = (r.feature_gain or {}).get(feat, 0) %}
+                  <td class="num"><span style="color:var(--text);">{{ '%.3f' | format(gain) }}</span></td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="legend">XGBoost feature gain per regime. Sums to 1.0 per column. Shows which features each regime's model relied on.</div>
+        </div>
+        {% endif %}
+
+        {% if c and (c.reasons or c.dampers) %}
+        <!-- ── Confidence Trail card ── -->
+        <div class="card">
+          <h2>Confidence Trail · Why this tier</h2>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;">
+            <div>
+              <div class="conf-tier conf-{{ c.confidence }}">{{ c.confidence }}</div>
+            </div>
+            <div style="font-size:.78rem;">
+              {% if c.reasons %}
+                <div style="color:var(--text-dim);margin-bottom:.25rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:.65rem;">Demotions ({{ c.reasons|length }})</div>
+                <div style="display:flex;gap:.35rem;flex-wrap:wrap;">
+                  {% for r in c.reasons %}
+                    <span class="badge" style="background:#fef2f2;color:#991b1b;font-size:.68rem;padding:.2rem .5rem;">{{ r }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              {% if c.dampers %}
+                <div style="color:var(--text-dim);margin:.5rem 0 .25rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:.65rem;">Score Dampers</div>
+                <div style="display:flex;gap:.35rem;flex-wrap:wrap;">
+                  {% for d in c.dampers %}
+                    <span class="badge" style="background:var(--accent-soft);color:#92400e;font-size:.68rem;padding:.2rem .5rem;">{{ d }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              <div style="margin-top:.6rem;color:var(--text-faint);font-size:.7rem;">
+                Signals agree: <strong style="color:var(--text);">{{ c.agree_count }}/{{ c.n_components }}</strong>
+                · Weights source: <code>{{ c.weights_source }}</code>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+
+        {% if reliability %}
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">
+            <h2 style="margin-bottom:0;">Walk-Forward Reliability · n={{ reliability.n_oos }}</h2>
+            <div>
+              <button class="refresh-btn" id="reliab-refresh-btn">Refresh (backtest+fit+reliability)</button>
+              <span class="refresh-status" id="reliab-status"></span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;font-size:.8rem;">
+            <div style="color:var(--text-dim);">
+              <div>Brier <strong style="color:var(--text);">{{ '%.3f' | format(reliability.brier) }}</strong></div>
+              <div>ECE <strong style="color:var(--text);">{{ '%.3f' | format(reliability.ece) }}</strong></div>
+              <div style="font-size:.65rem;color:var(--text-faint);margin-top:.25rem;">
+                Brier: lower = better (0.25 = random).<br>
+                ECE: mean |predicted − actual|.
+              </div>
+              <div style="font-size:.65rem;color:var(--text-dim);margin-top:.5rem;" id="last-refresh-stamp">
+                generated {{ reliability.generated_at }}
+              </div>
+            </div>
+            <table class="trade">
+              <thead><tr>
+                <th>P(up) bin</th><th class="num">n</th>
+                <th class="num">predicted</th><th class="num">actual</th><th class="num">gap</th>
+              </tr></thead>
+              <tbody>
+              {% for b in reliability.bins %}
+                {% if b.n > 0 %}
+                  {% set gap = b.actual - b.predicted %}
+                  <tr>
+                    <td>{{ '%.1f' | format(b.p_lo) }}–{{ '%.1f' | format(b.p_hi) }}</td>
+                    <td class="num">{{ b.n }}</td>
+                    <td class="num">{{ '%.3f' | format(b.predicted) }}</td>
+                    <td class="num">{{ '%.3f' | format(b.actual) }}</td>
+                    <td class="num {{ 'up' if gap >= 0 else 'down' }}">{{ '%+.3f' | format(gap) }}</td>
+                  </tr>
+                {% endif %}
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if weights_meta and weights_meta.loo_ablation %}
+        <div class="card">
+          <h2>Feature Contribution · LOO Walk-Forward</h2>
+          <table class="trade">
+            <thead><tr>
+              <th>Feature</th>
+              <th class="num">Δ LL</th>
+              <th class="num">LL without</th>
+              <th>Verdict</th>
+            </tr></thead>
+            <tbody>
+            {% for r in weights_meta.loo_ablation %}
+              <tr>
+                <td><code>{{ r.feature }}</code></td>
+                <td class="num {{ 'up' if r.delta_ll >= 0 else 'down' }}">{{ '%+.4f' | format(r.delta_ll) }}</td>
+                <td class="num">{{ '%.4f' | format(r.ll_minus) }}</td>
+                <td>{% if r.delta_ll > 0 %}<span class="badge b-pos">HELPS</span>{% elif r.delta_ll < -0.001 %}<span class="badge b-neg">HURTS</span>{% else %}<span class="badge b-neu">neutral</span>{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="legend">
+            Δ LL &gt; 0 ⇒ removing feature hurt OOS walk-forward. Δ LL &lt; 0 ⇒ removing helped — prune candidate.
+            {% if weights_meta.walk_forward and weights_meta.walk_forward.mean_ll %}
+              · Global WF LL {{ '%.4f' | format(weights_meta.walk_forward.mean_ll) }}
+              vs baseline {{ '%.4f' | format(weights_meta.walk_forward.baseline_ll) }}
+              (edge {{ '%+.4f' | format(weights_meta.walk_forward.edge_vs_baseline) }})
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if backtest and backtest.summary_buckets %}
+        <!-- ── Backtest Bucket Summary ── -->
+        <div class="card">
+          <h2>In-Sample Bucket Monotonicity · Composite Score → SPY Next-Day</h2>
+          <table class="trade">
+            <thead><tr>
+              <th>Score bucket</th><th class="num">n</th>
+              <th class="num">hit rate</th><th class="num">mean ret</th><th class="num">median ret</th>
+            </tr></thead>
+            <tbody>
+            {% for b in backtest.summary_buckets %}
+              <tr>
+                <td><code>{{ b.bucket }}</code></td>
+                <td class="num">{{ b.n }}</td>
+                <td class="num">{{ '%.1f%%' | format(b.hit_rate * 100) }}</td>
+                <td class="num {{ 'up' if b.mean_ret >= 0 else 'down' }}">{{ '%+.3f%%' | format(b.mean_ret * 100) }}</td>
+                <td class="num {{ 'up' if b.median_ret >= 0 else 'down' }}">{{ '%+.3f%%' | format(b.median_ret * 100) }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="legend">
+            Composite score buckets vs realised SPY t+1 return, in-sample over {{ backtest.overall.n_days }} days.
+            Long signals (score ≥ 10): <strong>{{ '%.1f%%' | format(backtest.overall.long_hit_rate * 100) }}</strong> hit,
+            mean ret <strong>{{ '%+.3f%%' | format(backtest.overall.long_mean_ret * 100) }}</strong>.
+            Short signals (score ≤ -10): <strong>{{ '%.1f%%' | format(backtest.overall.short_hit_rate * 100) }}</strong> hit,
+            mean ret <strong>{{ '%+.3f%%' | format(backtest.overall.short_mean_ret * 100) }}</strong>.
+          </div>
+        </div>
+        {% endif %}
+
+        {% if last_refresh %}
+        <!-- ── Last Refresh card ── -->
+        <div class="card">
+          <h2>Last Monthly Refresh</h2>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;font-size:.78rem;">
+            <div>
+              <div style="color:var(--text-dim);">Started <strong style="color:var(--text);">{{ last_refresh.started }}</strong></div>
+              <div style="color:var(--text-dim);">Finished <strong style="color:var(--text);">{{ last_refresh.finished }}</strong></div>
+              <div style="margin-top:.35rem;">
+                Status: {% if last_refresh.ok %}<span class="badge b-pos">OK</span>{% else %}<span class="badge b-neg">FAILED</span>{% endif %}
+              </div>
+            </div>
+            <table class="trade">
+              <thead><tr><th>Step</th><th class="num">rc</th><th class="num">sec</th></tr></thead>
+              <tbody>
+              {% for s in last_refresh.steps %}
+                <tr>
+                  <td><code>{{ s.module }}</code></td>
+                  <td class="num {{ 'up' if s.rc == 0 else 'down' }}">{{ s.rc }}</td>
+                  <td class="num">{{ s.seconds }}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if not last_refresh.ok %}
+            {% for s in last_refresh.steps if s.rc != 0 %}
+              <div class="legend" style="color:var(--neg);">
+                <strong>{{ s.module }}</strong> failed (rc={{ s.rc }}). Stderr tail:
+                <pre style="background:var(--bg-alt);padding:.5rem;border-radius:6px;margin-top:.25rem;font-size:.7rem;white-space:pre-wrap;">{{ s.stderr_tail }}</pre>
+              </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+        {% endif %}
+
+      </div>
+    </details>
+
   {% endif %}
 
 </div>
@@ -532,7 +927,7 @@
     const sectorCount = {};   // per-sector positions taken so far (long+short combined)
     let sumLong = 0, sumShort = 0;
 
-    document.querySelectorAll('table.trade tbody tr').forEach(tr => {
+    document.querySelectorAll('table.trade tbody tr[data-side]').forEach(tr => {
       const entry  = parseFloat(tr.dataset.entry || 0);
       const stop   = parseFloat(tr.dataset.stop  || 0);
       const side   = tr.dataset.side;
@@ -540,6 +935,7 @@
       const action = tr.dataset.action || 'TAKE';
       const sharesCell = tr.querySelector('.shares-cell');
       const sizeCell   = tr.querySelector('.size-cell');
+      if (!sharesCell || !sizeCell) return;
 
       if (!entry || !stop || !risk) {
         sharesCell.textContent = '–'; sizeCell.textContent = '–'; return;
@@ -671,6 +1067,115 @@
     }, 2500);
   }
 
+  async function reliabRefresh() {
+    const btn = document.getElementById('reliab-refresh-btn');
+    const status = document.getElementById('reliab-status');
+    if (!btn) return;
+    btn.disabled = true;
+    status.textContent = 'starting…';
+    try {
+      const r = await fetch('/api/stocks/reliability/refresh', { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (j.started) {
+        status.textContent = 'running · 3-step pipeline · ~2-3 min';
+        reliabPollDone();
+      } else {
+        status.textContent = 'error: ' + (j.error || 'unknown');
+        btn.disabled = false;
+      }
+    } catch (e) {
+      status.textContent = 'request failed: ' + e.message;
+      btn.disabled = false;
+    }
+  }
+
+  function reliabPollDone() {
+    const status = document.getElementById('reliab-status');
+    const start = Date.now();
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch('/api/stocks/reliability/status');
+        const j = await r.json();
+        if (!j.running) {
+          clearInterval(t);
+          const ok = j.last && j.last.ok;
+          status.textContent = ok ? 'done · reloading…' : 'failed — check log';
+          if (ok) setTimeout(() => location.reload(), 700);
+        } else {
+          const elapsed = Math.round((Date.now() - start) / 1000);
+          status.textContent = `running… (${elapsed}s)`;
+        }
+      } catch {}
+    }, 3000);
+  }
+
+  // ── Live prices (Alpaca IEX) ─────────────────────────────────────────
+  const LIVE_POLL_MS = 3000;
+  let liveTimer = null;
+  let liveEnabled = false;
+
+  function collectTickers() {
+    const set = new Set();
+    document.querySelectorAll('table.trade tbody tr[data-ticker]').forEach(tr => {
+      const t = tr.dataset.ticker;
+      if (t) set.add(t);
+    });
+    return Array.from(set);
+  }
+
+  function setLiveStatus(state, label) {
+    const dot = document.getElementById('live-dot');
+    const lbl = document.getElementById('live-label');
+    if (!dot || !lbl) return;
+    dot.classList.remove('on', 'off');
+    dot.classList.add(state);
+    lbl.textContent = label;
+  }
+
+  function applyQuote(ticker, price) {
+    document.querySelectorAll(`tr[data-ticker="${ticker}"] .live-price`).forEach(td => {
+      const prev = parseFloat(td.dataset.last || td.dataset.static || 0);
+      td.textContent = '$' + price.toFixed(2);
+      td.dataset.last = price;
+      if (prev && Math.abs(price - prev) > 1e-4) {
+        td.classList.remove('flash-up', 'flash-down');
+        void td.offsetWidth; // reflow to restart transition
+        td.classList.add(price > prev ? 'flash-up' : 'flash-down');
+        setTimeout(() => td.classList.remove('flash-up', 'flash-down'), 700);
+      }
+    });
+  }
+
+  async function pollQuotes() {
+    const tickers = collectTickers();
+    if (!tickers.length) return;
+    try {
+      const r = await fetch('/api/stocks/quotes?symbols=' + encodeURIComponent(tickers.join(',')));
+      const j = await r.json();
+      if (!j.enabled) {
+        liveEnabled = false;
+        setLiveStatus('off', 'Live: off (set ALPACA_KEY)');
+        if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+        return;
+      }
+      liveEnabled = true;
+      const quotes = j.quotes || {};
+      const n = Object.keys(quotes).length;
+      setLiveStatus('on', `Live: ${n}/${tickers.length} · 3s poll`);
+      for (const [sym, q] of Object.entries(quotes)) {
+        if (q && typeof q.price === 'number') applyQuote(sym, q.price);
+      }
+    } catch (e) {
+      setLiveStatus('off', 'Live: error');
+    }
+  }
+
+  function startLivePolling() {
+    pollQuotes();
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(pollQuotes, LIVE_POLL_MS);
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     ['risk-input', 'equity-input', 'cap-input', 'sector-cap'].forEach(id => {
       const el = document.getElementById(id);
@@ -680,6 +1185,9 @@
     updateStaleness();
     const btn = document.getElementById('refresh-btn');
     if (btn) btn.addEventListener('click', refreshNow);
+    const rbtn = document.getElementById('reliab-refresh-btn');
+    if (rbtn) rbtn.addEventListener('click', reliabRefresh);
+    startLivePolling();
   });
 </script>
 

@@ -669,12 +669,14 @@
     <span class="logo-sub">XAUUSD · Sentiment + Signal</span>
   </div>
 
-  <!-- Page nav + Timeframe nav tabs -->
+  <!-- Page nav: section row · sub-row · timeframe filter -->
   <nav class="tf-nav">
-    <a class="tf-tab {% if page == 'gold' %}active{% endif %}" href="/">Gold Bias</a>
-    <a class="tf-tab {% if page == 'stocks' %}active{% endif %}" href="/stocks/overview">Stocks</a>
-    <a class="tf-tab {% if page == 'autoresearch' %}active{% endif %}" href="/autoresearch">AutoResearch</a>
-    <span style="width:1px; height:18px; background:#334155; margin:0 .35rem"></span>
+    <a class="tf-tab active" href="/">Gold</a>
+    <a class="tf-tab" href="/stocks/overview">Stocks</a>
+    <span style="width:1px; height:18px; background:#334155; margin:0 .5rem"></span>
+    <a class="tf-tab active" href="/">Gold Bias</a>
+    <a class="tf-tab" href="/autoresearch">AutoResearch</a>
+    <span style="width:1px; height:18px; background:#334155; margin:0 .5rem"></span>
     <a class="tf-tab {% if tf_filter == 'all' %}active{% endif %}"
        href="/?tf=all">All</a>
     <a class="tf-tab {% if tf_filter == 'swing' %}active{% endif %}"

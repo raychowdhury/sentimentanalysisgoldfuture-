@@ -6,9 +6,24 @@
   <title>Stock Sentiment — Overview</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:           #f8fafc;
+      --bg-alt:       #eef2f7;
+      --surface:      #ffffff;
+      --border:       #e2e8f0;
+      --border-soft:  #edf2f7;
+      --text:         #0f172a;
+      --text-dim:     #475569;
+      --text-faint:   #94a3b8;
+      --accent:       #d97706;
+      --shadow-sm:    0 1px 2px rgba(15,23,42,.04);
+      --shadow-md:    0 4px 14px rgba(15,23,42,.06);
+      --radius:       10px;
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #f1f5f9; color: #1e293b; font-size: 14px; line-height: 1.5;
+      background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5;
+      font-variant-numeric: tabular-nums;
     }
 
     header {
@@ -32,20 +47,21 @@
     .nav-sep { width:1px; height:18px; background:#334155; margin:0 .35rem; display:inline-block; }
 
     .refresh-btn {
-      background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
-      padding: .3rem .85rem; border-radius: 6px; font-size: .65rem; font-weight: 700;
+      background: var(--text); color: #fff; border: 0;
+      padding: .4rem .85rem; border-radius: 6px; font-size: .68rem; font-weight: 600;
       text-transform: uppercase; letter-spacing: .06em; cursor: pointer; text-decoration: none;
+      transition: background .15s;
     }
-    .refresh-btn:hover { border-color: #fbbf24; color: #fbbf24; }
+    .refresh-btn:hover { background: #1e293b; }
     .refresh-btn:disabled { opacity: .55; cursor: wait; }
 
     .wrap { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
 
     .meta-bar {
       display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
       padding: .85rem 1.25rem; margin-bottom: 1.25rem;
-      box-shadow: 0 1px 2px rgba(0,0,0,.03);
+      box-shadow: var(--shadow-sm);
     }
     .meta-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; color: #64748b; font-weight: 700; }
     .meta-val   { font-size: .95rem; font-weight: 700; color: #0f172a; }
@@ -58,8 +74,8 @@
     @media (max-width: 600px)  { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
 
     .summary-card {
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-      padding: .85rem 1rem; box-shadow: 0 1px 2px rgba(0,0,0,.03);
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: .85rem 1rem; box-shadow: var(--shadow-sm);
     }
     .summary-card .label { font-size: .6rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .08em; }
     .summary-card .val   { font-size: 1.6rem; font-weight: 800; color: #0f172a; margin-top: .25rem; }
@@ -76,13 +92,13 @@
     @media (max-width: 480px)  { .grid { grid-template-columns: 1fr; } }
 
     .tile {
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
       padding: .85rem 1rem; position: relative; overflow: hidden;
-      box-shadow: 0 1px 2px rgba(0,0,0,.03);
+      box-shadow: var(--shadow-sm);
       transition: transform .1s, box-shadow .1s;
       text-decoration: none; color: inherit; display: block;
     }
-    .tile:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+    .tile:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
     .tile::before {
       content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
       background: #cbd5e1;
@@ -149,16 +165,29 @@
     }
     .status-msg.err { color: #dc2626; }
 
+    /* Live price ticks */
+    .price.live-price { transition: background-color .5s ease-out; padding: 1px 4px; border-radius: 3px; }
+    .price.live-price.flash-up   { background: #bbf7d0; }
+    .price.live-price.flash-down { background: #fecaca; }
+    .live-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #94a3b8; margin-right: .35rem; vertical-align: middle;
+    }
+    .live-dot.on  { background: #16a34a; box-shadow: 0 0 6px #16a34a; animation: livepulse 1.8s infinite; }
+    .live-dot.off { background: #94a3b8; }
+    @keyframes livepulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+    .live-status { font-size: .7rem; color: #64748b; }
+
     /* ── sector section ──────────────────────────────────────────────── */
     .sector-section { margin-bottom: 1.25rem; }
     .sector-head {
       display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
-      padding: .75rem 1rem; background: #fff; border: 1px solid #e2e8f0;
-      border-radius: 10px 10px 0 0; border-bottom: none;
+      padding: .75rem 1rem; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius) var(--radius) 0 0; border-bottom: none;
       cursor: pointer; user-select: none;
     }
-    .sector-head:hover { background: #f8fafc; }
-    .sector-section.collapsed .sector-head { border-radius: 10px; border-bottom: 1px solid #e2e8f0; }
+    .sector-head:hover { background: var(--bg-alt); }
+    .sector-section.collapsed .sector-head { border-radius: var(--radius); border-bottom: 1px solid var(--border); }
     .sector-section.collapsed .sector-body { display: none; }
     .sector-head .chevron {
       font-size: .75rem; color: #64748b; transition: transform .15s;
@@ -179,7 +208,7 @@
     .tally.zero { background: #f8fafc; color: #94a3b8; }
 
     .sector-body {
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 0 0 10px 10px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius);
       padding: .75rem; padding-top: .25rem;
     }
 
@@ -283,9 +312,8 @@
     <span class="logo-sub">S&P 500 · Sector View</span>
   </div>
   <nav class="main-nav">
-    <a class="nav-tab" href="/">Gold Bias</a>
+    <a class="nav-tab" href="/">Gold</a>
     <a class="nav-tab active" href="/stocks/overview">Stocks</a>
-    <a class="nav-tab" href="/autoresearch">AutoResearch</a>
     <span class="nav-sep"></span>
     <a class="nav-tab active" href="/stocks/overview">Overview</a>
     <a class="nav-tab" href="/stocks/aggregate">Trader Desk</a>
@@ -313,6 +341,12 @@
       <div>
         <div class="meta-label">Elapsed</div>
         <div class="meta-val">{{ overview.elapsed_sec }}s</div>
+      </div>
+      <div style="margin-left:auto;">
+        <div class="meta-label">Live Prices</div>
+        <div class="live-status" id="live-status">
+          <span class="live-dot off" id="live-dot"></span><span id="live-label">checking…</span>
+        </div>
       </div>
     </div>
 
@@ -394,7 +428,8 @@
               {% if t.error %}{% set cls = 'err' %}{% endif %}
               {% set pill_cls = {'BUY':'buy','STRONG_BUY':'strong-buy','SELL':'sell','STRONG_SELL':'strong-sell'}.get(signal, '') %}
               {% set conf_cls = (t.confidence or 'low')|lower %}
-              <a class="tile {{ cls }} {% if not t.scanned %}unscanned{% endif %}" href="/stocks/explorer?ticker={{ t.ticker }}">
+              <a class="tile {{ cls }} {% if not t.scanned %}unscanned{% endif %}" href="/stocks/explorer?ticker={{ t.ticker }}"
+                 {% if t.scanned and t.price is not none %}data-ticker="{{ t.ticker }}"{% endif %}>
                 <div class="tile-head">
                   <div class="tkr">{{ t.ticker }}</div>
                   {% if t.scanned %}
@@ -405,7 +440,7 @@
                 <div class="industry" title="{{ t.industry }}">{{ t.industry }}</div>
                 {% if t.scanned %}
                   <div class="tile-row">
-                    <span class="price">{% if t.price is not none %}${{ '%.2f'|format(t.price) }}{% else %}—{% endif %}</span>
+                    <span class="price live-price" data-static="{{ t.price if t.price is not none else '' }}">{% if t.price is not none %}${{ '%.2f'|format(t.price) }}{% else %}—{% endif %}</span>
                     <span class="day {% if t.return_5d_pct and t.return_5d_pct > 0 %}pos{% elif t.return_5d_pct and t.return_5d_pct < 0 %}neg{% else %}neu{% endif %}">
                       {% if t.return_5d_pct is not none %}{{ '%+.2f'|format(t.return_5d_pct) }}% 5d{% else %}—{% endif %}
                     </span>
@@ -574,6 +609,79 @@
       sortBtns.forEach(x => x.classList.toggle("active", x === b));
       render();
     }));
+
+    // ── Live prices (Alpaca IEX, 3s poll) ────────────────────────────
+    const LIVE_POLL_MS = 3000;
+    const LIVE_BATCH   = 100;
+    let liveTimer = null;
+
+    function collectLiveTickers() {
+      const set = new Set();
+      document.querySelectorAll(".tile[data-ticker]").forEach(el => set.add(el.dataset.ticker));
+      return Array.from(set);
+    }
+
+    function chunk(arr, n) {
+      const out = [];
+      for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+      return out;
+    }
+
+    function setLiveStatus(state, label) {
+      const dot = document.getElementById("live-dot");
+      const lbl = document.getElementById("live-label");
+      if (!dot || !lbl) return;
+      dot.classList.remove("on", "off");
+      dot.classList.add(state);
+      lbl.textContent = label;
+    }
+
+    function applyQuote(ticker, price) {
+      document.querySelectorAll(`.tile[data-ticker="${ticker}"] .live-price`).forEach(td => {
+        const prev = parseFloat(td.dataset.last || td.dataset.static || 0);
+        td.textContent = "$" + price.toFixed(2);
+        td.dataset.last = price;
+        if (prev && Math.abs(price - prev) > 1e-4) {
+          td.classList.remove("flash-up", "flash-down");
+          void td.offsetWidth;
+          td.classList.add(price > prev ? "flash-up" : "flash-down");
+          setTimeout(() => td.classList.remove("flash-up", "flash-down"), 700);
+        }
+      });
+    }
+
+    async function fetchBatch(syms) {
+      try {
+        const r = await fetch("/api/stocks/quotes?symbols=" + encodeURIComponent(syms.join(",")));
+        return await r.json();
+      } catch { return { enabled: false, quotes: {} }; }
+    }
+
+    async function pollQuotes() {
+      const tickers = collectLiveTickers();
+      if (!tickers.length) return;
+      const batches = chunk(tickers, LIVE_BATCH);
+      const results = await Promise.all(batches.map(fetchBatch));
+      if (results.some(r => !r.enabled)) {
+        setLiveStatus("off", "off (set ALPACA_KEY)");
+        if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+        return;
+      }
+      let n = 0;
+      for (const r of results) {
+        for (const [sym, q] of Object.entries(r.quotes || {})) {
+          if (q && typeof q.price === "number") { applyQuote(sym, q.price); n++; }
+        }
+      }
+      setLiveStatus("on", `${n}/${tickers.length} · 3s poll`);
+    }
+
+    function startLivePolling() {
+      pollQuotes();
+      if (liveTimer) clearInterval(liveTimer);
+      liveTimer = setInterval(pollQuotes, LIVE_POLL_MS);
+    }
+    startLivePolling();
 
     runBtn.addEventListener("click", async () => {
       runBtn.disabled = true;

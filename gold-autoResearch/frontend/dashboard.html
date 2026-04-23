@@ -254,9 +254,18 @@
     background: rgba(251,191,36,.18); text-decoration: none;
   }
   .btn-link:active { transform: translateY(1px); }
+  .btn-link.active {
+    background: var(--accent); color: #0f172a;
+    border-color: var(--accent);
+  }
+  .btn-link.active .btn-dot { background: #0f172a; box-shadow: none; }
   .btn-link .btn-dot {
     width: 6px; height: 6px; border-radius: 50%;
     background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  }
+  .nav-sep-inline {
+    display: inline-block; width: 1px; height: 18px;
+    background: var(--border); margin: 0 .4rem; vertical-align: middle;
   }
   .pine-feats {
     display: flex; flex-wrap: wrap; gap: .4rem;
@@ -538,8 +547,11 @@
   </div>
   <div class="headmeta">
     <span id="livepill" class="livepill"><span class="livedot"></span><span id="liveText">connecting</span></span>
-    <a class="btn-link" href="/"><span class="btn-dot"></span> Gold Bias</a>
+    <a class="btn-link active" href="/"><span class="btn-dot"></span> Gold</a>
     <a class="btn-link" href="/stocks/overview"><span class="btn-dot"></span> Stocks</a>
+    <span class="nav-sep-inline"></span>
+    <a class="btn-link" href="/"><span class="btn-dot"></span> Gold Bias</a>
+    <a class="btn-link active" href="/autoresearch"><span class="btn-dot"></span> AutoResearch</a>
     <span>polls <a href="http://localhost:8000/api/research/status" target="_blank">/api/research/status</a> · 60 s</span>
     <span id="stamp">—</span>
   </div>

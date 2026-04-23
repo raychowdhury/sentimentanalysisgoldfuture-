@@ -427,9 +427,41 @@ def stocks_aggregate_view():
             aggregate = json.loads(agg_path.read_text())
         except json.JSONDecodeError:
             aggregate = None
+    reliab_path = Path(__file__).parent / "outputs" / "stocks" / "_reliability.json"
+    reliability = None
+    if reliab_path.exists():
+        try:
+            reliability = json.loads(reliab_path.read_text())
+        except json.JSONDecodeError:
+            reliability = None
+    weights_path = Path(__file__).parent / "outputs" / "stocks" / "_composite_weights.json"
+    weights_meta = None
+    if weights_path.exists():
+        try:
+            weights_meta = json.loads(weights_path.read_text())
+        except json.JSONDecodeError:
+            weights_meta = None
+    backtest_path = Path(__file__).parent / "outputs" / "stocks" / "_backtest_composite.json"
+    backtest = None
+    if backtest_path.exists():
+        try:
+            backtest = json.loads(backtest_path.read_text())
+        except json.JSONDecodeError:
+            backtest = None
+    refresh_path = Path(__file__).parent / "outputs" / "stocks" / "_monthly_refresh.json"
+    last_refresh = None
+    if refresh_path.exists():
+        try:
+            last_refresh = json.loads(refresh_path.read_text())
+        except json.JSONDecodeError:
+            last_refresh = None
     return render_template(
         "stocks_aggregate.html",
         aggregate=aggregate,
+        reliability=reliability,
+        weights_meta=weights_meta,
+        backtest=backtest,
+        last_refresh=last_refresh,
         page="stocks",
     )
 
@@ -478,6 +510,72 @@ def api_aggregate_status():
         "started_at": _refresh_state.get("started_at"),
         "exit_code":  None if (p is None or p.poll() is None) else p.returncode,
     })
+
+
+_reliab_state = {"proc": None, "started_at": None}
+_reliab_lock = threading.Lock()
+
+
+def _reliab_running() -> bool:
+    p = _reliab_state.get("proc")
+    return bool(p and p.poll() is None)
+
+
+@app.route("/api/stocks/reliability/refresh", methods=["POST"])
+def api_reliability_refresh():
+    """Kick off monthly composite refresh (backtest + fit + reliability)."""
+    with _reliab_lock:
+        if _reliab_running():
+            return jsonify({"started": False, "error": "refresh already running",
+                            "started_at": _reliab_state["started_at"]}), 409
+        venv_python = Path(__file__).parent / ".venv" / "bin" / "python"
+        cmd = [str(venv_python) if venv_python.exists() else "python",
+               "-m", "research.monthly_refresh"]
+        cwd = Path(__file__).parent / "stocks-autoResearch"
+        log_path = Path("/tmp") / "stocks_reliability_refresh.log"
+        log_fh = open(log_path, "w")
+        proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=log_fh, stderr=subprocess.STDOUT)
+        _reliab_state["proc"] = proc
+        _reliab_state["started_at"] = datetime.utcnow().isoformat(timespec="seconds")
+    return jsonify({"started": True, "pid": proc.pid, "log": str(log_path),
+                    "started_at": _reliab_state["started_at"]})
+
+
+@app.route("/api/stocks/reliability/status")
+def api_reliability_status():
+    p = _reliab_state.get("proc")
+    meta_path = Path(__file__).parent / "outputs" / "stocks" / "_monthly_refresh.json"
+    last = None
+    if meta_path.exists():
+        try:
+            last = json.loads(meta_path.read_text())
+        except json.JSONDecodeError:
+            last = None
+    return jsonify({
+        "running":    _reliab_running(),
+        "started_at": _reliab_state.get("started_at"),
+        "exit_code":  None if (p is None or p.poll() is None) else p.returncode,
+        "last":       last,
+    })
+
+
+@app.route("/api/stocks/quotes")
+def api_stocks_quotes():
+    """Live last-trade prices for comma-separated ?symbols=... via Alpaca IEX.
+
+    Returns {"quotes": {SYM: {price, ts}}, "enabled": bool}. `enabled`
+    is false when ALPACA_KEY/ALPACA_SECRET are unset, letting the
+    client hide the live indicator.
+    """
+    from stocks.alpaca_quotes import get_last_trades
+
+    raw = request.args.get("symbols", "")
+    symbols = [s for s in raw.split(",") if s.strip()]
+    enabled = bool(os.getenv("ALPACA_KEY") and os.getenv("ALPACA_SECRET"))
+    if not enabled or not symbols:
+        return jsonify({"quotes": {}, "enabled": enabled})
+    quotes = get_last_trades(symbols)
+    return jsonify({"quotes": quotes, "enabled": True})
 
 
 @app.route("/stocks/explorer")
