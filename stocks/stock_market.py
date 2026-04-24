@@ -30,10 +30,15 @@ STOCK_PROFILE: dict = {
 }
 
 
+# Display ticker → yfinance symbol alias (non-equity aux like index).
+_YF_ALIAS = {"SPX": "^GSPC"}
+
+
 def fetch_ohlcv(ticker: str, lookback_days: int = STOCK_LOOKBACK_DAYS) -> pd.DataFrame | None:
     """Pull daily OHLCV. Returns None on any failure — caller handles."""
+    yf_symbol = _YF_ALIAS.get(ticker, ticker)
     try:
-        hist = yf.Ticker(ticker).history(
+        hist = yf.Ticker(yf_symbol).history(
             period=f"{lookback_days}d",
             interval="1d",
             auto_adjust=True,

@@ -1,0 +1,4 @@
+xgboost>=2.0,<3
+scikit-learn>=1.4,<2
+pyarrow>=14.0,<18
+websocket-client>=1.6,<2

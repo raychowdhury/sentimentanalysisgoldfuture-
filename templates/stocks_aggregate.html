@@ -149,6 +149,19 @@
     .comp-row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
     .comp-row .val.pos { color: #15803d; }
     .comp-row .val.neg { color: #b91c1c; }
+    .components-group { margin-bottom: .75rem; }
+    .components-group-label {
+      font-size: .65rem; text-transform: uppercase; letter-spacing: .08em;
+      color: #64748b; font-weight: 700; margin-bottom: .25rem;
+    }
+    .components-diag .components-group-label { color: #94a3b8; }
+    .diag-help {
+      display: inline-block; width: 14px; height: 14px; line-height: 14px;
+      text-align: center; border-radius: 50%; background: #e2e8f0;
+      color: #475569; font-weight: 700; cursor: help; margin-left: .35rem;
+      text-transform: none; font-size: .6rem;
+    }
+    .comp-row.diag .lbl { color: #94a3b8; font-style: italic; }
     .comp-row .wt { text-align: right; color: #64748b; font-size: .7rem; }
     .comp-notes { font-size: .75rem; color: #b91c1c; margin-top: .5rem; font-style: italic; }
     .macro-strip { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .75rem;
@@ -266,6 +279,172 @@
     .risk-summary .stat.danger { background: #fee2e2; color: #991b1b; }
     /* Sector cluster panel */
     .cluster-warn { font-size: .75rem; color: #b45309; margin-top: .35rem; }
+    /* Verdict banner — macro vs tactical reconciliation */
+    .verdict-banner {
+      border-radius: 10px; padding: .85rem 1.1rem; margin: .5rem 0 1rem;
+      border: 2px solid transparent;
+    }
+    .verdict-banner .vhead {
+      font-size: 1.05rem; font-weight: 800; letter-spacing: .04em;
+    }
+    .verdict-banner .vbody {
+      margin-top: .25rem; font-size: .8rem; color: #334155;
+      display: flex; gap: .4rem; flex-wrap: wrap; align-items: center;
+    }
+    .verdict-banner .vbody .sep { color: #94a3b8; }
+    .verdict-banner .vbody .note { font-style: italic; color: #475569; }
+    .verdict-agree-long  { background: #dcfce7; border-color: #16a34a; }
+    .verdict-agree-long  .vhead { color: #166534; }
+    .verdict-agree-short { background: #fee2e2; border-color: #dc2626; }
+    .verdict-agree-short .vhead { color: #991b1b; }
+    .verdict-conflict    { background: #fef3c7; border-color: #d97706; }
+    .verdict-conflict    .vhead { color: #92400e; }
+    .verdict-mixed       { background: #f1f5f9; border-color: #94a3b8; }
+    .verdict-mixed       .vhead { color: #334155; }
+    /* Card subtitle */
+    .card h2 .card-sub {
+      display: block; font-size: .72rem; font-weight: 500;
+      color: #64748b; margin-top: .2rem; letter-spacing: 0; text-transform: none;
+    }
+    /* TV alerts */
+    .tv-alerts-meta {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: .5rem; font-size: .75rem; color: #64748b;
+    }
+    .tv-alerts-table-wrap { overflow-x: auto; }
+    .tv-alerts-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    .tv-alerts-table th, .tv-alerts-table td {
+      padding: .45rem .6rem; border-bottom: 1px solid #f1f5f9;
+      text-align: left; white-space: nowrap;
+    }
+    .tv-alerts-table th {
+      font-size: .65rem; text-transform: uppercase; letter-spacing: .06em;
+      color: #64748b; font-weight: 700; background: #f8fafc;
+    }
+    .tv-alerts-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .tv-alerts-table .side-long  { color: #047857; font-weight: 700; }
+    .tv-alerts-table .side-short { color: #991b1b; font-weight: 700; }
+    .tv-alerts-table .fuse-pill {
+      display: inline-block; padding: .15rem .5rem; border-radius: 999px;
+      font-size: .65rem; font-weight: 700; letter-spacing: .04em;
+    }
+    .fuse-full_agree    { background: #dcfce7; color: #166534; }
+    .fuse-partial_agree { background: #fef3c7; color: #92400e; }
+    .fuse-disagree      { background: #fee2e2; color: #991b1b; }
+    .fuse-neutral       { background: #f1f5f9; color: #475569; }
+    .fuse-unknown_side  { background: #e2e8f0; color: #334155; }
+    .empty-row { text-align: center; color: #94a3b8; font-style: italic; padding: 1rem; }
+    /* SPY detail card — mirrors explorer styles */
+    .spy-detail h3 {
+      font-size: .7rem; text-transform: uppercase; letter-spacing: .1em;
+      color: #64748b; font-weight: 700; margin: 1rem 0 .6rem;
+    }
+    .spy-detail .section { margin-top: .75rem; }
+    .spy-detail .factor-grid {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: .5rem;
+    }
+    @media (max-width: 700px) { .spy-detail .factor-grid { grid-template-columns: repeat(2, 1fr); } }
+    .spy-detail .factor {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: .55rem .7rem;
+    }
+    .spy-detail .factor .flabel { font-size: .6rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .spy-detail .factor .fval   { font-size: 1.1rem; font-weight: 800; margin-top: .15rem; }
+    .spy-detail .factor .fval.pos { color: #16a34a; }
+    .spy-detail .factor .fval.neg { color: #dc2626; }
+    .spy-detail .factor .fval.neu { color: #64748b; }
+    .spy-detail .factor .frange { font-size: .58rem; color: #94a3b8; margin-top: .1rem; }
+    .spy-detail .price-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }
+    @media (max-width: 700px) { .spy-detail .price-grid { grid-template-columns: repeat(2, 1fr); } }
+    .spy-detail .pcell {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: .55rem .7rem;
+    }
+    .spy-detail .pcell .plabel { font-size: .55rem; color: #64748b; text-transform: uppercase; letter-spacing: .06em; }
+    .spy-detail .pcell .pval   { font-size: .95rem; font-weight: 700; color: #0f172a; margin-top: .15rem; }
+    .spy-detail .plan-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }
+    @media (max-width: 700px) { .spy-detail .plan-grid { grid-template-columns: repeat(2, 1fr); } }
+    .spy-detail .pcell.entry { background: #eff6ff; border-color: #bfdbfe; }
+    .spy-detail .pcell.sl    { background: #fef2f2; border-color: #fecaca; }
+    .spy-detail .pcell.tp    { background: #ecfdf5; border-color: #bbf7d0; }
+    .spy-detail .pcell .pval.entry { color: #1e40af; }
+    .spy-detail .pcell .pval.sl    { color: #991b1b; }
+    .spy-detail .pcell .pval.tp    { color: #047857; }
+    .spy-detail .pcell .psub { font-size: .6rem; color: #64748b; margin-top: .1rem; }
+    .spy-detail .plan-note { margin-top: .5rem; font-size: .7rem; color: #64748b; font-style: italic; }
+    .spy-detail .tv-wrap {
+      border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;
+      background: #fff; height: 500px;
+    }
+    .spy-detail .tv-wrap > div { height: 100%; width: 100%; }
+    .spy-detail .lwc-wrap {
+      border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;
+      background: #fff; height: 500px; position: relative;
+    }
+    .spy-detail .lwc-wrap > div { height: 100%; width: 100%; }
+    /* Custom gauge */
+    .gauge-wrap {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem;
+    }
+    .gauge-loading { color: #64748b; font-size: .85rem; font-style: italic; }
+    .gauge-top {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; margin-bottom: 1rem;
+    }
+    @media (max-width: 700px) { .gauge-top { grid-template-columns: 1fr; } }
+    .gauge-card {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: .8rem;
+      text-align: center;
+    }
+    .gauge-card .gtitle { font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; color: #64748b; font-weight: 700; }
+    .gauge-card .gverdict {
+      font-size: 1.3rem; font-weight: 800; margin: .35rem 0;
+    }
+    .gauge-card .gmeter {
+      display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+      background: #f1f5f9; margin: .4rem 0;
+    }
+    .gauge-card .gmeter .m-buy  { background: #16a34a; }
+    .gauge-card .gmeter .m-neu  { background: #94a3b8; }
+    .gauge-card .gmeter .m-sell { background: #dc2626; }
+    .gauge-card .gtally { font-size: .7rem; color: #475569; }
+    .gauge-card.v-STRONG_BUY  .gverdict { color: #166534; }
+    .gauge-card.v-BUY         .gverdict { color: #16a34a; }
+    .gauge-card.v-NEUTRAL     .gverdict { color: #475569; }
+    .gauge-card.v-SELL        .gverdict { color: #dc2626; }
+    .gauge-card.v-STRONG_SELL .gverdict { color: #991b1b; }
+    .gauge-detail-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+    }
+    @media (max-width: 700px) { .gauge-detail-grid { grid-template-columns: 1fr; } }
+    .gauge-detail h4 {
+      font-size: .65rem; text-transform: uppercase; letter-spacing: .06em;
+      color: #64748b; font-weight: 700; margin: 0 0 .4rem;
+    }
+    .gauge-detail table {
+      width: 100%; border-collapse: collapse; font-size: .78rem;
+    }
+    .gauge-detail td {
+      padding: .3rem .5rem; border-bottom: 1px solid #f1f5f9;
+    }
+    .gauge-detail td.name { color: #475569; }
+    .gauge-detail td.val  { text-align: right; font-variant-numeric: tabular-nums; color: #0f172a; }
+    .gauge-detail td.sig  { text-align: right; font-weight: 700; font-size: .68rem; }
+    .gauge-detail td.sig.BUY     { color: #16a34a; }
+    .gauge-detail td.sig.SELL    { color: #dc2626; }
+    .gauge-detail td.sig.NEUTRAL { color: #94a3b8; }
+    .spy-detail .spy-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .35rem; }
+    .spy-detail .spy-head .tkr { font-size: 1.35rem; font-weight: 800; color: #0f172a; }
+    .spy-detail .spy-head .name { color: #475569; font-size: .85rem; }
+    .spy-detail .spy-head .sig-pill { padding: .25rem .6rem; border-radius: 999px; font-size: .7rem; font-weight: 800; letter-spacing: .05em; }
+    .spy-detail .sig-pill.buy         { background: #dcfce7; color: #166534; }
+    .spy-detail .sig-pill.strong-buy  { background: #16a34a; color: #fff; }
+    .spy-detail .sig-pill.sell        { background: #fee2e2; color: #991b1b; }
+    .spy-detail .sig-pill.strong-sell { background: #dc2626; color: #fff; }
+    .spy-detail .sig-pill.hold        { background: #e2e8f0; color: #334155; }
+    .spy-detail .detail-meta { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: .8rem; margin-top: .25rem; }
+    .spy-detail .detail-meta .label { color: #64748b; text-transform: uppercase; font-size: .6rem; letter-spacing: .06em; margin-right: .35rem; }
+    .spy-detail .detail-meta .val.pos { color: #16a34a; font-weight: 700; }
+    .spy-detail .detail-meta .val.neg { color: #dc2626; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -278,6 +457,7 @@
   <nav class="main-nav">
     <a class="nav-tab" href="/">Gold</a>
     <a class="nav-tab active" href="/stocks/overview">Stocks</a>
+    <a class="nav-tab" href="/order-flow">Order Flow</a>
     <span class="nav-sep"></span>
     <a class="nav-tab" href="/stocks/overview">Overview</a>
     <a class="nav-tab active" href="/stocks/aggregate">Trader Desk</a>
@@ -285,6 +465,7 @@
   </nav>
   <div></div>
 </header>
+{% include '_ticker_tape.html' %}
 
 <div class="wrap">
 
@@ -327,11 +508,40 @@
 
     <div class="section-label">Signal · SPX Next Session</div>
 
+    {# ── Verdict banner: reconcile macro + tactical ── #}
+    {% if aggregate.composite and spy_detail %}
+      {% set macro_score = aggregate.composite.score or 0 %}
+      {% set tac_sig = spy_detail.signal or 'HOLD' %}
+      {% set macro_long = macro_score >= 10 %}
+      {% set macro_short = macro_score <= -10 %}
+      {% set tac_long  = tac_sig in ['BUY','STRONG_BUY'] %}
+      {% set tac_short = tac_sig in ['SELL','STRONG_SELL'] %}
+      {% if macro_long and tac_long %}
+        {% set verdict, vcls, vnote = 'AGREE · LONG', 'agree-long', 'Macro model and tape both bullish — take size.' %}
+      {% elif macro_short and tac_short %}
+        {% set verdict, vcls, vnote = 'AGREE · SHORT', 'agree-short', 'Macro model and tape both bearish — take size.' %}
+      {% elif (macro_long and tac_short) or (macro_short and tac_long) %}
+        {% set verdict, vcls, vnote = 'CONFLICT · HOLD', 'conflict', 'Macro model and tape disagree — stand aside or half size.' %}
+      {% else %}
+        {% set verdict, vcls, vnote = 'MIXED · REDUCED', 'mixed', 'Only one lens has conviction — size down.' %}
+      {% endif %}
+      <div class="verdict-banner verdict-{{ vcls }}">
+        <div class="vhead">{{ verdict }}</div>
+        <div class="vbody">
+          <span><strong>Macro Model</strong> ({{ '%+.0f'|format(macro_score) }}): {{ aggregate.composite.bias }}</span>
+          <span class="sep">·</span>
+          <span><strong>Tactical Tape</strong>: {{ tac_sig }}</span>
+          <span class="sep">·</span>
+          <span class="note">{{ vnote }}</span>
+        </div>
+      </div>
+    {% endif %}
+
     <!-- ── Composite SPX score ── -->
     {% if aggregate.composite %}
     {% set c = aggregate.composite %}
     <div class="card">
-      <h2>SPX Composite — Next Session</h2>
+      <h2>SPX — Macro Model <span class="card-sub">next 1–5 sessions · yields · breadth · VIX term · credit · trend</span></h2>
       <div class="composite-card">
         <div class="composite-pill bias-{{ c.bias | replace(' ', '-') }}">
           <div class="score-num">{{ '%+.0f' | format(c.score) }}</div>
@@ -352,23 +562,58 @@
           <div class="conf-tier conf-{{ c.confidence }}">{{ c.confidence }} CONFIDENCE</div>
         </div>
         <div>
-          <div class="components">
-            {% for k, v in c.components.items() %}
-              {% set pct = (v if v >= 0 else -v) %}
-              <div class="comp-row">
-                <div class="lbl">{{ k | replace('_', ' ') }}</div>
-                <div class="bar-track">
-                  {% if v >= 0 %}
-                    <div class="bar-fill pos" style="width: {{ pct/2 }}%;"></div>
-                  {% else %}
-                    <div class="bar-fill neg" style="width: {{ pct/2 }}%;"></div>
-                  {% endif %}
+          {% set scored_keys = [] %}
+          {% set diag_keys = [] %}
+          {% for k in c.components.keys() %}
+            {% set _ = (scored_keys if (c.weights.get(k, 0) or 0) > 0 else diag_keys).append(k) %}
+          {% endfor %}
+          <div class="components-group">
+            <div class="components-group-label">Scored ({{ scored_keys|length }}/{{ c.components|length }}) — weighted in final score</div>
+            <div class="components">
+              {% for k in scored_keys %}
+                {% set v = c.components[k] %}
+                {% set pct = (v if v >= 0 else -v) %}
+                <div class="comp-row">
+                  <div class="lbl">{{ k | replace('_', ' ') }}</div>
+                  <div class="bar-track">
+                    {% if v >= 0 %}
+                      <div class="bar-fill pos" style="width: {{ pct/2 }}%;"></div>
+                    {% else %}
+                      <div class="bar-fill neg" style="width: {{ pct/2 }}%;"></div>
+                    {% endif %}
+                  </div>
+                  <div class="val {{ 'pos' if v >= 0 else 'neg' }}">{{ '%+.1f' | format(v) }}</div>
+                  <div class="wt">×{{ '%.2f' | format(c.weights.get(k, 0)) }}</div>
                 </div>
-                <div class="val {{ 'pos' if v >= 0 else 'neg' }}">{{ '%+.1f' | format(v) }}</div>
-                <div class="wt">×{{ '%.2f' | format(c.weights.get(k, 0)) }}</div>
-              </div>
-            {% endfor %}
+              {% endfor %}
+            </div>
           </div>
+          {% if diag_keys %}
+            <div class="components-group components-diag">
+              <div class="components-group-label">
+                Diagnostic ({{ diag_keys|length }}) — computed, not in fit
+                <span class="diag-help" title="These features failed walk-forward LOO ablation (delta_ll &lt; 0) and were pruned from training. Values shown for macro context only — they do not affect the score.">?</span>
+              </div>
+              <div class="components">
+                {% for k in diag_keys %}
+                  {% set v = c.components[k] %}
+                  {% set pct = (v if v >= 0 else -v) %}
+                  <div class="comp-row diag">
+                    <div class="lbl">{{ k | replace('_', ' ') }}</div>
+                    <div class="bar-track">
+                      {% if v >= 0 %}
+                        <div class="bar-fill pos" style="width: {{ pct/2 }}%; opacity:.35;"></div>
+                      {% else %}
+                        <div class="bar-fill neg" style="width: {{ pct/2 }}%; opacity:.35;"></div>
+                      {% endif %}
+                    </div>
+                    <div class="val {{ 'pos' if v >= 0 else 'neg' }}" style="opacity:.55;">{{ '%+.1f' | format(v) }}</div>
+                    <div class="wt" style="opacity:.4;">×0.00</div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
           <div class="macro-strip">
             {% if aggregate.sentiment %}
               <span>Sent (gold swing): {{ '%+.3f' | format(aggregate.sentiment.avg_score) }}
@@ -421,6 +666,166 @@
       </div>
     </div>
     {% endif %}
+
+    {# ── SPY detail card (mirrors explorer per-ticker panel) ── #}
+    {% if spy_detail %}
+      {% set d = spy_detail %}
+      {% set sig = d.signal or 'HOLD' %}
+      {% set pill_cls = {'BUY':'buy','STRONG_BUY':'strong-buy','SELL':'sell','STRONG_SELL':'strong-sell'}.get(sig, 'hold') %}
+      <div class="card spy-detail">
+        <h2>SPX — Tactical Tape <span class="card-sub">today · news sentiment · price technicals · ATR plan</span></h2>
+        <div class="spy-head">
+          <span class="tkr">SPX</span>
+          <span class="name">S&amp;P 500 Index (^GSPC)</span>
+          <span class="sig-pill {{ pill_cls }}">{{ sig }}</span>
+          <span class="sig-pill hold">{{ d.confidence or 'LOW' }}</span>
+        </div>
+        <div class="detail-meta">
+          <div><span class="label">Sentiment</span>
+            <span class="val {% if d.sentiment_score and d.sentiment_score > 0.05 %}pos{% elif d.sentiment_score and d.sentiment_score < -0.05 %}neg{% endif %}">
+              {{ d.sentiment_label or 'neutral' }}
+              {% if d.sentiment_score is not none %} ({{ '%+.3f'|format(d.sentiment_score) }}){% endif %}
+            </span>
+          </div>
+          <div><span class="label">Articles</span><span class="val">{{ d.article_count or 0 }}</span></div>
+          <div><span class="label">Total Score</span>
+            <span class="val {% if d.factor_scores and d.factor_scores.total > 0 %}pos{% elif d.factor_scores and d.factor_scores.total < 0 %}neg{% endif %}">
+              {{ d.factor_scores.total if d.factor_scores else '—' }}
+            </span>
+          </div>
+          {% if d.ml %}
+            <div><span class="label">ML Prob(Up)</span>
+              <span class="val {% if d.ml.prob_up >= 0.55 %}pos{% elif d.ml.prob_up <= 0.45 %}neg{% endif %}">
+                {{ '%.1f'|format(d.ml.prob_up * 100) }}%
+              </span>
+            </div>
+          {% endif %}
+          <div><span class="label">Run</span><span class="val" style="font-size:.7rem;">{{ d.run_timestamp }}</span></div>
+        </div>
+
+        {% if d.ml %}
+          <div class="section">
+            <h3>AutoResearch — Next-Day Direction Model</h3>
+            <div class="price-grid">
+              <div class="pcell"><div class="plabel">Prob(Up)</div><div class="pval">{{ '%.1f'|format(d.ml.prob_up * 100) }}%</div></div>
+              <div class="pcell"><div class="plabel">Pooled Prob</div><div class="pval">{{ '%.1f'|format(d.ml.pooled_prob * 100) }}%</div></div>
+              <div class="pcell"><div class="plabel">Source</div><div class="pval">{{ d.ml.source }}</div></div>
+              <div class="pcell"><div class="plabel">As Of</div><div class="pval">{{ d.ml.asof_date }}</div></div>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if d.factor_scores %}
+          <div class="section">
+            <h3>Factor Breakdown</h3>
+            <div class="factor-grid">
+              {% set f = d.factor_scores %}
+              {% for key, label, rng in [
+                ('news_sentiment',    'News Sent.', '-2..+2'),
+                ('stock_trend',       'Stock Trend','-3..+3'),
+                ('relative_strength', 'Rel vs SPY','-2..+2'),
+                ('market_regime',     'Regime',    '-2..+2'),
+                ('volume_momentum',   'Vol Mom.',  '-1..+1'),
+              ] %}
+                {% set v = f.get(key, 0) %}
+                {% set cls = 'pos' if v > 0 else 'neg' if v < 0 else 'neu' %}
+                <div class="factor">
+                  <div class="flabel">{{ label }}</div>
+                  <div class="fval {{ cls }}">{{ '%+d'|format(v) }}</div>
+                  <div class="frange">{{ rng }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+
+        {% set p = d.price_summary %}
+        {% set long = sig in ['BUY', 'STRONG_BUY'] %}
+        {% set short = sig in ['SELL', 'STRONG_SELL'] %}
+        {% if p and p.current and p.atr_pct and (long or short) %}
+          {% set atr_abs = p.current * p.atr_pct / 100 %}
+          {% set dir_mult = 1 if long else -1 %}
+          {% set entry = p.current %}
+          {% set sl    = p.current - dir_mult * 1.5 * atr_abs %}
+          {% set tp1   = p.current + dir_mult * 2.0 * atr_abs %}
+          {% set tp2   = p.current + dir_mult * 3.0 * atr_abs %}
+          {% set sl_pct  = (sl  - p.current) / p.current * 100 %}
+          {% set tp1_pct = (tp1 - p.current) / p.current * 100 %}
+          {% set tp2_pct = (tp2 - p.current) / p.current * 100 %}
+          <div class="section">
+            <h3>Trade Plan — {{ 'Long' if long else 'Short' }} (ATR-based)</h3>
+            <div class="plan-grid">
+              <div class="pcell entry"><div class="plabel">Entry</div><div class="pval entry">${{ '%.2f'|format(entry) }}</div><div class="psub">market</div></div>
+              <div class="pcell sl"><div class="plabel">Stop Loss · 1.5 ATR</div><div class="pval sl">${{ '%.2f'|format(sl) }}</div><div class="psub">{{ '%+.2f'|format(sl_pct) }}%</div></div>
+              <div class="pcell tp"><div class="plabel">TP1 · 2.0 ATR · R 1.33</div><div class="pval tp">${{ '%.2f'|format(tp1) }}</div><div class="psub">{{ '%+.2f'|format(tp1_pct) }}%</div></div>
+              <div class="pcell tp"><div class="plabel">TP2 · 3.0 ATR · R 2.0</div><div class="pval tp">${{ '%.2f'|format(tp2) }}</div><div class="psub">{{ '%+.2f'|format(tp2_pct) }}%</div></div>
+            </div>
+            <div class="plan-note">
+              ATR {{ '%.2f'|format(p.atr_pct) }}% (≈ ${{ '%.2f'|format(atr_abs) }}). Heuristic levels — not backtested. Position sizing left to user.
+            </div>
+          </div>
+        {% endif %}
+
+        {% if d.price_summary %}
+          {% set p = d.price_summary %}
+          <div class="section">
+            <h3>Price / Trend</h3>
+            <div class="price-grid">
+              <div class="pcell"><div class="plabel">Price</div><div class="pval">{% if p.current %}${{ '%.2f'|format(p.current) }}{% else %}—{% endif %}</div></div>
+              <div class="pcell"><div class="plabel">EMA20 / 50</div><div class="pval">{% if p.ema20 %}{{ '%.2f'|format(p.ema20) }}{% else %}—{% endif %} / {% if p.ema50 %}{{ '%.2f'|format(p.ema50) }}{% else %}—{% endif %}</div></div>
+              <div class="pcell"><div class="plabel">Return 5d</div><div class="pval">{% if p.return_5d_pct is not none %}{{ '%+.2f'|format(p.return_5d_pct) }}%{% else %}—{% endif %}</div></div>
+              <div class="pcell"><div class="plabel">Vol Ratio</div><div class="pval">{% if p.volume_ratio %}×{{ '%.2f'|format(p.volume_ratio) }}{% else %}—{% endif %}</div></div>
+            </div>
+          </div>
+        {% endif %}
+
+        <div class="section">
+          <h3>SPX Chart — yfinance (^GSPC)
+            <span class="card-sub">Lightweight Charts · our data · EMA20/50 overlay</span>
+          </h3>
+          <div class="lwc-wrap"><div id="lwc_spx_chart"></div></div>
+        </div>
+
+        <div class="section">
+          <h3>Technical Gauge — Custom
+            <span class="card-sub">5 oscillators + 5 moving averages on daily ^GSPC · our compute, no TV feed</span>
+          </h3>
+          <div id="gauge_spx" class="gauge-wrap">
+            <div class="gauge-loading">Loading gauge…</div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {# ── TradingView Alerts feed ── #}
+    <div class="card tv-alerts-card">
+      <h2>TradingView Alerts
+        <span class="card-sub">pine-script webhooks · <code>POST /api/tv-alert</code> · fusion = alert vs macro+tactical</span>
+      </h2>
+      <div class="tv-alerts-meta">
+        <span id="tv-alerts-count">—</span>
+        <button class="refresh-btn" id="tv-alerts-refresh" style="padding:.25rem .6rem;font-size:.7rem;">Refresh</button>
+      </div>
+      <div class="tv-alerts-table-wrap">
+        <table class="tv-alerts-table">
+          <thead>
+            <tr>
+              <th>Time (UTC)</th>
+              <th>Symbol</th>
+              <th>Side</th>
+              <th class="num">Price</th>
+              <th>Macro</th>
+              <th>Tactical</th>
+              <th>Fusion</th>
+              <th>Strategy</th>
+            </tr>
+          </thead>
+          <tbody id="tv-alerts-body">
+            <tr><td colspan="8" class="empty-row">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
     <!-- ── Lean banner ── -->
     <div class="card">
@@ -1189,6 +1594,189 @@
     if (rbtn) rbtn.addEventListener('click', reliabRefresh);
     startLivePolling();
   });
+</script>
+
+{# ── TradingView Alerts feed loader ── #}
+<script>
+  (function () {
+    var fmtTime = function (iso) {
+      if (!iso) return '—';
+      return iso.replace('T', ' ').replace(/\+00:00$/, '').slice(0, 19);
+    };
+    var esc = function (s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
+    function render(rows) {
+      var tb = document.getElementById('tv-alerts-body');
+      var ct = document.getElementById('tv-alerts-count');
+      if (!tb) return;
+      if (!rows || rows.length === 0) {
+        tb.innerHTML = '<tr><td colspan="8" class="empty-row">No alerts received yet. Wire a TradingView pine alert to <code>POST /api/tv-alert</code>.</td></tr>';
+        if (ct) ct.textContent = '0 alerts';
+        return;
+      }
+      if (ct) ct.textContent = rows.length + ' alert' + (rows.length === 1 ? '' : 's') + ' (latest first)';
+      tb.innerHTML = rows.map(function (r) {
+        var f = r.fusion || {};
+        var side = r.side || '—';
+        var sideCls = side === 'LONG' ? 'side-long' : side === 'SHORT' ? 'side-short' : '';
+        var price = r.price != null ? Number(r.price).toLocaleString(undefined, {maximumFractionDigits: 2}) : '—';
+        var strat = (r.payload && (r.payload.strategy || r.payload.alert_name)) || '—';
+        var fs = f.status || 'neutral';
+        return '<tr>' +
+          '<td>' + fmtTime(r.received_at) + '</td>' +
+          '<td>' + esc(r.symbol || '—') + '</td>' +
+          '<td class="' + sideCls + '">' + esc(side) + '</td>' +
+          '<td class="num">' + esc(price) + '</td>' +
+          '<td>' + esc(f.macro || '—') + '</td>' +
+          '<td>' + esc(f.tactical || '—') + '</td>' +
+          '<td><span class="fuse-pill fuse-' + esc(fs) + '">' + esc(fs.replace('_', ' ')) + '</span></td>' +
+          '<td>' + esc(strat) + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+    function load() {
+      fetch('/api/tv-alerts', {cache: 'no-store'})
+        .then(function (r) { return r.json(); })
+        .then(render)
+        .catch(function () {
+          document.getElementById('tv-alerts-body').innerHTML =
+            '<tr><td colspan="8" class="empty-row">Failed to load alerts.</td></tr>';
+        });
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      load();
+      var btn = document.getElementById('tv-alerts-refresh');
+      if (btn) btn.addEventListener('click', load);
+      setInterval(load, 30000); // 30s poll
+    });
+  })();
+</script>
+
+{# ── Custom Technical Gauge for SPX ── #}
+<script>
+  (function () {
+    var el = document.getElementById('gauge_spx');
+    if (!el) return;
+    function widthPct(tally) {
+      var total = (tally.buy + tally.sell + tally.neutral) || 1;
+      return {
+        buy:  (tally.buy / total * 100).toFixed(1) + '%',
+        neu:  (tally.neutral / total * 100).toFixed(1) + '%',
+        sell: (tally.sell / total * 100).toFixed(1) + '%'
+      };
+    }
+    function card(title, v) {
+      var w = widthPct(v.tally);
+      return '<div class="gauge-card v-' + v.verdict + '">' +
+               '<div class="gtitle">' + title + '</div>' +
+               '<div class="gverdict">' + v.verdict.replace('_', ' ') + '</div>' +
+               '<div class="gmeter">' +
+                 '<div class="m-buy"  style="width:' + w.buy + '"></div>' +
+                 '<div class="m-neu"  style="width:' + w.neu + '"></div>' +
+                 '<div class="m-sell" style="width:' + w.sell + '"></div>' +
+               '</div>' +
+               '<div class="gtally">' +
+                 '<strong style="color:#16a34a;">' + v.tally.buy + ' buy</strong> · ' +
+                 v.tally.neutral + ' neutral · ' +
+                 '<strong style="color:#dc2626;">' + v.tally.sell + ' sell</strong>' +
+               '</div>' +
+             '</div>';
+    }
+    function detailTable(heading, detail) {
+      var rows = Object.keys(detail).map(function (k) {
+        var d = detail[k];
+        var val = d.value == null ? '—' : (typeof d.value === 'number' ? d.value.toFixed(2) : d.value);
+        return '<tr>' +
+          '<td class="name">' + k + '</td>' +
+          '<td class="val">' + val + '</td>' +
+          '<td class="sig ' + d.signal + '">' + d.signal + '</td>' +
+        '</tr>';
+      }).join('');
+      return '<div class="gauge-detail">' +
+               '<h4>' + heading + '</h4>' +
+               '<table>' + rows + '</table>' +
+             '</div>';
+    }
+    function render(d) {
+      if (d.error) {
+        el.innerHTML = '<div class="gauge-loading">Gauge unavailable: ' + d.error + '</div>';
+        return;
+      }
+      el.innerHTML =
+        '<div class="gauge-top">' +
+          card('Summary',      d.overall) +
+          card('Oscillators',  d.oscillators) +
+          card('Moving Avgs',  d.moving_averages) +
+        '</div>' +
+        '<div class="gauge-detail-grid">' +
+          detailTable('Oscillators (5)', d.oscillators.detail) +
+          detailTable('Moving Averages (5)', d.moving_averages.detail) +
+        '</div>';
+    }
+    fetch('/api/gauge?symbol=SPX', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(render)
+      .catch(function (e) { el.innerHTML = '<div class="gauge-loading">Fetch failed.</div>'; });
+  })();
+</script>
+
+{# ── Lightweight Charts — SPX (our yfinance data, no TV feed dependency) ── #}
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  (function () {
+    var el = document.getElementById('lwc_spx_chart');
+    if (!el || typeof LightweightCharts === 'undefined') return;
+
+    var chart = LightweightCharts.createChart(el, {
+      layout:    { background: { color: '#ffffff' }, textColor: '#334155' },
+      grid:      { vertLines: { color: '#f1f5f9' }, horzLines: { color: '#f1f5f9' } },
+      rightPriceScale: { borderColor: '#e2e8f0' },
+      timeScale:       { borderColor: '#e2e8f0', timeVisible: false },
+      crosshair:       { mode: 1 },
+      autoSize: true
+    });
+    var candles = chart.addCandlestickSeries({
+      upColor: '#16a34a', downColor: '#dc2626',
+      borderUpColor: '#16a34a', borderDownColor: '#dc2626',
+      wickUpColor: '#16a34a', wickDownColor: '#dc2626'
+    });
+    var ema20 = chart.addLineSeries({ color: '#2563eb', lineWidth: 1, priceLineVisible: false });
+    var ema50 = chart.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceLineVisible: false });
+
+    function ema(vals, period) {
+      var k = 2 / (period + 1);
+      var out = []; var prev = null;
+      for (var i = 0; i < vals.length; i++) {
+        if (prev == null) { prev = vals[i]; }
+        else { prev = vals[i] * k + prev * (1 - k); }
+        out.push(prev);
+      }
+      return out;
+    }
+
+    fetch('/api/ohlc?symbol=SPX&lookback=400', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var bars = (j && j.bars) || [];
+        if (!bars.length) {
+          el.innerHTML = '<div style="padding:1rem;color:#64748b;font-size:.85rem;">No data returned by /api/ohlc.</div>';
+          return;
+        }
+        candles.setData(bars.map(function (b) {
+          return { time: b.time, open: b.open, high: b.high, low: b.low, close: b.close };
+        }));
+        var closes = bars.map(function (b) { return b.close; });
+        var e20 = ema(closes, 20), e50 = ema(closes, 50);
+        ema20.setData(bars.map(function (b, i) { return { time: b.time, value: e20[i] }; }));
+        ema50.setData(bars.map(function (b, i) { return { time: b.time, value: e50[i] }; }));
+        chart.timeScale().fitContent();
+      })
+      .catch(function (e) {
+        el.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:.85rem;">Chart load failed: ' + e + '</div>';
+      });
+  })();
 </script>
 
 </body>

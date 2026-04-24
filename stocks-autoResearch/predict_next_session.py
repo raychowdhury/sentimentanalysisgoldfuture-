@@ -468,13 +468,16 @@ def _composite_score(
         _demote(f"|score| {abs(score):.0f} < 25 (modest)")
 
     sign = 1 if score >= 0 else -1
+    # Only count components that are actually weighted in the score — pruned
+    # diagnostic components shouldn't influence agreement tally.
+    scored_keys = [k for k in components if (weights.get(k) or 0) > 0]
     agree = sum(
-        1 for v in components.values()
-        if (sign > 0 and v > 5) or (sign < 0 and v < -5)
+        1 for k in scored_keys
+        if (sign > 0 and components[k] > 5) or (sign < 0 and components[k] < -5)
     )
-    n_components = len(components)
+    n_components = len(scored_keys) or len(components)
     if agree < n_components - 1:
-        _demote(f"only {agree}/{n_components} signals agree")
+        _demote(f"only {agree}/{n_components} scored signals agree")
 
     if event.get("blocked"):
         _demote(f"event blackout: {event.get('reason')}")
@@ -484,6 +487,22 @@ def _composite_score(
 
     # ── Calibration-based demotions (walk-forward reliability) ──
     p_up = _calibrated_p_up(components, calibration or {}, parent_root)
+
+    # A) Suppress p_up when the regime model lacks walk-forward validation.
+    # Why: high-vix model with n_folds=0 memorises class prior (~65% up) and
+    # emits bullish probabilities even when all component features are negative.
+    wf = (calibration or {}).get("walk_forward") or {}
+    if wf.get("n_folds") == 0:
+        reasons.append("p_up suppressed — regime model n_folds=0 (unvalidated)")
+        p_up = None
+
+    # B) Flag sign mismatch between linear score and calibrated p_up.
+    if p_up is not None and abs(score) >= 10 and abs(p_up - 0.5) >= 0.05:
+        if (score > 0) != (p_up > 0.5):
+            _demote(
+                f"score {score:+.0f} vs p_up {p_up:.2f} disagree — linear macro vs XGB split"
+            )
+
     calib_bin = _calibration_bin(p_up, reliability)
     if reliability:
         ece = reliability.get("ece")

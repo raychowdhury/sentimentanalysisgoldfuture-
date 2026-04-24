@@ -9,7 +9,7 @@ Usage:
 import glob
 import json
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -23,6 +23,9 @@ from sentiment import cache as sentiment_cache
 
 app = Flask(__name__)
 OUTPUT_DIR = "outputs"
+
+from order_flow_engine.src.dashboard import register as register_order_flow
+register_order_flow(app)
 
 
 # ── Jinja2 filters ────────────────────────────────────────────────────────────
@@ -455,6 +458,8 @@ def stocks_aggregate_view():
             last_refresh = json.loads(refresh_path.read_text())
         except json.JSONDecodeError:
             last_refresh = None
+    from stocks.stock_output import read_ticker
+    spy_detail = read_ticker("SPX")
     return render_template(
         "stocks_aggregate.html",
         aggregate=aggregate,
@@ -462,6 +467,7 @@ def stocks_aggregate_view():
         weights_meta=weights_meta,
         backtest=backtest,
         last_refresh=last_refresh,
+        spy_detail=spy_detail,
         page="stocks",
     )
 
@@ -806,6 +812,341 @@ def api_tv_webhook_recent():
     resp = jsonify(lines[-20:][::-1])
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
+
+
+# ── OHLC feed for client-side charts (Lightweight Charts) ─────────────────
+
+@app.route("/api/ohlc")
+def api_ohlc():
+    """Daily OHLCV for any universe ticker. Used by Lightweight Charts.
+    Returns [{time: 'YYYY-MM-DD', open, high, low, close, volume}, ...]"""
+    from stocks.stock_market import fetch_ohlcv
+    from stocks.stock_universe import is_known
+
+    symbol = (request.args.get("symbol") or "").upper()
+    lookback = int(request.args.get("lookback") or 250)
+    lookback = max(30, min(lookback, 1500))
+
+    if not symbol or not is_known(symbol):
+        return jsonify({"error": f"unknown symbol: {symbol}"}), 404
+
+    df = fetch_ohlcv(symbol, lookback_days=lookback)
+    if df is None or df.empty:
+        return jsonify({"error": "no data"}), 502
+
+    bars = []
+    for ts, row in df.iterrows():
+        bars.append({
+            "time":   ts.strftime("%Y-%m-%d"),
+            "open":   float(row["Open"]),
+            "high":   float(row["High"]),
+            "low":    float(row["Low"]),
+            "close":  float(row["Close"]),
+            "volume": float(row.get("Volume", 0) or 0),
+        })
+    return jsonify({"symbol": symbol, "bars": bars})
+
+
+# ── Custom ticker tape feed ───────────────────────────────────────────────
+
+_TAPE_DEFAULT = [
+    ("SPY",  "S&P 500"),
+    ("QQQ",  "Nasdaq 100"),
+    ("^VIX", "VIX"),
+    ("XLK",  "Tech"),
+    ("XLC",  "Comms"),
+    ("XLY",  "Discr."),
+    ("XLP",  "Staples"),
+    ("XLF",  "Financials"),
+    ("XLV",  "Health"),
+    ("XLI",  "Industrials"),
+    ("XLE",  "Energy"),
+    ("XLB",  "Materials"),
+    ("XLRE", "Real Estate"),
+    ("XLU",  "Utilities"),
+]
+
+
+@app.route("/api/tape")
+def api_tape():
+    """Latest close + 1d change % for tape symbols. Direct yfinance fetch,
+    not restricted to the S&P 500 universe."""
+    import yfinance as yf
+    symbols_param = (request.args.get("symbols") or "").strip()
+    if symbols_param:
+        entries = [(s.strip().upper(), s.strip().upper()) for s in symbols_param.split(",") if s.strip()]
+    else:
+        entries = _TAPE_DEFAULT
+
+    out = []
+    for sym, label in entries:
+        try:
+            hist = yf.Ticker(sym).history(period="5d", interval="1d", auto_adjust=True)
+            if hist is None or hist.empty or len(hist) < 2:
+                out.append({"symbol": sym, "label": label, "price": None, "change_pct": None})
+                continue
+            last = float(hist["Close"].iloc[-1])
+            prev = float(hist["Close"].iloc[-2])
+            chg  = (last - prev) / prev * 100 if prev else 0.0
+            out.append({
+                "symbol": sym, "label": label,
+                "price":  round(last, 2),
+                "change_pct": round(chg, 2),
+            })
+        except Exception:
+            out.append({"symbol": sym, "label": label, "price": None, "change_pct": None})
+    resp = jsonify(out)
+    resp.headers["Cache-Control"] = "public, max-age=60"
+    return resp
+
+
+# ── Custom technical gauge (no TradingView feed) ──────────────────────────
+
+def _compute_gauge(symbol: str) -> dict:
+    """Run 5 oscillators + 5 moving averages on daily OHLC, tally BUY/SELL/NEUTRAL."""
+    import numpy as np
+    import pandas as pd
+    from stocks.stock_market import fetch_ohlcv
+
+    df = fetch_ohlcv(symbol, lookback_days=300)
+    if df is None or df.empty or len(df) < 60:
+        return {"error": "insufficient data", "symbol": symbol}
+
+    close = df["Close"].astype(float)
+    high  = df["High"].astype(float)
+    low   = df["Low"].astype(float)
+
+    def _sig(buy: bool, sell: bool) -> str:
+        return "BUY" if buy else "SELL" if sell else "NEUTRAL"
+
+    # ── Oscillators ─────────────────────────────────────────────────────
+    oscillators = {}
+
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1/14, adjust=False).mean()
+    rs = gain / loss.replace(0, np.nan)
+    rsi = (100 - 100 / (1 + rs)).iloc[-1]
+    oscillators["RSI(14)"] = {
+        "value": round(float(rsi), 2),
+        "signal": _sig(rsi < 30, rsi > 70),
+    }
+
+    low14 = low.rolling(14).min(); high14 = high.rolling(14).max()
+    stoch_k = ((close - low14) / (high14 - low14) * 100).iloc[-1]
+    oscillators["Stoch %K"] = {
+        "value": round(float(stoch_k), 2),
+        "signal": _sig(stoch_k < 20, stoch_k > 80),
+    }
+
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd = ema12 - ema26
+    macd_sig = macd.ewm(span=9, adjust=False).mean()
+    m_now = float(macd.iloc[-1] - macd_sig.iloc[-1])
+    m_prev = float(macd.iloc[-2] - macd_sig.iloc[-2])
+    oscillators["MACD"] = {
+        "value": round(m_now, 2),
+        "signal": _sig(m_now > 0 and m_now > m_prev, m_now < 0 and m_now < m_prev),
+    }
+
+    tp = (high + low + close) / 3
+    sma_tp = tp.rolling(20).mean()
+    mean_dev = (tp - sma_tp).abs().rolling(20).mean()
+    cci = ((tp - sma_tp) / (0.015 * mean_dev)).iloc[-1]
+    oscillators["CCI(20)"] = {
+        "value": round(float(cci), 2),
+        "signal": _sig(cci < -100, cci > 100),
+    }
+
+    wr = ((high14 - close) / (high14 - low14) * -100).iloc[-1]
+    oscillators["Williams %R"] = {
+        "value": round(float(wr), 2),
+        "signal": _sig(wr < -80, wr > -20),
+    }
+
+    # ── Moving Averages (compare close vs MA) ───────────────────────────
+    def _ma_sig(ma_val: float) -> str:
+        if ma_val is None or pd.isna(ma_val): return "NEUTRAL"
+        return "BUY" if float(close.iloc[-1]) > float(ma_val) else "SELL"
+
+    mas = {
+        "SMA20":  close.rolling(20).mean().iloc[-1],
+        "SMA50":  close.rolling(50).mean().iloc[-1],
+        "SMA200": close.rolling(min(200, len(close))).mean().iloc[-1] if len(close) >= 50 else None,
+        "EMA20":  close.ewm(span=20, adjust=False).mean().iloc[-1],
+        "EMA50":  close.ewm(span=50, adjust=False).mean().iloc[-1],
+    }
+    mov_avgs = {}
+    for name, v in mas.items():
+        mov_avgs[name] = {
+            "value": round(float(v), 2) if v is not None and not pd.isna(v) else None,
+            "signal": _ma_sig(v),
+        }
+
+    def _tally(items):
+        buy = sum(1 for it in items if it["signal"] == "BUY")
+        sell = sum(1 for it in items if it["signal"] == "SELL")
+        neutral = sum(1 for it in items if it["signal"] == "NEUTRAL")
+        return {"buy": buy, "sell": sell, "neutral": neutral}
+
+    osc_tally = _tally(oscillators.values())
+    ma_tally  = _tally(mov_avgs.values())
+
+    def _verdict(t):
+        b, s, n = t["buy"], t["sell"], t["neutral"]
+        if b >= s + n + 1:           return "STRONG_BUY"
+        if b > s:                    return "BUY"
+        if s >= b + n + 1:           return "STRONG_SELL"
+        if s > b:                    return "SELL"
+        return "NEUTRAL"
+
+    osc_verdict = _verdict(osc_tally)
+    ma_verdict  = _verdict(ma_tally)
+    total_tally = {k: osc_tally[k] + ma_tally[k] for k in ["buy", "sell", "neutral"]}
+    overall     = _verdict(total_tally)
+
+    return {
+        "symbol": symbol,
+        "price":  float(close.iloc[-1]),
+        "overall": {"verdict": overall, "tally": total_tally},
+        "oscillators": {"verdict": osc_verdict, "tally": osc_tally, "detail": oscillators},
+        "moving_averages": {"verdict": ma_verdict, "tally": ma_tally, "detail": mov_avgs},
+    }
+
+
+@app.route("/api/gauge")
+def api_gauge():
+    """Custom technical gauge — 5 oscillators + 5 MAs → overall verdict."""
+    symbol = (request.args.get("symbol") or "").upper()
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    try:
+        result = _compute_gauge(symbol)
+        if "error" in result:
+            return jsonify(result), 502
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "symbol": symbol}), 500
+
+
+# ── TradingView webhook receiver ──────────────────────────────────────────
+# Pine-script alerts POST JSON here. Stored under outputs/alerts/, with a
+# "fusion" field comparing the alert to our current SPX/SPY bias.
+#
+# Securing against drive-by: shared-secret header `X-TV-Secret` checked when
+# TV_WEBHOOK_SECRET env var is set; open when unset (dev default).
+
+_TV_ALERT_DIR = Path(__file__).parent / "outputs" / "alerts"
+
+
+def _current_bias_snapshot() -> dict:
+    """Load current aggregate composite bias + SPX tactical signal for fusion."""
+    out = {"macro": None, "tactical": None}
+    agg_path = Path(__file__).parent / "outputs" / "stocks" / "_aggregate.json"
+    if agg_path.exists():
+        try:
+            d = json.loads(agg_path.read_text())
+            c = d.get("composite") or {}
+            out["macro"] = {"bias": c.get("bias"), "score": c.get("score")}
+        except json.JSONDecodeError:
+            pass
+    spx_path = Path(__file__).parent / "outputs" / "stocks" / "SPX.json"
+    if spx_path.exists():
+        try:
+            d = json.loads(spx_path.read_text())
+            out["tactical"] = {"signal": d.get("signal"), "sentiment": d.get("sentiment_score")}
+        except json.JSONDecodeError:
+            pass
+    return out
+
+
+def _fuse(alert_side: str | None, snap: dict) -> dict:
+    """Compare TradingView alert direction to our current bias.
+    alert_side ∈ {'LONG', 'SHORT', None}. Returns agreement status."""
+    macro = (snap.get("macro") or {}).get("bias") or ""
+    tac   = (snap.get("tactical") or {}).get("signal") or ""
+    macro_long  = macro in ("LONG", "STRONG LONG")
+    macro_short = macro in ("SHORT", "STRONG SHORT")
+    tac_long    = tac in ("BUY", "STRONG_BUY")
+    tac_short   = tac in ("SELL", "STRONG_SELL")
+
+    if alert_side not in ("LONG", "SHORT"):
+        return {"status": "unknown_side", "macro": macro, "tactical": tac}
+
+    alert_long = alert_side == "LONG"
+    both_us_long  = macro_long and tac_long
+    both_us_short = macro_short and tac_short
+
+    if (alert_long and both_us_long) or (not alert_long and both_us_short):
+        status = "full_agree"
+    elif (alert_long and (macro_long or tac_long)) or (not alert_long and (macro_short or tac_short)):
+        status = "partial_agree"
+    elif (alert_long and (macro_short or tac_short)) or (not alert_long and (macro_long or tac_long)):
+        status = "disagree"
+    else:
+        status = "neutral"
+    return {"status": status, "macro": macro, "tactical": tac}
+
+
+@app.route("/api/tv-alert", methods=["POST"])
+def api_tv_alert():
+    secret_required = os.environ.get("TV_WEBHOOK_SECRET")
+    if secret_required and request.headers.get("X-TV-Secret") != secret_required:
+        return jsonify({"error": "unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    if not payload and request.data:
+        # TV sometimes posts text/plain
+        try:
+            payload = json.loads(request.data.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            payload = {"raw": request.data.decode("utf-8", errors="replace")}
+
+    side = (payload.get("side") or payload.get("action") or "").upper()
+    if side in ("BUY", "LONG"):
+        side = "LONG"
+    elif side in ("SELL", "SHORT"):
+        side = "SHORT"
+    else:
+        side = None
+
+    snap = _current_bias_snapshot()
+    fusion = _fuse(side, snap)
+
+    now = datetime.now(timezone.utc)
+    record = {
+        "received_at": now.isoformat(timespec="seconds"),
+        "symbol":  payload.get("symbol") or payload.get("ticker"),
+        "side":    side,
+        "price":   payload.get("price") or payload.get("close"),
+        "payload": payload,
+        "snapshot": snap,
+        "fusion":  fusion,
+        "source_ip": request.headers.get("X-Forwarded-For", request.remote_addr),
+    }
+
+    _TV_ALERT_DIR.mkdir(parents=True, exist_ok=True)
+    fname = f"tv_{now.strftime('%Y%m%dT%H%M%S')}_{(record['symbol'] or 'UNK')}.json"
+    fpath = _TV_ALERT_DIR / fname
+    fpath.write_text(json.dumps(record, indent=2, default=str))
+
+    return jsonify({"ok": True, "stored": str(fpath.name), "fusion": fusion})
+
+
+@app.route("/api/tv-alerts")
+def api_tv_alerts_list():
+    """Tail of recent TradingView alerts received — debug / audit."""
+    if not _TV_ALERT_DIR.exists():
+        return jsonify([])
+    files = sorted(_TV_ALERT_DIR.glob("tv_*.json"), reverse=True)[:50]
+    items = []
+    for p in files:
+        try:
+            items.append(json.loads(p.read_text()))
+        except json.JSONDecodeError:
+            continue
+    return jsonify(items)
 
 
 if __name__ == "__main__":

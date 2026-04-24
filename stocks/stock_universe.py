@@ -567,7 +567,14 @@ UNIVERSE: list[Stock] = [
 ]
 
 
-_BY_TICKER: dict[str, Stock] = {s.ticker: s for s in UNIVERSE}
+# Aux tickers — visible in explorer, excluded from UNIVERSE so autoResearch
+# pooled model training stays pure S&P 500 constituents.
+AUX: list[Stock] = [
+    Stock("SPX", "S&P 500 Index", "Index", "US Equity Index"),
+]
+
+
+_BY_TICKER: dict[str, Stock] = {s.ticker: s for s in UNIVERSE + AUX}
 
 
 def tickers() -> list[str]:
@@ -585,7 +592,7 @@ def is_known(ticker: str) -> bool:
 def by_sector() -> "OrderedDict[str, list[Stock]]":
     """Return {sector → [Stock, …]} in SECTOR_ORDER."""
     buckets: dict[str, list[Stock]] = {}
-    for s in UNIVERSE:
+    for s in list(UNIVERSE) + list(AUX):
         buckets.setdefault(s.sector, []).append(s)
     out: "OrderedDict[str, list[Stock]]" = OrderedDict()
     for sec in SECTOR_ORDER:

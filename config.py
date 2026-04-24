@@ -416,3 +416,13 @@ TIMEFRAME_PROFILES: dict[str, dict] = {
         "cot_enabled":          False,
     },
 }
+
+# ── Order Flow Engine ────────────────────────────────────────────────────────
+# Standalone intraday divergence detector. See order_flow_engine/README.md.
+ORDER_FLOW_ENABLED: bool         = True
+ORDER_FLOW_SYMBOL: str           = "ES=F"
+ORDER_FLOW_TIMEFRAMES: list[str] = ["5m", "15m", "1h", "1d"]
+ORDER_FLOW_LOOKBACK_DAYS: int    = 180
+ORDER_FLOW_ANCHOR_TF: str        = "15m"
+ORDER_FLOW_ALERT_MIN_CONF: int   = 70
+ORDER_FLOW_OUTPUT_SUBDIR: str    = "order_flow"

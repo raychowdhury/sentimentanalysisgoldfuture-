@@ -38,6 +38,38 @@ def fetch_series(symbol: str, lookback_days: int) -> pd.DataFrame | None:
         return None
 
 
+def fetch_intraday(
+    symbol: str,
+    interval: str,
+    period_days: int,
+) -> pd.DataFrame | None:
+    """
+    Fetch intraday OHLCV bars at the given interval.
+
+    Yfinance caps window by interval — caller should pass a period_days that
+    respects those caps (1m=7d, 5m/15m=60d, 1h=730d, 1d=unbounded). Exceeding
+    the cap returns empty.
+    """
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(
+            period=f"{period_days}d",
+            interval=interval,
+            auto_adjust=True,
+        )
+        if df is None or df.empty:
+            logger.warning(f"No intraday data for {symbol} @ {interval}/{period_days}d")
+            return None
+        logger.info(
+            f"  {symbol} {interval}: {len(df)} bars, "
+            f"latest {df.index[-1]}"
+        )
+        return df
+    except Exception as e:
+        logger.warning(f"Failed intraday fetch {symbol}@{interval}: {e}")
+        return None
+
+
 def fetch_all(lookback_days: int | None = None) -> dict[str, pd.DataFrame | None]:
     """
     Fetch market data for all configured instruments.

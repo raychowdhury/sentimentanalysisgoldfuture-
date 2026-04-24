@@ -206,6 +206,11 @@
     .plan-note {
       margin-top: .5rem; font-size: .7rem; color: #64748b; font-style: italic;
     }
+    .tv-mini-wrap {
+      border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;
+      background: #fff; height: 420px;
+    }
+    .tv-mini-wrap > div { height: 100%; width: 100%; }
 
     /* ── rail search + sector grouping ───────────────────────────────── */
     .rail-search {
@@ -248,12 +253,14 @@
   <nav class="main-nav">
     <a class="nav-tab" href="/">Gold</a>
     <a class="nav-tab active" href="/stocks/overview">Stocks</a>
+    <a class="nav-tab" href="/order-flow">Order Flow</a>
     <span class="nav-sep"></span>
     <a class="nav-tab" href="/stocks/overview">Overview</a>
     <a class="nav-tab" href="/stocks/aggregate">Trader Desk</a>
     <a class="nav-tab active" href="/stocks/explorer">Explorer</a>
   </nav>
 </header>
+{% include '_ticker_tape.html' %}
 
 <div class="wrap">
   <div class="layout">
@@ -443,6 +450,11 @@
             </div>
           {% endif %}
 
+          <div class="section">
+            <h3>Chart — yfinance (daily)</h3>
+            <div class="tv-mini-wrap"><div id="lwc_mini_chart"></div></div>
+          </div>
+
           {% if detail.scrape_stats %}
             {% set ss = detail.scrape_stats %}
             <div class="section">
@@ -540,6 +552,56 @@
     });
   })();
 </script>
+
+{% if detail %}
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  (function () {
+    var el = document.getElementById('lwc_mini_chart');
+    if (!el || typeof LightweightCharts === 'undefined') return;
+    var symbol = {{ detail.ticker | tojson }};
+
+    var chart = LightweightCharts.createChart(el, {
+      layout: { background: { color: '#ffffff' }, textColor: '#334155' },
+      grid:   { vertLines: { color: '#f1f5f9' }, horzLines: { color: '#f1f5f9' } },
+      rightPriceScale: { borderColor: '#e2e8f0' },
+      timeScale:       { borderColor: '#e2e8f0' },
+      crosshair: { mode: 1 }, autoSize: true
+    });
+    var candles = chart.addCandlestickSeries({
+      upColor: '#16a34a', downColor: '#dc2626',
+      borderUpColor: '#16a34a', borderDownColor: '#dc2626',
+      wickUpColor: '#16a34a', wickDownColor: '#dc2626'
+    });
+    var ema20 = chart.addLineSeries({ color: '#2563eb', lineWidth: 1, priceLineVisible: false });
+
+    function ema(vals, period) {
+      var k = 2/(period+1); var out = []; var prev = null;
+      for (var i=0;i<vals.length;i++) {
+        prev = (prev==null) ? vals[i] : vals[i]*k + prev*(1-k);
+        out.push(prev);
+      }
+      return out;
+    }
+
+    fetch('/api/ohlc?symbol=' + encodeURIComponent(symbol) + '&lookback=250', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var bars = (j && j.bars) || [];
+        if (!bars.length) { el.innerHTML = '<div style="padding:1rem;color:#64748b;">No data.</div>'; return; }
+        candles.setData(bars.map(function (b) {
+          return { time: b.time, open: b.open, high: b.high, low: b.low, close: b.close };
+        }));
+        var e20 = ema(bars.map(function (b) { return b.close; }), 20);
+        ema20.setData(bars.map(function (b, i) { return { time: b.time, value: e20[i] }; }));
+        chart.timeScale().fitContent();
+      })
+      .catch(function (e) {
+        el.innerHTML = '<div style="padding:1rem;color:#dc2626;">Chart load failed: ' + e + '</div>';
+      });
+  })();
+</script>
+{% endif %}
 
 </body>
 </html>
