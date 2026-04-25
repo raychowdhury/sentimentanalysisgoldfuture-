@@ -1,0 +1,114 @@
+{
+  "version": "of_m1777059075",
+  "symbol": "ES=F",
+  "timeframe": "15m",
+  "model": "xgboost",
+  "proxy_mode": true,
+  "feature_names": [
+    "buy_vol",
+    "sell_vol",
+    "bar_proxy_mode",
+    "delta",
+    "delta_ratio",
+    "cvd",
+    "cvd_z",
+    "clv",
+    "atr",
+    "atr_pct",
+    "body",
+    "upper_wick",
+    "lower_wick",
+    "body_atr",
+    "dist_to_recent_high_atr",
+    "dist_to_recent_low_atr",
+    "near_sr_flag",
+    "delta_ratio_5m",
+    "cvd_z_5m",
+    "atr_pct_5m",
+    "delta_ratio_1h",
+    "cvd_z_1h",
+    "atr_pct_1h",
+    "delta_ratio_1d",
+    "cvd_z_1d",
+    "atr_pct_1d",
+    "r5_bull_trap",
+    "r6_bear_trap",
+    "r7_cvd_divergence",
+    "rule_hit_count_causal"
+  ],
+  "class_distribution": {
+    "normal_behavior": 366,
+    "buyer_absorption": 7,
+    "seller_absorption": 10,
+    "bullish_trap": 16,
+    "bearish_trap": 10,
+    "possible_reversal": 865
+  },
+  "class_index_map": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5
+  },
+  "folds": [
+    {
+      "fold": 0,
+      "model": "xgboost",
+      "train_rows": 774,
+      "test_rows": 500,
+      "report": {
+        "normal_behavior": {
+          "precision": 0.6486486486486487,
+          "recall": 0.496551724137931,
+          "f1-score": 0.5625,
+          "support": 145.0
+        },
+        "buyer_absorption": {
+          "precision": 0.05555555555555555,
+          "recall": 0.25,
+          "f1-score": 0.09090909090909091,
+          "support": 4.0
+        },
+        "seller_absorption": {
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1-score": 0.6666666666666666,
+          "support": 2.0
+        },
+        "bullish_trap": {
+          "precision": 0.8181818181818182,
+          "recall": 1.0,
+          "f1-score": 0.9,
+          "support": 9.0
+        },
+        "bearish_trap": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 2.0
+        },
+        "possible_reversal": {
+          "precision": 0.7994350282485876,
+          "recall": 0.8372781065088757,
+          "f1-score": 0.8179190751445087,
+          "support": 338.0
+        },
+        "accuracy": 0.738,
+        "macro avg": {
+          "precision": 0.6369701751057684,
+          "recall": 0.7639716384411345,
+          "f1-score": 0.672999138786711,
+          "support": 500.0
+        },
+        "weighted avg": {
+          "precision": 0.7496979043758705,
+          "recall": 0.738,
+          "f1-score": 0.7396322341916273,
+          "support": 500.0
+        }
+      }
+    }
+  ]
+}

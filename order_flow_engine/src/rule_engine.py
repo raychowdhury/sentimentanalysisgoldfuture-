@@ -34,10 +34,25 @@ RULE_CODES: dict[str, str] = {
 
 ALL_RULE_COLS = list(RULE_CODES.keys())
 
+# Causal rules read only current/past bars → safe to fire on the newest bar
+# at close(t). Confirmation rules require the next bar's return (close(t+1))
+# so they can only be fired one bar late: evaluate bar t after close(t+1).
+CAUSAL_RULES:       list[str] = ["r5_bull_trap", "r6_bear_trap", "r7_cvd_divergence"]
+CONFIRMATION_RULES: list[str] = [
+    "r1_buyer_down", "r2_seller_up",
+    "r3_absorption_resistance", "r4_absorption_support",
+]
+
 
 def apply_rules(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add rule hit columns, rule_hit_count, rule_hit_codes.
+
+    Rule layering:
+      * CAUSAL_RULES (r5/r6/r7) — read only current and past bars.
+      * CONFIRMATION_RULES (r1-r4) — depend on fwd_ret_1 (next-bar return).
+        Safe offline; live callers must score the PRIOR bar after the
+        newest bar closes (see ingest._confirmation_pass).
 
     Requires columns produced by feature_engineering.build_features_for_tf:
     delta_ratio, cvd_z, fwd_ret_1, atr_pct, atr, Close, High, Low,
@@ -47,15 +62,15 @@ def apply_rules(df: pd.DataFrame) -> pd.DataFrame:
     close = out["Close"]
     dr    = out["delta_ratio"]
 
-    # Normalize forward return as fraction of ATR% (atr_pct is in percent).
+    # Forward-return in ATR units — used only by confirmation rules r1-r4.
     atr_frac = (out["atr_pct"] / 100).replace(0, np.nan)
     fwd_ret_atr = (out["fwd_ret_1"] / atr_frac).fillna(0.0)
 
-    # R1/R2 — opposite directional reaction (meaningful move = ~0.3×ATR%)
+    # R1/R2 — opposite directional reaction on the next bar (~0.3×ATR move).
     out["r1_buyer_down"] = (dr >  of_cfg.RULE_DELTA_DOMINANCE) & (fwd_ret_atr < -0.3)
     out["r2_seller_up"]  = (dr < -of_cfg.RULE_DELTA_DOMINANCE) & (fwd_ret_atr >  0.3)
 
-    # R3/R4 — near S/R with heavy flow but negligible forward move
+    # R3/R4 — near S/R with heavy flow but negligible forward move.
     near_high = out["dist_to_recent_high_atr"] < of_cfg.RULE_SR_ATR_MULT
     near_low  = out["dist_to_recent_low_atr"]  < of_cfg.RULE_SR_ATR_MULT
     small_move = fwd_ret_atr.abs() < of_cfg.RULE_ABSORPTION_RET_CAP_ATR_PCT
@@ -85,6 +100,8 @@ def apply_rules(df: pd.DataFrame) -> pd.DataFrame:
     # Aggregations
     bool_block = out[ALL_RULE_COLS].astype(bool)
     out["rule_hit_count"] = bool_block.sum(axis=1).astype(int)
+    # Causal subset — leak-free; safe to feed to the model.
+    out["rule_hit_count_causal"] = bool_block[CAUSAL_RULES].sum(axis=1).astype(int)
     out["rule_hit_codes"] = bool_block.apply(
         lambda row: ";".join([c for c in ALL_RULE_COLS if row[c]]),
         axis=1,

@@ -54,8 +54,19 @@ OF_FORWARD_BARS: dict[str, int] = {
 # Prevents labelling noise as reversals.
 OF_LABEL_HORIZON_ATR: float = 0.5
 
-# Alert gating
-OF_ALERT_MIN_CONF: int = _get("ORDER_FLOW_ALERT_MIN_CONF", 70)
+# Alert gating.
+# Defaults reflect honest-eval results on ES=F (180d, proxy flow):
+# only r3_absorption_resistance and r6_bear_trap showed positive expectancy,
+# and 15m was cleaner than 5m. Tune back via root config.py if desired.
+OF_ALERT_MIN_CONF: int = _get("ORDER_FLOW_ALERT_MIN_CONF", 75)
+OF_ALERT_ALLOWED_LABELS: set[str] = set(_get(
+    "ORDER_FLOW_ALERT_ALLOWED_LABELS",
+    {"buyer_absorption", "bearish_trap"},
+))
+OF_ALERT_ALLOWED_TFS: set[str] = set(_get(
+    "ORDER_FLOW_ALERT_ALLOWED_TFS",
+    {"15m"},
+))
 
 # Output location — shares the repo's outputs/ convention.
 _REPO_ROOT = Path(__file__).resolve().parents[2]

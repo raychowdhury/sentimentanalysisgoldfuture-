@@ -1,12 +1,12 @@
 """
 Data loader — multi-timeframe OHLCV fetch plus schema auto-detect.
 
-Engine operates in one of two modes:
-
-  1. Tick mode    — input DataFrame has signed trade columns
-                    (`bid_size`, `ask_size`, `trade_side`). Real order flow.
-  2. OHLCV mode   — only open/high/low/close/volume. All flow metrics become
-                    candle-shape proxies. This is the yfinance default.
+Engine operates in OHLCV mode here. `detect_schema()` can identify a tick
+frame (`bid_size`, `ask_size`, `trade_side`) but there is no file-based
+tick→bar aggregator in this module — real tick flow only reaches the engine
+via the IBKR / Binance streaming adapters, which pre-aggregate per-bar
+`buy_vol_real` / `sell_vol_real` and feed `ingest_bar()` directly. File-mode
+inputs must be OHLCV.
 
 Yfinance intraday caps force mixed-resolution windows. The engine honors them
 silently rather than erroring.

@@ -63,6 +63,7 @@ def test_has_usable_volume_missing_column():
 
 def test_fetch_ohlcv_uses_cache(tmp_path, monkeypatch):
     """If a parquet cache exists, we should skip the network fetch."""
+    pytest.importorskip("pyarrow")
     monkeypatch.setattr(of_cfg, "OF_RAW_DIR", tmp_path)
     cache = tmp_path / "ES_F_15m.parquet"
     df = pd.DataFrame({"Close": [1.0, 2.0]},

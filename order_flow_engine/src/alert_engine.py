@@ -42,11 +42,25 @@ def build_alert(
     model_info: dict | None = None,
     proxy_mode: bool = True,
     tf_window_capped: bool = False,
+    pass_type: str | None = None,
 ) -> dict:
     """Assemble an alert dict matching the schema in the plan."""
     ts_str = _stamp(timestamp)
     compact_ts = ts_str.replace(":", "").replace("-", "").split(".")[0]
     reason_codes = [rule_engine.RULE_CODES.get(r, r) for r in rules_fired]
+    # Derive pass_type from the rules fired if caller didn't set it explicitly.
+    if pass_type is None:
+        causal_set = set(getattr(rule_engine, "CAUSAL_RULES", []))
+        confirm_set = set(getattr(rule_engine, "CONFIRMATION_RULES", []))
+        fired = set(rules_fired)
+        if fired and fired <= causal_set:
+            pass_type = "causal"
+        elif fired and fired <= confirm_set:
+            pass_type = "confirm"
+        elif fired:
+            pass_type = "mixed"
+        else:
+            pass_type = "none"
     return {
         "id": f"of_{compact_ts}_{timeframe}_{symbol}",
         "timestamp_utc": ts_str,
@@ -58,6 +72,7 @@ def build_alert(
         "atr": round(float(atr), 4) if atr is not None else None,
         "rules_fired": list(rules_fired),
         "reason_codes": reason_codes,
+        "pass_type": pass_type,
         "metrics": {k: (round(float(v), 4) if v is not None else None)
                     for k, v in metrics.items()},
         "model": model_info or {},
@@ -68,9 +83,20 @@ def build_alert(
     }
 
 
-def should_emit(label: str, confidence: int, min_conf: int | None = None) -> bool:
+def should_emit(
+    label: str,
+    confidence: int,
+    tf: str | None = None,
+    min_conf: int | None = None,
+) -> bool:
     threshold = of_cfg.OF_ALERT_MIN_CONF if min_conf is None else min_conf
-    return (label != "normal_behavior") and (int(confidence) >= int(threshold))
+    if label == "normal_behavior" or int(confidence) < int(threshold):
+        return False
+    if of_cfg.OF_ALERT_ALLOWED_LABELS and label not in of_cfg.OF_ALERT_ALLOWED_LABELS:
+        return False
+    if tf is not None and of_cfg.OF_ALERT_ALLOWED_TFS and tf not in of_cfg.OF_ALERT_ALLOWED_TFS:
+        return False
+    return True
 
 
 def _bar_seconds(tf: str) -> int:
@@ -168,7 +194,8 @@ def emit(
     On success: writes to JSONL stream and sqlite. The consolidated alerts.json
     is rewritten by the caller (predictor / ingest).
     """
-    if not should_emit(alert["label"], alert["confidence"], min_conf=min_conf):
+    if not should_emit(alert["label"], alert["confidence"],
+                       tf=alert.get("timeframe"), min_conf=min_conf):
         return None
     if in_cooldown(
         symbol=alert["symbol"], tf=alert["timeframe"], label=alert["label"],

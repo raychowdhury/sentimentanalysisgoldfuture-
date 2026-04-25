@@ -29,6 +29,29 @@ def test_format_includes_essentials():
     assert "75" in msg
 
 
+def test_trade_plan_long_for_bearish_trap():
+    # bearish_trap fires ↑ UP → BUY @ price, stop below, target above
+    msg = notifier._format(_alert(label="bearish_trap", price=7000.0, atr=10.0))
+    assert "BUY @ 7000.00" in msg
+    assert "Stop:  6990.00" in msg       # 1×ATR below
+    assert "Target: 7020.00" in msg      # 2×ATR above
+    assert "risk $500" in msg            # 10pt × $50/pt
+    assert "reward $1000" in msg
+
+
+def test_trade_plan_short_for_buyer_absorption():
+    msg = notifier._format(_alert(label="buyer_absorption", price=7000.0, atr=5.0))
+    assert "SELL @ 7000.00" in msg
+    assert "Stop:  7005.00" in msg       # 1×ATR above
+    assert "Target: 6990.00" in msg      # 2×ATR below
+
+
+def test_trade_plan_skipped_when_no_direction():
+    msg = notifier._format(_alert(label="normal_behavior"))
+    assert "BUY @" not in msg
+    assert "SELL @" not in msg
+
+
 def test_direction_buyer_absorption_is_down():
     assert notifier._direction(_alert(label="buyer_absorption")) == "↓ DOWN"
 
@@ -58,21 +81,27 @@ def test_send_discord_skips_without_env(monkeypatch):
     assert notifier.send_discord(_alert()) is False
 
 
-def test_send_telegram_posts_when_configured(monkeypatch):
+def test_send_telegram_posts_when_configured(monkeypatch, tmp_path):
     monkeypatch.setenv("TG_BOT_TOKEN", "fake-token")
     monkeypatch.setenv("TG_CHAT_ID", "123")
-    captured = {}
+    # Fresh subscriber DB so all_active() returns just the seed
+    from order_flow_engine.src import config as of_cfg
+    out = tmp_path / "out"; out.mkdir()
+    monkeypatch.setattr(of_cfg, "OF_OUTPUT_DIR", out)
+
+    captured = []
     class FakeResp:
         status_code = 200
         text = "ok"
     def fake_post(url, data=None, timeout=None, json=None):
-        captured["url"]  = url
-        captured["data"] = data
+        captured.append({"url": url, "data": data})
         return FakeResp()
     monkeypatch.setattr("requests.post", fake_post)
     assert notifier.send_telegram(_alert()) is True
-    assert "fake-token" in captured["url"]
-    assert captured["data"]["chat_id"] == "123"
+    assert captured, "no POST issued"
+    assert "fake-token" in captured[0]["url"]
+    # chat_id present in at least one POST (seed env)
+    assert any(int(c["data"]["chat_id"]) == 123 for c in captured)
 
 
 def test_send_discord_posts_when_configured(monkeypatch):

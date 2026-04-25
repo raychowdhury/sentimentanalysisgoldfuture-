@@ -214,87 +214,126 @@ def ingest_bar(
         joined = fe.build_feature_matrix(featured, anchor_tf=timeframe)
         joined = rule_engine.apply_rules(joined)
 
-        # Only score the newest bar.
-        last_row = joined.iloc[-1]
-        rules_fired = [c for c in rule_engine.ALL_RULE_COLS if bool(last_row.get(c, False))]
-
-        # Try model first; fall back to rule-only.
-        model_path = predictor._latest_model()
-        pred_label = None
-        confidence = 0
-        model_payload: dict = {"version": None, "probas": {}}
         proxy_mode = bar_is_proxy
 
-        if model_path is not None and rules_fired:
-            try:
-                bundle = predictor._load_model(model_path)
-                model = bundle["model"]
-                feat_names = bundle["feature_names"]
-                reverse_map = bundle.get("class_index_map", {
-                    i: i for i in range(len(of_cfg.LABEL_CLASSES))
-                })
-                X = joined.reindex(columns=feat_names).fillna(0.0).iloc[[-1]]
-                dense = model.predict_proba(X.values)[0]
-                full = np.zeros(len(of_cfg.LABEL_CLASSES))
-                for di, oi in reverse_map.items():
-                    full[int(oi)] = dense[int(di)]
-                pred_idx = int(full.argmax())
-                pred_label = of_cfg.LABEL_CLASSES[pred_idx]
-                confidence = predictor.blended_confidence(full, pred_label, last_row, proxy_mode)
-                model_payload = {
-                    "version": model_path.stem,
-                    "probas": {c: round(float(full[i]), 4)
-                               for i, c in enumerate(of_cfg.LABEL_CLASSES)},
-                }
-            except Exception as e:
-                logger.warning(f"ingest model path failed ({e}); rule-only")
+        # Pass 1 — confirmation rules (r1-r4) on the PRIOR bar. fwd_ret_1 for
+        # bar t-1 becomes defined once bar t closes.
+        confirm_alert = None
+        if len(joined) >= 2:
+            confirm_alert = _score_and_emit(
+                joined=joined, row_idx=-2,
+                allowed_rules=rule_engine.CONFIRMATION_RULES,
+                pass_type="confirm",
+                symbol=symbol, timeframe=timeframe,
+                proxy_mode=proxy_mode, anchor_df=anchor_df,
+            )
 
-        if pred_label is None:
-            if not rules_fired:
-                return None
-            pred_label = predictor._rule_only_label(last_row)
-            confidence = predictor.rule_only_confidence(last_row)
-
-        if not alert_engine.should_emit(pred_label, confidence):
-            return None
-
-        # Volume gate (proxy mode only)
-        if proxy_mode:
-            recent_vol = anchor_df["Volume"].tail(of_cfg.VOLUME_GATE_WINDOW)
-            if not alert_engine.volume_gate_passes(
-                float(last_row.get("Volume", 0) or 0), recent_vol,
-            ):
-                return None
-
-        alert = alert_engine.build_alert(
-            timestamp=ts.to_pydatetime(),
-            symbol=symbol,
-            timeframe=timeframe,
-            label=pred_label,
-            confidence=confidence,
-            price=float(last_row.get("Close", 0.0)),
-            atr=float(last_row.get("atr", 0.0) or 0.0),
-            rules_fired=rules_fired,
-            metrics={
-                "delta_ratio": last_row.get("delta_ratio"),
-                "cvd_z":       last_row.get("cvd_z"),
-                "clv":         last_row.get("clv"),
-                "dist_to_recent_high_atr": last_row.get("dist_to_recent_high_atr"),
-                "dist_to_recent_low_atr":  last_row.get("dist_to_recent_low_atr"),
-            },
-            model_info=model_payload,
-            proxy_mode=proxy_mode,
+        # Pass 2 — causal rules (r5/r6/r7) on the newest bar.
+        causal_alert = _score_and_emit(
+            joined=joined, row_idx=-1,
+            allowed_rules=rule_engine.CAUSAL_RULES,
+            pass_type="causal",
+            symbol=symbol, timeframe=timeframe,
+            proxy_mode=proxy_mode, anchor_df=anchor_df,
         )
 
-        # emit() applies cooldown + sqlite + JSONL atomically
-        emitted = alert_engine.emit(alert, output_dir=of_cfg.OF_OUTPUT_DIR)
-        if emitted is None:
+        # Prefer the fresher alert for the return value; both are persisted.
+        return causal_alert if causal_alert is not None else confirm_alert
+
+
+def _score_and_emit(
+    *,
+    joined: pd.DataFrame,
+    row_idx: int,
+    allowed_rules: list[str],
+    pass_type: str,
+    symbol: str,
+    timeframe: str,
+    proxy_mode: bool,
+    anchor_df: pd.DataFrame,
+) -> dict | None:
+    """Score `joined.iloc[row_idx]` against `allowed_rules`, emit if gated."""
+    row = joined.iloc[row_idx]
+    ts = joined.index[row_idx]
+    if not isinstance(ts, pd.Timestamp):
+        ts = pd.Timestamp(ts)
+    rules_fired = [c for c in allowed_rules if bool(row.get(c, False))]
+
+    model_path = predictor._latest_model()
+    pred_label = None
+    confidence = 0
+    model_payload: dict = {"version": None, "probas": {}}
+
+    if model_path is not None and rules_fired:
+        try:
+            bundle = predictor._load_model(model_path)
+            model = bundle["model"]
+            feat_names = bundle["feature_names"]
+            reverse_map = bundle.get("class_index_map", {
+                i: i for i in range(len(of_cfg.LABEL_CLASSES))
+            })
+            X = joined.reindex(columns=feat_names).fillna(0.0).iloc[[row_idx]]
+            dense = model.predict_proba(X.values)[0]
+            full = np.zeros(len(of_cfg.LABEL_CLASSES))
+            for di, oi in reverse_map.items():
+                full[int(oi)] = dense[int(di)]
+            pred_idx = int(full.argmax())
+            pred_label = of_cfg.LABEL_CLASSES[pred_idx]
+            confidence = predictor.blended_confidence(full, pred_label, row, proxy_mode)
+            model_payload = {
+                "version": model_path.stem,
+                "probas": {c: round(float(full[i]), 4)
+                           for i, c in enumerate(of_cfg.LABEL_CLASSES)},
+            }
+        except Exception as e:
+            logger.warning(f"ingest model path failed ({e}); rule-only")
+
+    if pred_label is None:
+        if not rules_fired:
             return None
-        _rewrite_consolidated()
-        _poll_state["last_alert"] = alert
-        _broadcast({"type": "alert", "alert": alert})
-        logger.info(f"REALTIME alert: {pred_label} conf={confidence} {ts.isoformat()}")
-        return alert
+        pred_label = predictor._rule_only_label(row)
+        # Per-pass confidence: count only rules allowed for this pass.
+        confidence = min(100, 40 + 10 * len(rules_fired))
+
+    if not alert_engine.should_emit(pred_label, confidence, tf=timeframe):
+        return None
+
+    if proxy_mode:
+        recent_vol = anchor_df["Volume"].tail(of_cfg.VOLUME_GATE_WINDOW)
+        if not alert_engine.volume_gate_passes(
+            float(row.get("Volume", 0) or 0), recent_vol,
+        ):
+            return None
+
+    alert = alert_engine.build_alert(
+        timestamp=ts.to_pydatetime(),
+        symbol=symbol,
+        timeframe=timeframe,
+        label=pred_label,
+        confidence=confidence,
+        price=float(row.get("Close", 0.0)),
+        atr=float(row.get("atr", 0.0) or 0.0),
+        rules_fired=rules_fired,
+        metrics={
+            "delta_ratio": row.get("delta_ratio"),
+            "cvd_z":       row.get("cvd_z"),
+            "clv":         row.get("clv"),
+            "dist_to_recent_high_atr": row.get("dist_to_recent_high_atr"),
+            "dist_to_recent_low_atr":  row.get("dist_to_recent_low_atr"),
+        },
+        model_info=model_payload,
+        proxy_mode=proxy_mode,
+        pass_type=pass_type,
+    )
+
+    emitted = alert_engine.emit(alert, output_dir=of_cfg.OF_OUTPUT_DIR)
+    if emitted is None:
+        return None
+    _rewrite_consolidated()
+    _poll_state["last_alert"] = alert
+    _broadcast({"type": "alert", "alert": alert})
+    logger.info(f"REALTIME alert: {pred_label} conf={confidence} {ts.isoformat()}")
+    return alert
 
 
 def _rewrite_consolidated(tail: int = 500) -> None:

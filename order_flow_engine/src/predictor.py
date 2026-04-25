@@ -186,8 +186,15 @@ def run(
     jsonl_path = out_dir / "alerts.jsonl"
     if jsonl_path.exists():
         jsonl_path.unlink()
-    # Trailing volume window for the volume gate
-    vol_window = joined["Volume"].tail(of_cfg.VOLUME_GATE_WINDOW)
+    # Per-bar trailing volume threshold (rolling — no lookahead).
+    if "Volume" in joined.columns and of_cfg.VOLUME_GATE_PCTL:
+        _vol = joined["Volume"].fillna(0.0)
+        vol_threshold = (
+            _vol.rolling(of_cfg.VOLUME_GATE_WINDOW, min_periods=20)
+                .quantile(of_cfg.VOLUME_GATE_PCTL)
+        )
+    else:
+        vol_threshold = None
     last_emit_idx_for: dict[tuple[str, str, str], int] = {}
     cooldown_bars = of_cfg.ALERT_COOLDOWN_BARS
 
@@ -195,11 +202,12 @@ def run(
         rules_fired = [c for c in rule_engine.ALL_RULE_COLS if bool(row.get(c, False))]
         if not rules_fired and (preds_df is None):
             continue
-        # Volume gate — skip noisy low-volume bars in OHLCV-proxy mode
-        if proxy_mode and not alert_engine.volume_gate_passes(
-            float(row.get("Volume", 0) or 0), vol_window,
-        ):
-            continue
+        # Volume gate — skip noisy low-volume bars in OHLCV-proxy mode.
+        if proxy_mode and vol_threshold is not None:
+            thr = vol_threshold.loc[ts] if ts in vol_threshold.index else float("nan")
+            bar_vol = float(row.get("Volume", 0) or 0)
+            if pd.notna(thr) and bar_vol < float(thr):
+                continue
 
         if preds_df is not None and ts in preds_df.index:
             pred_label = preds_df.loc[ts, "pred_label"]
@@ -215,7 +223,7 @@ def run(
             confidence = rule_only_confidence(row)
             model_payload = {"version": None, "probas": {}}
 
-        if not alert_engine.should_emit(pred_label, confidence):
+        if not alert_engine.should_emit(pred_label, confidence, tf=timeframe):
             continue
         # In-run cooldown: skip same (sym,tf,label) within N bars index
         key = (symbol, timeframe, pred_label)

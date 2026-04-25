@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from order_flow_engine.src import (
+    alert_engine,
     config as of_cfg,
     data_loader,
     feature_engineering as fe,
@@ -185,6 +186,206 @@ def threshold_sweep(
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "threshold_sweep.json").write_text(json.dumps(out, indent=2, default=str))
     return out
+
+
+# Point value per symbol (contract size × tick value). Defaults to $1/pt.
+SYMBOL_POINT_VALUE = {
+    "ES=F": 50.0,
+    "NQ=F": 20.0,
+    "YM=F": 5.0,
+    "RTY=F": 50.0,
+    "GC=F": 100.0,
+    "CL=F": 1000.0,
+}
+
+
+def build_trades(
+    symbol: str | None = None,
+    timeframe: str | None = None,
+    lookback_days: int | None = None,
+    min_conf: int | None = None,
+    allowed_labels: set[str] | None = None,
+) -> dict:
+    """
+    Trader-facing trade list. Each alert that passes gating is one trade:
+    entry at close of bar after signal, exit `horizon` bars later.
+
+    Returns: {
+        "symbol", "timeframe", "point_value",
+        "trades": [
+            {entry_time, entry_price, exit_time, exit_price, side,
+             buy_price, sell_price, label, rules, confidence,
+             pnl_pts, pnl_usd, pnl_r, result},
+            ...
+        ],
+        "summary": {count, wins, losses, hit_rate, sum_pts, sum_usd, mean_r, expectancy_usd},
+    }
+    """
+    from order_flow_engine.src import predictor as _pred
+
+    symbol      = symbol or of_cfg.OF_SYMBOL
+    timeframe   = timeframe or of_cfg.OF_ANCHOR_TF
+    lookback    = lookback_days or of_cfg.OF_LOOKBACK_DAYS
+    threshold   = int(of_cfg.OF_ALERT_MIN_CONF if min_conf is None else min_conf)
+    labels_ok   = allowed_labels if allowed_labels is not None else of_cfg.OF_ALERT_ALLOWED_LABELS
+
+    multi = data_loader.load_multi_tf(symbol=symbol, timeframes=of_cfg.OF_TIMEFRAMES,
+                                      lookback_days=lookback, use_cache=True)
+    featured = {tf: fe.build_features_for_tf(df, tf) for tf, df in multi.items()}
+    joined = fe.build_feature_matrix(featured, anchor_tf=timeframe)
+    joined = rule_engine.apply_rules(joined)
+    # Use rule-only label + confidence so results reflect the live rule path
+    # (no lookahead from label_generator's forward-reversal filter).
+    joined["label"] = joined.apply(_pred._rule_only_label, axis=1)
+    joined["conf"]  = joined.apply(_pred.rule_only_confidence, axis=1)
+
+    horizon   = of_cfg.OF_FORWARD_BARS.get(timeframe, 1)
+    # Rules are causal at bar t close; earliest real-world fill is close(t+1).
+    # Exit `horizon` bars after entry.
+    entry_offset = 1
+    entry_px  = joined["Close"].shift(-entry_offset)
+    exit_px   = joined["Close"].shift(-entry_offset - horizon)
+    atr_safe  = joined["atr"].replace(0, np.nan)
+    pt_value  = SYMBOL_POINT_VALUE.get(symbol, 1.0)
+
+    # Cooldown + volume gate mirror the live gate so backtest numbers match
+    # what the system actually would have emitted.
+    cooldown_bars = of_cfg.ALERT_COOLDOWN_BARS
+    last_emit_idx: dict[str, int] = {}
+    # Precompute rolling volume threshold per-bar (uses trailing window as live does).
+    if "Volume" in joined.columns:
+        vol = joined["Volume"].fillna(0.0)
+        vol_threshold = (
+            vol.rolling(of_cfg.VOLUME_GATE_WINDOW, min_periods=20)
+               .quantile(of_cfg.VOLUME_GATE_PCTL)
+        )
+    else:
+        vol = None
+        vol_threshold = None
+
+    trades: list[dict] = []
+    skipped = {"volume": 0, "cooldown": 0, "below_conf": 0, "label": 0, "no_bars": 0}
+    for i, (ts, row) in enumerate(joined.iterrows()):
+        label = row.get("label", "normal_behavior")
+        if label == "normal_behavior":
+            continue
+        if labels_ok and label not in labels_ok:
+            skipped["label"] += 1
+            continue
+        conf = int(row.get("conf", 0))
+        if conf < threshold:
+            skipped["below_conf"] += 1
+            continue
+        # Volume gate — rolling trailing-window threshold.
+        if vol_threshold is not None and of_cfg.VOLUME_GATE_PCTL:
+            thr = vol_threshold.loc[ts] if ts in vol_threshold.index else np.nan
+            bar_vol = float(row.get("Volume", 0) or 0)
+            if not np.isnan(thr) and bar_vol < float(thr):
+                skipped["volume"] += 1
+                continue
+        # Per-label cooldown
+        if i - last_emit_idx.get(label, -10**9) < cooldown_bars:
+            skipped["cooldown"] += 1
+            continue
+
+        ep = entry_px.loc[ts] if ts in entry_px.index else np.nan
+        xp = exit_px.loc[ts]  if ts in exit_px.index  else np.nan
+        if pd.isna(ep) or pd.isna(xp):
+            skipped["no_bars"] += 1
+            continue
+
+        direction = _direction_for_row(label, row)
+        if direction == 0:
+            continue
+        last_emit_idx[label] = i
+        side = "long" if direction > 0 else "short"
+        if side == "long":
+            buy_price, sell_price = float(ep), float(xp)
+            buy_time  = _shift_ts(joined, ts, entry_offset)
+            sell_time = _shift_ts(joined, ts, entry_offset + horizon)
+        else:
+            sell_price, buy_price = float(ep), float(xp)
+            sell_time = _shift_ts(joined, ts, entry_offset)
+            buy_time  = _shift_ts(joined, ts, entry_offset + horizon)
+
+        pnl_pts = (float(xp) - float(ep)) * direction
+        pnl_usd = pnl_pts * pt_value
+        atr_v   = float(atr_safe.loc[ts]) if ts in atr_safe.index and not pd.isna(atr_safe.loc[ts]) else np.nan
+        pnl_r   = round(pnl_pts / atr_v, 3) if atr_v and not np.isnan(atr_v) else None
+
+        trades.append({
+            "signal_time": _iso(ts),
+            "entry_time":  _iso(_shift_ts(joined, ts, entry_offset)),
+            "entry_price": round(float(ep), 4),
+            "exit_time":   _iso(_shift_ts(joined, ts, entry_offset + horizon)),
+            "exit_price":  round(float(xp), 4),
+            "side":        side,
+            "buy_price":   round(buy_price, 4),
+            "sell_price":  round(sell_price, 4),
+            "buy_time":    _iso(buy_time),
+            "sell_time":   _iso(sell_time),
+            "label":       label,
+            "rules":       [r for r in row.get("rule_hit_codes", "").split(";") if r],
+            "confidence":  conf,
+            "pnl_pts":     round(pnl_pts, 4),
+            "pnl_usd":     round(pnl_usd, 2),
+            "pnl_r":       pnl_r,
+            "result":      "win" if pnl_pts > 0 else ("loss" if pnl_pts < 0 else "flat"),
+        })
+
+    wins     = sum(1 for t in trades if t["result"] == "win")
+    losses   = sum(1 for t in trades if t["result"] == "loss")
+    n        = len(trades)
+    sum_pts  = sum(t["pnl_pts"] for t in trades)
+    sum_usd  = sum(t["pnl_usd"] for t in trades)
+    rs       = [t["pnl_r"] for t in trades if t["pnl_r"] is not None]
+    mean_r   = round(float(np.mean(rs)), 3) if rs else 0.0
+
+    return {
+        "symbol":      symbol,
+        "timeframe":   timeframe,
+        "lookback_days": lookback,
+        "min_conf":    threshold,
+        "allowed_labels": sorted(labels_ok) if labels_ok else [],
+        "horizon_bars": horizon,
+        "entry_offset_bars": entry_offset,
+        "cooldown_bars": cooldown_bars,
+        "volume_gate_pctl": of_cfg.VOLUME_GATE_PCTL,
+        "point_value": pt_value,
+        "skipped":     skipped,
+        "trades":      trades,
+        "summary": {
+            "count":          n,
+            "wins":           wins,
+            "losses":         losses,
+            "hit_rate":       round(wins / n, 3) if n else 0.0,
+            "sum_pts":        round(sum_pts, 2),
+            "sum_usd":        round(sum_usd, 2),
+            "mean_r":         mean_r,
+            "expectancy_usd": round(sum_usd / n, 2) if n else 0.0,
+        },
+    }
+
+
+def _shift_ts(df: pd.DataFrame, ts, steps: int):
+    """Return the index value `steps` bars after `ts`. None if off the end."""
+    try:
+        i = df.index.get_loc(ts)
+    except KeyError:
+        return None
+    j = i + steps
+    if j < 0 or j >= len(df.index):
+        return None
+    return df.index[j]
+
+
+def _iso(ts) -> str | None:
+    if ts is None:
+        return None
+    try:
+        return pd.Timestamp(ts).isoformat()
+    except Exception:
+        return str(ts)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -89,10 +89,17 @@ def label_distribution(labels: pd.Series) -> dict[str, int]:
 
 
 # Columns that must NOT be fed to the model — they leak future info.
+# r1..r4 (CONFIRMATION_RULES) internally consume fwd_ret_1 and are therefore
+# leaky as features. r5/r6/r7 are causal and safe.
 _LEAKAGE_PREFIXES = ("fwd_",)
 _LEAKAGE_NAMES = {"label", "rule_hit_codes", "recent_high", "recent_low",
                   "dist_to_recent_high", "dist_to_recent_low",
-                  "cvd_price_corr"}
+                  "cvd_price_corr",
+                  "r1_buyer_down", "r2_seller_up",
+                  "r3_absorption_resistance", "r4_absorption_support",
+                  # total rule_hit_count sums r1..r4 too → leaky; the
+                  # rule_hit_count_causal alias is the safe feature.
+                  "rule_hit_count"}
 # Raw OHLCV excluded to keep model from memorizing absolute price.
 _DROP_RAW = {"Open", "High", "Low", "Close", "Volume", "Adj Close",
              "Dividends", "Stock Splits"}

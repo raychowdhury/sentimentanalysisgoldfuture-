@@ -171,6 +171,54 @@
     .fresh-dot.stale { background:var(--sell); box-shadow:0 0 6px rgba(248,113,113,.5); }
     .fresh-dot.warn  { background:var(--accent); box-shadow:0 0 6px rgba(251,191,36,.5); }
     .rule-codes { color:var(--dim); font-size:.72rem; }
+
+    /* ── backtest modal ── */
+    .bt-modal {
+      display:none; position:fixed; inset:0; background:rgba(3,7,18,.78);
+      z-index:9999; align-items:flex-start; justify-content:center; padding:3vh 1rem;
+      overflow-y:auto;
+    }
+    .bt-modal.open { display:flex; }
+    .bt-modal-inner {
+      width:min(1200px, 100%); background:var(--card); border:1px solid var(--border2);
+      border-radius:10px; padding:1rem 1.1rem; box-shadow:0 20px 60px rgba(0,0,0,.5);
+    }
+    .bt-modal-head { display:flex; justify-content:space-between; align-items:flex-start; gap:.75rem; margin-bottom:.8rem; }
+    .bt-title { font-size:1.15rem; font-weight:700; }
+    .bt-controls {
+      display:flex; gap:.6rem; align-items:flex-end; flex-wrap:wrap;
+      background:var(--bg2); border:1px solid var(--border); border-radius:6px;
+      padding:.6rem .8rem; margin-bottom:.7rem;
+    }
+    .bt-controls label { display:flex; flex-direction:column; gap:.15rem; font-size:.65rem; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
+    .bt-controls input, .bt-controls select {
+      background:#0b1220; color:var(--ink); border:1px solid var(--border2);
+      border-radius:4px; padding:.35rem .5rem; font-size:.82rem;
+    }
+    .bt-summary {
+      display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr));
+      gap:.5rem; margin-bottom:.7rem;
+    }
+    .bt-summary .kpi {
+      background:var(--bg2); border:1px solid var(--border); border-radius:6px;
+      padding:.5rem .65rem;
+    }
+    .bt-summary .kpi .lbl { font-size:.6rem; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); font-weight:600; }
+    .bt-summary .kpi .val { font-size:1.1rem; font-weight:700; margin-top:.1rem; font-variant-numeric:tabular-nums; }
+    .bt-summary .kpi.pos .val { color:var(--buy); }
+    .bt-summary .kpi.neg .val { color:var(--sell); }
+
+    .bt-table-wrap { max-height:55vh; overflow:auto; border:1px solid var(--border); border-radius:6px; }
+    .bt-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+    .bt-table th, .bt-table td { padding:.5rem .6rem; text-align:left; border-bottom:1px solid var(--border); }
+    .bt-table th { position:sticky; top:0; background:var(--bg2); color:var(--dim); font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; }
+    .bt-table td.num { font-variant-numeric:tabular-nums; text-align:right; }
+    .bt-table tr.win  { border-left:3px solid var(--buy); }
+    .bt-table tr.loss { border-left:3px solid var(--sell); }
+    .bt-table tr:hover { background:var(--card2); }
+    .bt-side-long  { color:var(--buy);  font-weight:700; }
+    .bt-side-short { color:var(--sell); font-weight:700; }
+    .bt-foot { font-size:.75rem; margin-top:.7rem; line-height:1.5; }
   </style>
 </head>
 <body>
@@ -199,12 +247,86 @@
               title="Free real-time SPY trade tape (Alpaca IEX) — tick-rule classified, ES proxy">
         ⚡ Alpaca SPY
       </button>
+      <button class="btn-lg ghost" id="ibkr-btn" data-on="0"
+              title="IBKR tick-by-tick ES + NBBO → true aggressor side (requires IB Gateway + CME-LVL1 bundle)">
+        ⚡ IBKR ES
+      </button>
       <button class="btn-lg ghost" id="notify-btn" data-on="0"
               title="Desktop notifications + sound on every new alert">
         🔔 Notify
       </button>
       <button class="btn-lg ghost" id="refresh-btn">↻ Refresh</button>
+      <button class="btn-lg ghost" id="backtest-btn" title="Run filtered backtest — shows buy/sell prices per trade">📈 Backtest</button>
       <a class="btn-lg ghost" href="/api/order-flow/alerts" target="_blank">JSON</a>
+    </div>
+  </div>
+
+  <!-- ── backtest modal ── -->
+  <div id="bt-modal" class="bt-modal" aria-hidden="true">
+    <div class="bt-modal-inner">
+      <div class="bt-modal-head">
+        <div>
+          <div class="bt-title">Backtest — <span id="bt-sym">{{ symbol }}</span> <span class="muted" id="bt-tf-label">{{ anchor_tf }}</span></div>
+          <div class="muted" id="bt-sub">Loading…</div>
+        </div>
+        <button class="btn ghost" id="bt-close">✕ Close</button>
+      </div>
+
+      <div class="bt-controls">
+        <label>Symbol
+          <input id="bt-symbol" type="text" value="{{ symbol }}" size="8">
+        </label>
+        <label>TF
+          <select id="bt-tf">
+            <option value="5m">5m</option>
+            <option value="15m" selected>15m</option>
+            <option value="1h">1h</option>
+            <option value="1d">1d</option>
+          </select>
+        </label>
+        <label>Lookback days
+          <input id="bt-lookback" type="number" min="5" max="730" value="180">
+        </label>
+        <label>Min conf
+          <input id="bt-minconf" type="number" min="40" max="100" value="{{ alert_min_conf }}">
+        </label>
+        <label>Labels
+          <input id="bt-labels" type="text" placeholder="buyer_absorption,bearish_trap" size="36">
+        </label>
+        <button class="btn" id="bt-run">Run</button>
+      </div>
+
+      <div class="bt-summary" id="bt-summary"></div>
+
+      <div class="bt-table-wrap">
+        <table class="bt-table">
+          <thead>
+            <tr>
+              <th>Signal (NY)</th>
+              <th>Pattern</th>
+              <th>Side</th>
+              <th>Buy @</th>
+              <th>Sell @</th>
+              <th class="num">Pts</th>
+              <th class="num">PnL $</th>
+              <th class="num">R</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="bt-tbody">
+            <tr><td colspan="9" class="empty">Click <b>Run</b> to load trades.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="bt-foot muted">
+        <b>How to read:</b> Each row = one trade. <b>Long</b> = Buy at entry, Sell at exit. <b>Short</b> = Sell at entry (borrow), Buy at exit (cover).
+        Entry = close of the 2nd bar after signal (rules use 1-bar lookahead via <code>fwd_ret_1</code> → alert only ready after close of t+1, trader fills at close of t+2).
+        Exit = <span id="bt-horizon">—</span> bars later. PnL $ uses contract point value. R = PnL ÷ ATR at signal.
+        Backtest applies the same gates as live: <b>confidence ≥ threshold</b>, <b>label whitelist</b>, <b>per-label cooldown</b>, <b>volume gate</b>.
+        <div id="bt-skipped" class="muted" style="margin-top:.3rem; font-size:.72rem;"></div>
+        <div style="margin-top:.3rem; color:#fbbf24;">⚠ Proxy flow (CLV-weighted) — real tape likely reduces edge.</div>
+      </div>
     </div>
   </div>
 
@@ -445,7 +567,7 @@ TG_CHAT_ID=987654321</pre>
         <thead><tr>
           <th>Time (NY)</th><th>Symbol</th><th>TF</th><th>Label</th><th style="text-align:right;">Conf</th>
           <th style="text-align:right;">Price</th><th style="text-align:right;">Δ ratio</th>
-          <th style="text-align:right;">CVD z</th><th>Source</th><th>Rules</th>
+          <th style="text-align:right;">CVD z</th><th title="causal = fires on bar close; confirm = fires one bar late, after next-bar move resolves">Pass</th><th>Source</th><th>Rules</th>
         </tr></thead>
         <tbody id="alerts-body"></tbody>
       </table>
@@ -554,7 +676,7 @@ TG_CHAT_ID=987654321</pre>
   function renderTable(rows) {
     const body = document.getElementById("alerts-body");
     if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="10" class="empty">No alerts match filters.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="11" class="empty">No alerts match filters.</td></tr>`;
       return;
     }
     // Always sort newest first — independent of input order.
@@ -571,6 +693,13 @@ TG_CHAT_ID=987654321</pre>
       const srcChip = proxy
         ? `<span class="chip" title="OHLCV proxy via yfinance">proxy</span>`
         : `<span class="chip buy" title="True tick-classified flow">real</span>`;
+      const passType = a.pass_type || "—";
+      const passTitle = passType === "causal"
+        ? "Causal — rules read only current/past bars; alert fires at bar close"
+        : passType === "confirm"
+          ? "Confirmation — alert about prior bar, fired once next-bar return resolves (~1 bar latency)"
+          : passType === "mixed" ? "Mixed causal + confirmation rules" : "";
+      const passChip = `<span class="chip" title="${passTitle}">${passType}</span>`;
       const dir = alertDirection(a);
       return `<tr class="${rowCls}">
         <td class="muted" style="font-size:.76rem;" title="${a.timestamp_utc}">${tsNy}</td>
@@ -581,6 +710,7 @@ TG_CHAT_ID=987654321</pre>
         <td class="num">${fmt(a.price, 2)}</td>
         <td class="num">${(m.delta_ratio>=0?"+":"")+fmt(m.delta_ratio,2)}</td>
         <td class="num">${(m.cvd_z>=0?"+":"")+fmt(m.cvd_z,2)}</td>
+        <td>${passChip}</td>
         <td>${srcChip}</td>
         <td class="rule-codes">${rules}</td>
       </tr>`;
@@ -895,6 +1025,43 @@ TG_CHAT_ID=987654321</pre>
   refreshAlpacaStatus();
   setInterval(refreshAlpacaStatus, 10000);
 
+  // ── IBKR ES adapter (tick-by-tick + NBBO → true aggressor) ────────
+  const ibkrBtn = document.getElementById("ibkr-btn");
+  async function refreshIbkrStatus() {
+    try {
+      const r = await fetch("/api/order-flow/ibkr/status");
+      const s = await r.json();
+      if (s.running) {
+        const trades = s.trade_count || 0;
+        ibkrBtn.textContent = `⚡ IBKR ${s.symbol || "ES"} ON · ${trades} trades`;
+        ibkrBtn.dataset.on = "1";
+        ibkrBtn.title = `bid=${s.bid ?? "—"} ask=${s.ask ?? "—"} · last=${s.last_trade_ts || "—"}`;
+      } else {
+        ibkrBtn.textContent = s.error ? "⚡ IBKR (error)" : "⚡ IBKR ES";
+        ibkrBtn.dataset.on = "0";
+        ibkrBtn.title = s.error
+          ? `IBKR error: ${s.error}`
+          : "Click to connect — requires IB Gateway on 127.0.0.1:7497 + CME-LVL1";
+      }
+    } catch(_) {}
+  }
+  ibkrBtn.addEventListener("click", async () => {
+    ibkrBtn.disabled = true;
+    try {
+      const on = ibkrBtn.dataset.on === "1";
+      const url = on ? "/api/order-flow/ibkr/stop" : "/api/order-flow/ibkr/start";
+      await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({symbol:"ES", tf:"{{ anchor_tf }}"}),
+      });
+    } catch(_) {}
+    ibkrBtn.disabled = false;
+    refreshIbkrStatus();
+  });
+  refreshIbkrStatus();
+  setInterval(refreshIbkrStatus, 10000);
+
   // ── TradingView webhook panel ─────────────────────────────────────
   async function loadTvInfo() {
     try {
@@ -963,6 +1130,153 @@ TG_CHAT_ID=987654321</pre>
   applyFilters();
   updateFreshness();
   setInterval(updateFreshness, 30000);
+
+  // ── Backtest modal ──────────────────────────────────────────────────
+  const btModal   = document.getElementById("bt-modal");
+  const btOpenBtn = document.getElementById("backtest-btn");
+  const btCloseBtn= document.getElementById("bt-close");
+  const btRunBtn  = document.getElementById("bt-run");
+  const btTbody   = document.getElementById("bt-tbody");
+  const btSummary = document.getElementById("bt-summary");
+  const btSub     = document.getElementById("bt-sub");
+  const btHorizon = document.getElementById("bt-horizon");
+  const btTfLabel = document.getElementById("bt-tf-label");
+  const btSymEl   = document.getElementById("bt-sym");
+
+  function fmtTs(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    // Render in America/New_York. DST handled automatically by Intl.
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+      timeZoneName: "short",
+    }).formatToParts(d).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
+  }
+  function fmtNum(n, dec = 2) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    return Number(n).toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  }
+  function fmtUsd(n) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    const sign = n >= 0 ? "+" : "−";
+    return sign + "$" + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function renderBacktest(data) {
+    btSymEl.textContent = data.symbol || "";
+    btTfLabel.textContent = data.timeframe || "";
+    btHorizon.textContent = data.horizon_bars ?? "—";
+
+    const s = data.summary || {};
+    const sumKpis = [
+      { lbl: "Trades", val: s.count ?? 0 },
+      { lbl: "Wins",   val: s.wins ?? 0,  cls: "pos" },
+      { lbl: "Losses", val: s.losses ?? 0, cls: s.losses ? "neg" : "" },
+      { lbl: "Hit rate", val: ((s.hit_rate ?? 0) * 100).toFixed(1) + "%" },
+      { lbl: "Sum pts", val: fmtNum(s.sum_pts, 2) },
+      { lbl: "Sum $",   val: fmtUsd(s.sum_usd), cls: (s.sum_usd ?? 0) >= 0 ? "pos" : "neg" },
+      { lbl: "Expectancy $/trade", val: fmtUsd(s.expectancy_usd), cls: (s.expectancy_usd ?? 0) >= 0 ? "pos" : "neg" },
+      { lbl: "Mean R", val: fmtNum(s.mean_r, 2), cls: (s.mean_r ?? 0) >= 0 ? "pos" : "neg" },
+    ];
+    btSummary.innerHTML = sumKpis.map(k =>
+      `<div class="kpi ${k.cls || ''}"><div class="lbl">${k.lbl}</div><div class="val">${k.val}</div></div>`
+    ).join("");
+
+    btSub.textContent = `lookback ${data.lookback_days}d · min conf ${data.min_conf} · `
+      + (data.allowed_labels?.length ? `labels: ${data.allowed_labels.join(", ")}` : "all labels")
+      + ` · entry +${data.entry_offset_bars ?? 2} bars · horizon ${data.horizon_bars} bars · cooldown ${data.cooldown_bars ?? "—"} · vol pctl ${data.volume_gate_pctl ?? "—"} · contract $${data.point_value}/pt`;
+
+    const sk = data.skipped || {};
+    const skEl = document.getElementById("bt-skipped");
+    if (skEl) {
+      const total = Object.values(sk).reduce((a, b) => a + b, 0);
+      skEl.textContent = total
+        ? `Signals filtered: ${total} (below_conf=${sk.below_conf||0}, wrong_label=${sk.label||0}, cooldown=${sk.cooldown||0}, volume=${sk.volume||0}, insufficient_bars=${sk.no_bars||0})`
+        : "";
+    }
+
+    if (!data.trades || data.trades.length === 0) {
+      btTbody.innerHTML = `<tr><td colspan="9" class="empty">No trades match the current filter. Try lowering <b>Min conf</b> or widening <b>Labels</b>.</td></tr>`;
+      return;
+    }
+    btTbody.innerHTML = data.trades.map(t => {
+      const sideCls = t.side === "long" ? "bt-side-long" : "bt-side-short";
+      const rowCls  = t.result === "win" ? "win" : (t.result === "loss" ? "loss" : "");
+      return `
+        <tr class="${rowCls}">
+          <td>${fmtTs(t.signal_time)}</td>
+          <td>${t.label}</td>
+          <td class="${sideCls}">${t.side.toUpperCase()}</td>
+          <td>${fmtNum(t.buy_price, 2)}<br><span class="muted" style="font-size:.7rem;">${fmtTs(t.buy_time)}</span></td>
+          <td>${fmtNum(t.sell_price, 2)}<br><span class="muted" style="font-size:.7rem;">${fmtTs(t.sell_time)}</span></td>
+          <td class="num">${fmtNum(t.pnl_pts, 2)}</td>
+          <td class="num">${fmtUsd(t.pnl_usd)}</td>
+          <td class="num">${t.pnl_r == null ? "—" : fmtNum(t.pnl_r, 2)}</td>
+          <td>${t.result}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  async function fetchBT(opts) {
+    const qs = new URLSearchParams({
+      symbol: opts.symbol, tf: opts.tf, lookback: opts.lookback, min_conf: opts.min_conf,
+    });
+    if (opts.labels) qs.set("labels", opts.labels);
+    const r = await fetch("/api/order-flow/backtest/trades?" + qs.toString());
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    return j;
+  }
+
+  async function runBacktest() {
+    const opts = {
+      symbol:   document.getElementById("bt-symbol").value.trim() || "{{ symbol }}",
+      tf:       document.getElementById("bt-tf").value,
+      lookback: document.getElementById("bt-lookback").value || "180",
+      min_conf: document.getElementById("bt-minconf").value || "{{ alert_min_conf }}",
+      labels:   document.getElementById("bt-labels").value.trim(),
+    };
+
+    btTbody.innerHTML = `<tr><td colspan="9" class="empty">Running backtest…</td></tr>`;
+    btSummary.innerHTML = "";
+    try {
+      let j = await fetchBT(opts);
+      let relaxed = false;
+      if ((j.summary?.count ?? 0) === 0 && (Number(opts.min_conf) >= 70 || opts.labels)) {
+        const j2 = await fetchBT({ ...opts, min_conf: "50", labels: "" });
+        if ((j2.summary?.count ?? 0) > 0) {
+          j = j2;
+          relaxed = true;
+          document.getElementById("bt-minconf").value = "50";
+          document.getElementById("bt-labels").value = "";
+        }
+      }
+      renderBacktest(j);
+      if (relaxed) {
+        btSub.textContent = "Live gate returned 0 trades — auto-relaxed: " + btSub.textContent;
+      }
+    } catch (e) {
+      btTbody.innerHTML = `<tr><td colspan="9" class="empty">Error: ${e.message}</td></tr>`;
+    }
+  }
+
+  btOpenBtn.addEventListener("click", () => {
+    btModal.classList.add("open");
+    btModal.setAttribute("aria-hidden", "false");
+  });
+  btCloseBtn.addEventListener("click", () => {
+    btModal.classList.remove("open");
+    btModal.setAttribute("aria-hidden", "true");
+  });
+  btModal.addEventListener("click", (e) => {
+    if (e.target === btModal) btCloseBtn.click();
+  });
+  btRunBtn.addEventListener("click", runBacktest);
 </script>
 </body>
 </html>

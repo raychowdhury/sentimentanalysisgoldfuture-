@@ -13,6 +13,7 @@ from order_flow_engine.src import rule_engine as re_eng
 def _scenario_frame(**overrides) -> pd.DataFrame:
     """Pre-featured frame with the columns rule_engine expects."""
     base = {
+        "Open":                     100.0,
         "Close":                    100.0,
         "High":                     101.0,
         "Low":                      99.0,
@@ -20,7 +21,7 @@ def _scenario_frame(**overrides) -> pd.DataFrame:
         "cvd_z":                    0.0,
         "fwd_ret_1":                0.0,
         "atr":                      1.0,
-        "atr_pct":                  1.0,   # 1%
+        "atr_pct":                  1.0,
         "recent_high":              105.0,
         "recent_low":               95.0,
         "dist_to_recent_high_atr":  5.0,
@@ -86,7 +87,7 @@ def test_r7_cvd_divergence():
     close = np.linspace(100, 120, n)
     cvd_z = np.linspace(2.0, -2.0, n)
     df = pd.DataFrame({
-        "Close": close, "High": close + 1, "Low": close - 1,
+        "Open": close, "Close": close, "High": close + 1, "Low": close - 1,
         "delta_ratio": [0.0]*n, "cvd_z": cvd_z, "fwd_ret_1": [0.0]*n,
         "atr": [1.0]*n, "atr_pct": [1.0]*n,
         "recent_high": [200]*n, "recent_low": [0]*n,

@@ -78,6 +78,12 @@ def _source_status() -> dict:
 
 def register(app: Flask) -> None:
     """Attach routes to the given Flask app. Idempotent."""
+    # Auto-start Telegram bot poller if token configured.
+    try:
+        from order_flow_engine.src import tg_bot
+        tg_bot.start_thread()
+    except Exception:
+        pass
 
     @app.route("/order-flow")
     def order_flow_view():  # pragma: no cover — exercised end-to-end
@@ -132,6 +138,28 @@ def register(app: Flask) -> None:
         except Exception as e:
             return jsonify({"error": str(e)}), 400
         return jsonify({"ok": True, "alert": alert})
+
+    @app.route("/api/order-flow/backtest/trades")
+    def order_flow_backtest_trades():  # pragma: no cover
+        """
+        Run filtered backtest and return trade list. Query params:
+          symbol, tf, lookback (days), min_conf, labels (comma-separated).
+        """
+        from order_flow_engine.src import backtester
+        try:
+            symbol = request.args.get("symbol", of_cfg.OF_SYMBOL)
+            tf = request.args.get("tf", of_cfg.OF_ANCHOR_TF)
+            lookback = int(request.args.get("lookback", of_cfg.OF_LOOKBACK_DAYS))
+            min_conf = request.args.get("min_conf", type=int)
+            labels_arg = request.args.get("labels", "").strip()
+            labels = {s.strip() for s in labels_arg.split(",") if s.strip()} or None
+            result = backtester.build_trades(
+                symbol=symbol, timeframe=tf, lookback_days=lookback,
+                min_conf=min_conf, allowed_labels=labels,
+            )
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/api/order-flow/stream")
     def order_flow_stream():  # pragma: no cover
@@ -191,6 +219,31 @@ def register(app: Flask) -> None:
         from order_flow_engine.src import realtime_alpaca as ra
         return jsonify(ra.status())
 
+    # ── IBKR adapter ───────────────────────────────────────────────
+    @app.route("/api/order-flow/ibkr/start", methods=["POST"])
+    def order_flow_ibkr_start():  # pragma: no cover
+        body = request.get_json(force=True, silent=True) or {}
+        from order_flow_engine.src import realtime_ibkr as rb
+        started = rb.start_thread(
+            symbol=str(body.get("symbol", "ES")).upper(),
+            tf=str(body.get("tf", of_cfg.OF_ANCHOR_TF)),
+            host=str(body.get("host", "127.0.0.1")),
+            port=int(body.get("port", 7497)),
+            client_id=int(body.get("client_id", 42)),
+        )
+        return jsonify({"started": started, **rb.status()})
+
+    @app.route("/api/order-flow/ibkr/status")
+    def order_flow_ibkr_status():  # pragma: no cover
+        from order_flow_engine.src import realtime_ibkr as rb
+        return jsonify(rb.status())
+
+    @app.route("/api/order-flow/ibkr/stop", methods=["POST"])
+    def order_flow_ibkr_stop():  # pragma: no cover
+        from order_flow_engine.src import realtime_ibkr as rb
+        rb.stop()
+        return jsonify({"stopped": True, **rb.status()})
+
     # ── TradingView webhook ────────────────────────────────────────
     @app.route("/api/order-flow/tv/<secret>", methods=["POST"])
     def order_flow_tv_webhook(secret):  # pragma: no cover
@@ -228,6 +281,11 @@ def register(app: Flask) -> None:
     def order_flow_notifiers():  # pragma: no cover
         from order_flow_engine.src import notifier
         return jsonify(notifier.configured())
+
+    @app.route("/api/order-flow/telegram/status")
+    def order_flow_tg_status():  # pragma: no cover
+        from order_flow_engine.src import tg_bot
+        return jsonify(tg_bot.status())
 
     @app.route("/api/order-flow/notifiers/test", methods=["POST"])
     def order_flow_notifiers_test():  # pragma: no cover
