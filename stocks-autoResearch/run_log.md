@@ -263,3 +263,13 @@
   | XOM | 0.5667 | 0.5500 | yes |
 - **Hybrid eval**: hybrid_acc=0.5275, pooled_acc=0.5208, residuals_active=5
 
+## Cycle 3 — 2026-04-25T02:02:03+00:00
+
+- **Dataset**: rows=16053, cols=23, last=2026-04-23, tickers=20
+- **Eval (production)**: mean_acc=0.5183, sharpe=2.1089, dd=0.032, version=s1776896677
+- **Per-ticker**: top=[MA:0.62, AAPL:0.60, MSFT:0.58, V:0.58, GOOG:0.57], bottom=[META:0.42, AMZN:0.40, COST:0.37]
+- **Candidate**: version=s1777082523, mean_acc=0.4758, sharpe=-0.807, dd=0.0581
+- **Hyperparams**: `{"xgb": {"max_depth": 8, "learning_rate": 0.05, "n_estimators": 300}, "ticker_map_size": 20}`
+- **Experiment note**: cycle-3
+- **Promoted**: no
+

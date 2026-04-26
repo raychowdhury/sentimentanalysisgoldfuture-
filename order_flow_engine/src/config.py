@@ -42,10 +42,12 @@ YF_INTRADAY_CAPS: dict[str, int] = {
 }
 
 # Forward-window bar count per timeframe. Longer TFs need fewer forward bars
-# to capture a meaningful move.
+# to capture a meaningful move. 15m horizon raised 8 → 12 (~3h) after sweep:
+# expectancy peaked at 12-bar horizon vs 8 for SPY 15m, larger window lets
+# absorption/reversal targets hit before time-stop.
 OF_FORWARD_BARS: dict[str, int] = {
     "5m":  12,   # ~1 hour
-    "15m": 8,    # ~2 hours
+    "15m": 12,   # ~3 hours (was 8)
     "1h":  4,    # ~4 hours
     "1d":  1,    # next session
 }
@@ -84,7 +86,11 @@ for _d in (OF_OUTPUT_DIR, OF_RAW_DIR, OF_PROCESSED_DIR, OF_MODELS_DIR):
     os.makedirs(_d, exist_ok=True)
 
 # ── Rule thresholds ──────────────────────────────────────────────────────────
-RULE_DELTA_DOMINANCE   = 0.4   # |delta_ratio| above this = clear directional flow
+# Lowered 0.4 → 0.25 after param-sweep on SPY 15m (180d, yfinance proxy):
+# 0.25 produced +$0.84/trade with-stop expectancy vs −$0.42 at 0.4. Catches
+# more setups for R1/R2; absorption/trap thresholds stay tighter so quality
+# rules don't over-fire. Re-tune when live real-flow data lands.
+RULE_DELTA_DOMINANCE   = 0.25
 RULE_ABSORPTION_DELTA  = 0.5
 RULE_TRAP_DELTA        = 0.3
 RULE_SR_ATR_MULT       = 0.5   # "near S/R" window in ATR multiples
@@ -124,8 +130,10 @@ RF_PARAMS: dict = {
 ALERT_COOLDOWN_BARS: int = 8
 
 # Volume gate: skip alerts on bars whose volume is below this percentile of
-# the trailing window. Kills after-hours / illiquid noise where proxies break.
-VOLUME_GATE_PCTL: float = 0.20
+# the trailing window. Set to 0 (disabled) — param-sweep showed the gate
+# rejected valid absorption setups (low-volume bars are exactly where
+# absorption appears). Re-evaluate after collecting live real-flow data.
+VOLUME_GATE_PCTL: float = 0.0
 VOLUME_GATE_WINDOW: int = 200
 
 # Sqlite alert store

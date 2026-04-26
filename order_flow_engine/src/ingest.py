@@ -55,6 +55,34 @@ TAIL_LEN = 500
 _tails: dict[tuple[str, str], deque[dict]] = defaultdict(lambda: deque(maxlen=TAIL_LEN))
 _lock = threading.RLock()
 
+# Live tail persistence — write parquet snapshot every N appended bars so a
+# restart can resume with real-flow tail intact (vs re-backfilling from
+# yfinance, which contaminates with proxy_mode).
+_LIVE_PERSIST_EVERY = 25
+_live_counters: dict[tuple[str, str], int] = defaultdict(int)
+
+
+def _live_tail_path(symbol: str, tf: str) -> Path:
+    """Live-stream tail snapshot path. Separate from the batch loader cache so
+    proxy and real-flow histories don't trample each other."""
+    sym = symbol.replace("=", "_").replace("/", "_")
+    return Path(of_cfg.OF_PROCESSED_DIR) / f"{sym}_{tf}_live.parquet"
+
+
+def _persist_live_tail(symbol: str, tf: str) -> None:
+    """Write the in-memory tail to parquet. Called every N appended bars."""
+    key = (symbol, tf)
+    rows = list(_tails[key])
+    if not rows:
+        return
+    try:
+        df = pd.DataFrame(rows).set_index("ts").sort_index()
+        path = _live_tail_path(symbol, tf)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(path)
+    except Exception as e:
+        logger.warning(f"live tail persist failed {symbol}@{tf}: {e}")
+
 # Subscribers for the SSE pub/sub. Each subscriber is a queue; the route
 # iterates until the client disconnects.
 _subscribers: list[queue.Queue] = []
@@ -96,17 +124,24 @@ def _broadcast(event: dict) -> None:
 # ── tail seeding + bar append ────────────────────────────────────────────────
 
 def _seed_tail_from_cache(symbol: str, tf: str) -> None:
-    """Lazy-seed the tail from the parquet cache on first touch."""
+    """Lazy-seed the tail from the parquet cache on first touch.
+
+    Prefers the live snapshot (real-flow buy/sell columns) over the batch
+    loader cache (proxy-mode candle-derived). Falls back to batch when no
+    live snapshot exists yet.
+    """
     key = (symbol, tf)
     if _tails[key]:
         return
+    live = _live_tail_path(symbol, tf)
     cache = data_loader._cache_path(symbol, tf)
-    if not cache.exists():
+    src = live if live.exists() else cache
+    if not src.exists():
         return
     try:
-        df = pd.read_parquet(cache)
+        df = pd.read_parquet(src)
     except Exception as e:
-        logger.warning(f"cache read for seed failed {cache}: {e}")
+        logger.warning(f"cache read for seed failed {src}: {e}")
         return
     df = df.tail(TAIL_LEN)
     for ts, row in df.iterrows():
@@ -185,6 +220,10 @@ def ingest_bar(
             tail[-1] = bar_payload
         else:
             tail.append(bar_payload)
+            _live_counters[key] += 1
+            if _live_counters[key] >= _LIVE_PERSIST_EVERY:
+                _live_counters[key] = 0
+                _persist_live_tail(symbol, timeframe)
 
         _poll_state["last_tick"] = ts.isoformat()
 
@@ -412,19 +451,22 @@ def backfill_tail(
     symbol: str,
     timeframe: str,
     lookback_days: int | None = None,
+    df: pd.DataFrame | None = None,
 ) -> int:
     """
-    Pre-load the in-memory tail by fetching historical OHLCV via yfinance
-    and pushing each bar through the bar buffer (no scoring). Use this
-    before starting a real-time adapter so the engine has enough context
-    to score the very first live bar.
+    Pre-load the in-memory tail. If `df` is provided (e.g. from the Alpaca
+    REST trades replay), seed from it directly and preserve any
+    `buy_vol_real` / `sell_vol_real` columns so downstream alerts emit at
+    proxy_mode=False. Otherwise fall back to yfinance OHLCV (proxy mode).
     """
-    days = lookback_days or {"1m": 5, "5m": 30, "15m": 30,
-                             "30m": 60, "1h": 60}.get(timeframe, 30)
-    df = data_fetcher.fetch_intraday(symbol, timeframe, days)
+    if df is None:
+        days = lookback_days or {"1m": 5, "5m": 30, "15m": 30,
+                                 "30m": 60, "1h": 60}.get(timeframe, 30)
+        df = data_fetcher.fetch_intraday(symbol, timeframe, days)
     if df is None or df.empty:
         logger.warning(f"backfill: no data for {symbol}@{timeframe}")
         return 0
+    has_real_flow = "buy_vol_real" in df.columns and "sell_vol_real" in df.columns
     with _lock:
         key = (symbol, timeframe)
         _tails[key].clear()
@@ -434,15 +476,21 @@ def backfill_tail(
                 ts_p = ts_p.tz_localize("UTC")
             else:
                 ts_p = ts_p.tz_convert("UTC")
-            _tails[key].append({
+            bar = {
                 "ts": ts_p,
                 "Open":   float(row["Open"]),
                 "High":   float(row["High"]),
                 "Low":    float(row["Low"]),
                 "Close":  float(row["Close"]),
                 "Volume": float(row.get("Volume", 0) or 0),
-            })
-    logger.info(f"backfill: seeded {symbol}@{timeframe} with {len(df)} bars")
+            }
+            if has_real_flow and pd.notna(row.get("buy_vol_real")):
+                bar["buy_vol_real"]  = float(row["buy_vol_real"])
+                bar["sell_vol_real"] = float(row["sell_vol_real"])
+            _tails[key].append(bar)
+        _persist_live_tail(symbol, timeframe)
+    flow_tag = "real-flow" if has_real_flow else "proxy"
+    logger.info(f"backfill ({flow_tag}): seeded {symbol}@{timeframe} with {len(df)} bars")
     return int(len(df))
 
 

@@ -14,14 +14,17 @@ from order_flow_engine.src import config as of_cfg, ingest
 
 @pytest.fixture(autouse=True)
 def _isolate_state(monkeypatch, tmp_path):
-    """Each test gets a fresh tail buffer + tmp output dir."""
+    """Each test gets a fresh tail buffer + tmp output / processed dir."""
     ingest._tails.clear()
+    ingest._live_counters.clear()
     out = tmp_path / "out"; out.mkdir()
     models = tmp_path / "models"; models.mkdir()
     raw = tmp_path / "raw"; raw.mkdir()
+    processed = tmp_path / "processed"; processed.mkdir()
     monkeypatch.setattr(of_cfg, "OF_OUTPUT_DIR", out)
     monkeypatch.setattr(of_cfg, "OF_MODELS_DIR", models)
     monkeypatch.setattr(of_cfg, "OF_RAW_DIR", raw)
+    monkeypatch.setattr(of_cfg, "OF_PROCESSED_DIR", processed)
     yield
 
 

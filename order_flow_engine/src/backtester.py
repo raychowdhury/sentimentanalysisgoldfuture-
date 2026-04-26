@@ -199,6 +199,18 @@ SYMBOL_POINT_VALUE = {
 }
 
 
+# Labels whose firing rule(s) are confirmation-only (need fwd_ret_1 from
+# the next bar). For these, the alert is only known one bar AFTER the
+# signal-bar close — so the earliest fill is two bars after the signal
+# index (`entry_offset = 2`). Causal/mixed labels use `entry_offset = 1`.
+_CONFIRMATION_LABELS: set[str] = {"buyer_absorption", "seller_absorption"}
+
+# Stop loss assumed for the backtest (informational — trade still exits at
+# horizon close for PnL accounting). Set to 1.0×ATR to match a typical
+# 1R risk unit.
+BACKTEST_STOP_ATR_MULT: float = 1.0
+
+
 def build_trades(
     symbol: str | None = None,
     timeframe: str | None = None,
@@ -208,17 +220,32 @@ def build_trades(
 ) -> dict:
     """
     Trader-facing trade list. Each alert that passes gating is one trade:
-    entry at close of bar after signal, exit `horizon` bars later.
+    entry at close of the first executable bar after the signal, exit
+    `horizon` bars later.
+
+    Per-label entry alignment:
+      - Causal labels (bullish_trap / bearish_trap / possible_reversal) →
+        entry at close(t+1). Rule fires at close(t).
+      - Confirmation labels (buyer/seller_absorption) → entry at close(t+2).
+        Rule needs fwd_ret_1 = close(t+1) - close(t); alert is only available
+        after close(t+1), so the trader fills at close(t+2). Earlier offsets
+        would be lookahead.
 
     Returns: {
         "symbol", "timeframe", "point_value",
         "trades": [
-            {entry_time, entry_price, exit_time, exit_price, side,
-             buy_price, sell_price, label, rules, confidence,
+            {signal_time, entry_time, entry_price, stop_loss, atr,
+             exit_time, exit_price, side, buy_price, sell_price,
+             buy_time, sell_time, label, pass_type, entry_offset_bars,
+             rules, confidence,
+             max_favorable_pts, max_adverse_pts,
+             max_favorable_atr, max_adverse_atr,
+             would_stop_hit_atr, stop_hit_bar,
              pnl_pts, pnl_usd, pnl_r, result},
             ...
         ],
-        "summary": {count, wins, losses, hit_rate, sum_pts, sum_usd, mean_r, expectancy_usd},
+        "summary": {count, wins, losses, hit_rate, sum_pts, sum_usd,
+                    mean_r, expectancy_usd, stop_hit_count},
     }
     """
     from order_flow_engine.src import predictor as _pred
@@ -240,11 +267,6 @@ def build_trades(
     joined["conf"]  = joined.apply(_pred.rule_only_confidence, axis=1)
 
     horizon   = of_cfg.OF_FORWARD_BARS.get(timeframe, 1)
-    # Rules are causal at bar t close; earliest real-world fill is close(t+1).
-    # Exit `horizon` bars after entry.
-    entry_offset = 1
-    entry_px  = joined["Close"].shift(-entry_offset)
-    exit_px   = joined["Close"].shift(-entry_offset - horizon)
     atr_safe  = joined["atr"].replace(0, np.nan)
     pt_value  = SYMBOL_POINT_VALUE.get(symbol, 1.0)
 
@@ -265,6 +287,7 @@ def build_trades(
 
     trades: list[dict] = []
     skipped = {"volume": 0, "cooldown": 0, "below_conf": 0, "label": 0, "no_bars": 0}
+    n_rows = len(joined.index)
     for i, (ts, row) in enumerate(joined.iterrows()):
         label = row.get("label", "normal_behavior")
         if label == "normal_behavior":
@@ -288,49 +311,141 @@ def build_trades(
             skipped["cooldown"] += 1
             continue
 
-        ep = entry_px.loc[ts] if ts in entry_px.index else np.nan
-        xp = exit_px.loc[ts]  if ts in exit_px.index  else np.nan
-        if pd.isna(ep) or pd.isna(xp):
+        # Per-label entry offset: confirmation labels need an extra bar to
+        # avoid lookahead (rule consumes close(t+1)).
+        entry_offset = 2 if label in _CONFIRMATION_LABELS else 1
+        pass_type = "confirm" if label in _CONFIRMATION_LABELS else "causal"
+
+        entry_idx = i + entry_offset
+        exit_idx  = i + entry_offset + horizon
+        if exit_idx >= n_rows:
             skipped["no_bars"] += 1
             continue
+        ep = float(joined.iloc[entry_idx]["Close"])
+        xp = float(joined.iloc[exit_idx]["Close"])
 
         direction = _direction_for_row(label, row)
         if direction == 0:
             continue
         last_emit_idx[label] = i
         side = "long" if direction > 0 else "short"
+        entry_ts = joined.index[entry_idx]
+        exit_ts  = joined.index[exit_idx]
         if side == "long":
-            buy_price, sell_price = float(ep), float(xp)
-            buy_time  = _shift_ts(joined, ts, entry_offset)
-            sell_time = _shift_ts(joined, ts, entry_offset + horizon)
+            buy_price, sell_price = ep, xp
+            buy_time, sell_time = entry_ts, exit_ts
         else:
-            sell_price, buy_price = float(ep), float(xp)
-            sell_time = _shift_ts(joined, ts, entry_offset)
-            buy_time  = _shift_ts(joined, ts, entry_offset + horizon)
+            sell_price, buy_price = ep, xp
+            sell_time, buy_time = entry_ts, exit_ts
 
-        pnl_pts = (float(xp) - float(ep)) * direction
+        pnl_pts = (xp - ep) * direction
         pnl_usd = pnl_pts * pt_value
         atr_v   = float(atr_safe.loc[ts]) if ts in atr_safe.index and not pd.isna(atr_safe.loc[ts]) else np.nan
         pnl_r   = round(pnl_pts / atr_v, 3) if atr_v and not np.isnan(atr_v) else None
 
+        # Stop loss: 1×ATR from entry on the loss side.
+        stop_loss = (
+            round(ep - direction * BACKTEST_STOP_ATR_MULT * atr_v, 4)
+            if atr_v and not np.isnan(atr_v) else None
+        )
+
+        # MAE / MFE — scan the held window (entry bar through exit bar inclusive)
+        # and find the worst adverse move and best favorable move.
+        seg = joined.iloc[entry_idx:exit_idx + 1]
+        if direction > 0:
+            mfe_px = float(seg["High"].max())
+            mae_px = float(seg["Low"].min())
+            mfe = mfe_px - ep
+            mae = mae_px - ep
+            bars_to_fav = int(seg["High"].values.argmax())
+            bars_to_adv = int(seg["Low"].values.argmin())
+        else:
+            mfe_px = float(seg["Low"].min())
+            mae_px = float(seg["High"].max())
+            mfe = ep - mfe_px
+            mae = ep - mae_px
+            bars_to_fav = int(seg["Low"].values.argmin())
+            bars_to_adv = int(seg["High"].values.argmax())
+
+        mae_atr = round(mae / atr_v, 3) if atr_v and not np.isnan(atr_v) else None
+        mfe_atr = round(mfe / atr_v, 3) if atr_v and not np.isnan(atr_v) else None
+        would_stop_hit = bool(
+            atr_v and not np.isnan(atr_v) and mae <= -BACKTEST_STOP_ATR_MULT * atr_v
+        )
+
+        # ── Stop-honored PnL ────────────────────────────────────────────
+        # Walk bars from entry through exit; if Low (long) or High (short)
+        # crosses the stop level, close at the stop price and stop here.
+        # Otherwise hold to horizon. This produces the realistic exit a
+        # trader running a hard stop would have experienced.
+        stop_exit_idx   = None
+        stop_exit_price = None
+        stop_exit_time  = None
+        exit_reason     = "horizon"
+        stop_pnl_pts    = pnl_pts
+        if atr_v and not np.isnan(atr_v):
+            stop_dist = BACKTEST_STOP_ATR_MULT * atr_v
+            stop_px   = ep - direction * stop_dist  # below for long, above for short
+            for k in range(len(seg)):
+                row_seg = seg.iloc[k]
+                if direction > 0:
+                    if float(row_seg["Low"]) <= stop_px:
+                        stop_exit_idx = entry_idx + k
+                        break
+                else:
+                    if float(row_seg["High"]) >= stop_px:
+                        stop_exit_idx = entry_idx + k
+                        break
+            if stop_exit_idx is not None:
+                stop_exit_price = stop_px
+                stop_exit_time  = joined.index[stop_exit_idx]
+                stop_pnl_pts    = direction * (stop_exit_price - ep)
+                exit_reason     = "stop"
+        stop_pnl_usd = stop_pnl_pts * pt_value
+        stop_pnl_r   = round(stop_pnl_pts / atr_v, 3) if atr_v and not np.isnan(atr_v) else None
+        stop_result  = "win" if stop_pnl_pts > 0 else ("loss" if stop_pnl_pts < 0 else "flat")
+
         trades.append({
             "signal_time": _iso(ts),
-            "entry_time":  _iso(_shift_ts(joined, ts, entry_offset)),
-            "entry_price": round(float(ep), 4),
-            "exit_time":   _iso(_shift_ts(joined, ts, entry_offset + horizon)),
-            "exit_price":  round(float(xp), 4),
+            "entry_time":  _iso(entry_ts),
+            "entry_price": round(ep, 4),
+            "exit_time":   _iso(exit_ts),
+            "exit_price":  round(xp, 4),
             "side":        side,
             "buy_price":   round(buy_price, 4),
             "sell_price":  round(sell_price, 4),
             "buy_time":    _iso(buy_time),
             "sell_time":   _iso(sell_time),
             "label":       label,
+            "pass_type":   pass_type,
+            "entry_offset_bars": entry_offset,
             "rules":       [r for r in row.get("rule_hit_codes", "").split(";") if r],
             "confidence":  conf,
+            "atr":         round(atr_v, 4) if atr_v and not np.isnan(atr_v) else None,
+            "stop_loss":   stop_loss,
+            "stop_atr_mult":      BACKTEST_STOP_ATR_MULT,
+            "max_favorable_pts":  round(float(mfe), 4),
+            "max_adverse_pts":    round(float(mae), 4),
+            "max_favorable_atr":  mfe_atr,
+            "max_adverse_atr":    mae_atr,
+            "max_favorable_price": round(float(mfe_px), 4),
+            "max_adverse_price":   round(float(mae_px), 4),
+            "bars_to_max_favorable": bars_to_fav,
+            "bars_to_max_adverse":   bars_to_adv,
+            "would_stop_hit_atr":  would_stop_hit,
+            "stop_hit_bar":        bars_to_adv if would_stop_hit else None,
             "pnl_pts":     round(pnl_pts, 4),
             "pnl_usd":     round(pnl_usd, 2),
             "pnl_r":       pnl_r,
             "result":      "win" if pnl_pts > 0 else ("loss" if pnl_pts < 0 else "flat"),
+            # Stop-honored exit: realistic PnL when 1×ATR stop is enforced.
+            "exit_reason":      exit_reason,
+            "stop_exit_time":   _iso(stop_exit_time),
+            "stop_exit_price":  round(stop_exit_price, 4) if stop_exit_price is not None else None,
+            "stop_pnl_pts":     round(stop_pnl_pts, 4),
+            "stop_pnl_usd":     round(stop_pnl_usd, 2),
+            "stop_pnl_r":       stop_pnl_r,
+            "stop_result":      stop_result,
         })
 
     wins     = sum(1 for t in trades if t["result"] == "win")
@@ -341,6 +456,16 @@ def build_trades(
     rs       = [t["pnl_r"] for t in trades if t["pnl_r"] is not None]
     mean_r   = round(float(np.mean(rs)), 3) if rs else 0.0
 
+    # Stop-honored aggregates — realistic outcomes with a 1×ATR hard stop.
+    stop_wins   = sum(1 for t in trades if t["stop_result"] == "win")
+    stop_losses = sum(1 for t in trades if t["stop_result"] == "loss")
+    stop_sum_pts = sum(t["stop_pnl_pts"] for t in trades)
+    stop_sum_usd = sum(t["stop_pnl_usd"] for t in trades)
+    stop_rs = [t["stop_pnl_r"] for t in trades if t["stop_pnl_r"] is not None]
+    stop_mean_r = round(float(np.mean(stop_rs)), 3) if stop_rs else 0.0
+    stopped_out = sum(1 for t in trades if t["exit_reason"] == "stop")
+
+    stop_hits = sum(1 for t in trades if t.get("would_stop_hit_atr"))
     return {
         "symbol":      symbol,
         "timeframe":   timeframe,
@@ -348,9 +473,12 @@ def build_trades(
         "min_conf":    threshold,
         "allowed_labels": sorted(labels_ok) if labels_ok else [],
         "horizon_bars": horizon,
-        "entry_offset_bars": entry_offset,
+        # Mixed alignment: causal=1, confirmation=2. Per-trade in `entry_offset_bars`.
+        "entry_offset_bars_causal":      1,
+        "entry_offset_bars_confirmation": 2,
         "cooldown_bars": cooldown_bars,
         "volume_gate_pctl": of_cfg.VOLUME_GATE_PCTL,
+        "stop_atr_mult": BACKTEST_STOP_ATR_MULT,
         "point_value": pt_value,
         "skipped":     skipped,
         "trades":      trades,
@@ -363,6 +491,18 @@ def build_trades(
             "sum_usd":        round(sum_usd, 2),
             "mean_r":         mean_r,
             "expectancy_usd": round(sum_usd / n, 2) if n else 0.0,
+            "stop_hit_count": stop_hits,
+        },
+        "summary_with_stop": {
+            "count":          n,
+            "stopped_out":    stopped_out,
+            "wins":           stop_wins,
+            "losses":         stop_losses,
+            "hit_rate":       round(stop_wins / n, 3) if n else 0.0,
+            "sum_pts":        round(stop_sum_pts, 2),
+            "sum_usd":        round(stop_sum_usd, 2),
+            "mean_r":         stop_mean_r,
+            "expectancy_usd": round(stop_sum_usd / n, 2) if n else 0.0,
         },
     }
 
@@ -388,6 +528,101 @@ def _iso(ts) -> str | None:
         return str(ts)
 
 
+def param_sweep(
+    symbol: str | None = None,
+    timeframe: str | None = None,
+    lookback_days: int | None = None,
+    horizons: list[int] | None = None,
+    stop_atr_mults: list[float] | None = None,
+    volume_gate_pctls: list[float] | None = None,
+    delta_dominance_levels: list[float] | None = None,
+    min_conf: int = 40,
+    output_dir: Path | None = None,
+) -> dict:
+    """
+    Grid-sweep four key knobs and rank by stop-honored expectancy × √sample.
+
+    Knobs swept:
+      - horizon (forward bars to exit at)
+      - stop_atr_mult (1×ATR vs wider)
+      - volume_gate_pctl (gate strictness; 0 = disabled)
+      - rule_delta_dominance (R1/R2 directional-flow threshold)
+
+    Score: stop_expectancy_usd × n^0.5 (sample penalty: needs >= 5 trades to mean
+    much). Top N configs returned with full per-label breakdown.
+    """
+    global BACKTEST_STOP_ATR_MULT
+    symbol    = symbol or of_cfg.OF_SYMBOL
+    timeframe = timeframe or of_cfg.OF_ANCHOR_TF
+    lookback  = lookback_days or of_cfg.OF_LOOKBACK_DAYS
+    out_dir   = Path(output_dir) if output_dir else of_cfg.OF_OUTPUT_DIR
+    horizons         = horizons         or [12, 24, 36]
+    stop_atr_mults   = stop_atr_mults   or [1.0, 1.5, 2.0]
+    volume_gate_pctls = volume_gate_pctls or [0.0, 0.20]
+    delta_dominance_levels = delta_dominance_levels or [0.25, 0.40]
+
+    orig_horizon  = of_cfg.OF_FORWARD_BARS.get(timeframe, 1)
+    orig_stop     = BACKTEST_STOP_ATR_MULT
+    orig_vol_pctl = of_cfg.VOLUME_GATE_PCTL
+    orig_delta    = of_cfg.RULE_DELTA_DOMINANCE
+
+    results: list[dict] = []
+    try:
+        for h in horizons:
+            of_cfg.OF_FORWARD_BARS[timeframe] = h
+            for sm in stop_atr_mults:
+                BACKTEST_STOP_ATR_MULT = float(sm)
+                for vp in volume_gate_pctls:
+                    of_cfg.VOLUME_GATE_PCTL = float(vp)
+                    for dd in delta_dominance_levels:
+                        of_cfg.RULE_DELTA_DOMINANCE = float(dd)
+                        bt = build_trades(
+                            symbol=symbol, timeframe=timeframe,
+                            lookback_days=lookback, min_conf=min_conf,
+                            allowed_labels=set(),
+                        )
+                        ws = bt["summary_with_stop"]
+                        h_sum = bt["summary"]
+                        n = ws["count"]
+                        exp_usd = ws["expectancy_usd"]
+                        score = exp_usd * (n ** 0.5) if n else 0.0
+                        results.append({
+                            "horizon":     h,
+                            "stop_atr":    sm,
+                            "vol_pctl":    vp,
+                            "delta_dom":   dd,
+                            "n":           n,
+                            "stopped_out": ws["stopped_out"],
+                            "stop_wins":   ws["wins"],
+                            "stop_losses": ws["losses"],
+                            "stop_hit_rate":  ws["hit_rate"],
+                            "stop_exp_usd":   exp_usd,
+                            "stop_mean_r":    ws["mean_r"],
+                            "horizon_exp_usd": h_sum["expectancy_usd"],
+                            "horizon_mean_r":  h_sum["mean_r"],
+                            "score":          round(score, 4),
+                        })
+    finally:
+        of_cfg.OF_FORWARD_BARS[timeframe] = orig_horizon
+        BACKTEST_STOP_ATR_MULT = orig_stop
+        of_cfg.VOLUME_GATE_PCTL = orig_vol_pctl
+        of_cfg.RULE_DELTA_DOMINANCE = orig_delta
+
+    results.sort(key=lambda r: r["score"], reverse=True)
+    out = {
+        "symbol":       symbol,
+        "timeframe":    timeframe,
+        "lookback_days": lookback,
+        "min_conf":     min_conf,
+        "grid_size":    len(results),
+        "ranked":       results,
+        "best":         results[0] if results else None,
+    }
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "param_sweep.json").write_text(json.dumps(out, indent=2, default=str))
+    return out
+
+
 if __name__ == "__main__":  # pragma: no cover
     import argparse
     ap = argparse.ArgumentParser()
@@ -395,8 +630,13 @@ if __name__ == "__main__":  # pragma: no cover
     ap.add_argument("--tf", default=of_cfg.OF_ANCHOR_TF)
     ap.add_argument("--sweep", action="store_true",
                     help="run threshold sweep instead of single backtest")
+    ap.add_argument("--param-sweep", action="store_true",
+                    help="grid-sweep horizon × stop × volume gate × delta dominance")
     args = ap.parse_args()
-    if args.sweep:
+    if args.param_sweep:
+        print(json.dumps(param_sweep(symbol=args.symbol, timeframe=args.tf),
+                         indent=2, default=str))
+    elif args.sweep:
         print(json.dumps(threshold_sweep(symbol=args.symbol, timeframe=args.tf),
                          indent=2, default=str))
     else:

@@ -419,10 +419,23 @@ TIMEFRAME_PROFILES: dict[str, dict] = {
 
 # ── Order Flow Engine ────────────────────────────────────────────────────────
 # Standalone intraday divergence detector. See order_flow_engine/README.md.
+# Switched to SPY (cash equity) to consume Alpaca's free IEX WS — gives real
+# trade-by-trade buy/sell flow (proxy_mode=False) versus yfinance candle
+# proxy. ES=F is more liquid but free streaming requires IBKR/Tradovate.
 ORDER_FLOW_ENABLED: bool         = True
-ORDER_FLOW_SYMBOL: str           = "ES=F"
+ORDER_FLOW_SYMBOL: str           = "SPY"
 ORDER_FLOW_TIMEFRAMES: list[str] = ["5m", "15m", "1h", "1d"]
 ORDER_FLOW_LOOKBACK_DAYS: int    = 180
+# 15m anchor outperformed 5m and 1h in the param-sweep (180d, SPY yfinance
+# proxy): horizon=12, stop=1×ATR, vol gate off, delta dominance 0.25 →
+# 11 trades, +$0.84/trade with-stop expectancy, +0.81R mean. Sample is small;
+# treat as direction, not certainty. Re-sweep when live real-flow data lands.
 ORDER_FLOW_ANCHOR_TF: str        = "15m"
-ORDER_FLOW_ALERT_MIN_CONF: int   = 70
+# 40 was the threshold band where every label saturated the rule-only sample.
+# Above 50 the sample collapses to <5 trades. 70 was killing discovery.
+ORDER_FLOW_ALERT_MIN_CONF: int   = 40
+# Empty set = allow all 6 labels through. Previously locked to
+# {buyer_absorption, bearish_trap} which excluded the most profitable label
+# (possible_reversal). Open until we have enough live data to whitelist.
+ORDER_FLOW_ALERT_ALLOWED_LABELS: set[str] = set()
 ORDER_FLOW_OUTPUT_SUBDIR: str    = "order_flow"

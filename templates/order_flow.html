@@ -216,6 +216,34 @@
     .bt-table tr.win  { border-left:3px solid var(--buy); }
     .bt-table tr.loss { border-left:3px solid var(--sell); }
     .bt-table tr:hover { background:var(--card2); }
+    .bt-table tr.bt-trow { cursor:pointer; }
+    .bt-table tr.bt-trow.open { background:var(--card2); }
+    .bt-table tr.bt-detail-row > td { padding:0; background:#0a0f1a; }
+    .bt-table tr.bt-detail-row.hidden { display:none; }
+    .bt-detail-pane {
+      padding:.8rem 1rem; border-top:1px dashed var(--border2);
+      display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+      gap:.6rem;
+    }
+    .bt-detail-pane .dkv {
+      background:var(--bg2); border:1px solid var(--border); border-radius:6px;
+      padding:.45rem .6rem;
+    }
+    .bt-detail-pane .dkv .lbl {
+      font-size:.6rem; text-transform:uppercase; letter-spacing:.08em;
+      color:var(--dim); font-weight:600;
+    }
+    .bt-detail-pane .dkv .val {
+      font-size:.88rem; font-weight:600; margin-top:.15rem;
+      font-variant-numeric:tabular-nums;
+    }
+    .bt-detail-pane .dkv .sub { font-size:.7rem; color:var(--muted); margin-top:.1rem; }
+    .bt-detail-pane .dkv.pos .val { color:var(--buy); }
+    .bt-detail-pane .dkv.neg .val { color:var(--sell); }
+    .bt-detail-pane .dkv.warn .val { color:var(--accent); }
+    .bt-detail-pane .dkv.full { grid-column:1 / -1; }
+    .bt-caret { display:inline-block; width:.6rem; transition:transform .15s; color:var(--dim); }
+    .bt-trow.open .bt-caret { transform:rotate(90deg); }
     .bt-side-long  { color:var(--buy);  font-weight:700; }
     .bt-side-short { color:var(--sell); font-weight:700; }
     .bt-foot { font-size:.75rem; margin-top:.7rem; line-height:1.5; }
@@ -302,6 +330,7 @@
         <table class="bt-table">
           <thead>
             <tr>
+              <th style="width:1.2rem;"></th>
               <th>Signal (NY)</th>
               <th>Pattern</th>
               <th>Side</th>
@@ -314,7 +343,7 @@
             </tr>
           </thead>
           <tbody id="bt-tbody">
-            <tr><td colspan="9" class="empty">Click <b>Run</b> to load trades.</td></tr>
+            <tr><td colspan="10" class="empty">Click <b>Run</b> to load trades.</td></tr>
           </tbody>
         </table>
       </div>
@@ -453,7 +482,92 @@
     </div>
   </div>
 
+  <!-- ── active engine config panel ── -->
+  {% if engine_config %}
+  <div class="card" style="margin-bottom:1rem;">
+    <h3>Active engine config &nbsp;<span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0;">tuned by 180d param sweep · re-sweep after live data lands</span></h3>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.5rem;">
+      <div class="stat">
+        <div class="lbl">Symbol · TF</div>
+        <div class="val" style="font-size:1rem;">{{ engine_config.symbol }} · {{ engine_config.anchor_tf }}</div>
+        <div class="sub">{{ engine_config.horizon_bars }}-bar horizon</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Min confidence</div>
+        <div class="val" style="font-size:1rem;">{{ engine_config.min_conf }}</div>
+        <div class="sub">was 70 · lowered for SPY discovery</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Stop loss</div>
+        <div class="val" style="font-size:1rem;">{{ engine_config.stop_atr_mult }}× ATR</div>
+        <div class="sub">backtest with-stop expectancy</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Volume gate</div>
+        <div class="val" style="font-size:1rem; color:{% if engine_config.volume_gate_pctl > 0 %}var(--accent){% else %}var(--buy){% endif %};">
+          {% if engine_config.volume_gate_pctl > 0 %}{{ (engine_config.volume_gate_pctl * 100)|int }}%-ile{% else %}OFF{% endif %}
+        </div>
+        <div class="sub">{% if engine_config.volume_gate_pctl > 0 %}filtering low-vol bars{% else %}was rejecting valid setups{% endif %}</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Δ dominance</div>
+        <div class="val" style="font-size:1rem;">{{ engine_config.rule_delta_dominance }}</div>
+        <div class="sub">R1/R2 trigger · was 0.40</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Cooldown</div>
+        <div class="val" style="font-size:1rem;">{{ engine_config.cooldown_bars }} bars</div>
+        <div class="sub">per (symbol, tf, label)</div>
+      </div>
+      <div class="stat" style="grid-column:span 2;">
+        <div class="lbl">Allowed labels</div>
+        <div class="val" style="font-size:.85rem; font-weight:500;">
+          {% if engine_config.allowed_labels == ['all'] %}
+            <span class="chip" style="background:var(--buy); color:#0a0f1a;">all 6 labels</span>
+          {% else %}
+            {% for l in engine_config.allowed_labels %}<span class="chip">{{ l }}</span>{% endfor %}
+          {% endif %}
+        </div>
+        <div class="sub">previously {buyer_absorption, bearish_trap} only — was hiding the only profitable label (possible_reversal)</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── outcome stats panel ── -->
+  <div class="card" style="margin-bottom:1rem;">
+    <h3>Alert outcomes &nbsp;<span class="muted" id="outcomes-meta" style="font-weight:400; text-transform:none; letter-spacing:0;">loading…</span></h3>
+    <div class="stats" style="display:grid; grid-template-columns:repeat(4,1fr); gap:.6rem; margin-bottom:.6rem;">
+      <div class="stat">
+        <div class="lbl">7d win rate</div>
+        <div class="val" id="oc-7d-wr">—</div>
+        <div class="sub"><span id="oc-7d-wins">0</span>W / <span id="oc-7d-losses">0</span>L / <span id="oc-7d-neutral">0</span>N</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">7d expectancy (ATR)</div>
+        <div class="val" id="oc-7d-exp">—</div>
+        <div class="sub">per alert</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">30d win rate</div>
+        <div class="val" id="oc-30d-wr">—</div>
+        <div class="sub"><span id="oc-30d-count">0</span> alerts</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">30d expectancy (ATR)</div>
+        <div class="val" id="oc-30d-exp">—</div>
+        <div class="sub">per alert</div>
+      </div>
+    </div>
+    <div style="display:flex; gap:.4rem; align-items:center;">
+      <button class="btn ghost" id="oc-refresh">Refresh</button>
+      <button class="btn ghost" id="oc-settle">Settle pending now</button>
+      <span class="muted" id="oc-tracker-status" style="font-size:.75rem; margin-left:auto;"></span>
+    </div>
+  </div>
+
   <!-- ── filters ── -->
+
   <div class="filters">
     <label>Symbol</label>
     <select id="f-symbol">
@@ -1172,23 +1286,30 @@ TG_CHAT_ID=987654321</pre>
     btHorizon.textContent = data.horizon_bars ?? "—";
 
     const s = data.summary || {};
+    const ws = data.summary_with_stop || {};
     const sumKpis = [
       { lbl: "Trades", val: s.count ?? 0 },
-      { lbl: "Wins",   val: s.wins ?? 0,  cls: "pos" },
-      { lbl: "Losses", val: s.losses ?? 0, cls: s.losses ? "neg" : "" },
-      { lbl: "Hit rate", val: ((s.hit_rate ?? 0) * 100).toFixed(1) + "%" },
-      { lbl: "Sum pts", val: fmtNum(s.sum_pts, 2) },
-      { lbl: "Sum $",   val: fmtUsd(s.sum_usd), cls: (s.sum_usd ?? 0) >= 0 ? "pos" : "neg" },
-      { lbl: "Expectancy $/trade", val: fmtUsd(s.expectancy_usd), cls: (s.expectancy_usd ?? 0) >= 0 ? "pos" : "neg" },
-      { lbl: "Mean R", val: fmtNum(s.mean_r, 2), cls: (s.mean_r ?? 0) >= 0 ? "pos" : "neg" },
+      { lbl: "Wins (horizon)",   val: s.wins ?? 0,  cls: "pos" },
+      { lbl: "Losses (horizon)", val: s.losses ?? 0, cls: s.losses ? "neg" : "" },
+      { lbl: "Hit rate (horizon)", val: ((s.hit_rate ?? 0) * 100).toFixed(1) + "%" },
+      { lbl: "Expectancy $ (horizon)", val: fmtUsd(s.expectancy_usd), cls: (s.expectancy_usd ?? 0) >= 0 ? "pos" : "neg" },
+      { lbl: "Mean R (horizon)", val: fmtNum(s.mean_r, 2), cls: (s.mean_r ?? 0) >= 0 ? "pos" : "neg" },
+      { lbl: "Stopped out", val: `${ws.stopped_out ?? 0}/${ws.count ?? 0}`, cls: (ws.stopped_out ?? 0) > (ws.count ?? 0) / 2 ? "neg" : "" },
+      { lbl: "Hit rate (with stop)", val: ((ws.hit_rate ?? 0) * 100).toFixed(1) + "%", cls: (ws.hit_rate ?? 0) >= 0.5 ? "pos" : "neg" },
+      { lbl: "Expectancy $ (with stop)", val: fmtUsd(ws.expectancy_usd), cls: (ws.expectancy_usd ?? 0) >= 0 ? "pos" : "neg" },
+      { lbl: "Mean R (with stop)", val: fmtNum(ws.mean_r, 2), cls: (ws.mean_r ?? 0) >= 0 ? "pos" : "neg" },
     ];
     btSummary.innerHTML = sumKpis.map(k =>
       `<div class="kpi ${k.cls || ''}"><div class="lbl">${k.lbl}</div><div class="val">${k.val}</div></div>`
     ).join("");
 
+    const entryOff = (data.entry_offset_bars_causal === data.entry_offset_bars_confirmation)
+      ? `entry +${data.entry_offset_bars_causal ?? 1} bars`
+      : `entry +${data.entry_offset_bars_causal}b causal / +${data.entry_offset_bars_confirmation}b confirm`;
     btSub.textContent = `lookback ${data.lookback_days}d · min conf ${data.min_conf} · `
       + (data.allowed_labels?.length ? `labels: ${data.allowed_labels.join(", ")}` : "all labels")
-      + ` · entry +${data.entry_offset_bars ?? 2} bars · horizon ${data.horizon_bars} bars · cooldown ${data.cooldown_bars ?? "—"} · vol pctl ${data.volume_gate_pctl ?? "—"} · contract $${data.point_value}/pt`;
+      + ` · ${entryOff} · horizon ${data.horizon_bars} bars · stop ${data.stop_atr_mult}×ATR`
+      + ` · cooldown ${data.cooldown_bars ?? "—"} · vol pctl ${data.volume_gate_pctl ?? "—"} · contract $${data.point_value}/pt`;
 
     const sk = data.skipped || {};
     const skEl = document.getElementById("bt-skipped");
@@ -1200,14 +1321,15 @@ TG_CHAT_ID=987654321</pre>
     }
 
     if (!data.trades || data.trades.length === 0) {
-      btTbody.innerHTML = `<tr><td colspan="9" class="empty">No trades match the current filter. Try lowering <b>Min conf</b> or widening <b>Labels</b>.</td></tr>`;
+      btTbody.innerHTML = `<tr><td colspan="10" class="empty">No trades match the current filter. Try lowering <b>Min conf</b> or widening <b>Labels</b>.</td></tr>`;
       return;
     }
-    btTbody.innerHTML = data.trades.map(t => {
+    btTbody.innerHTML = data.trades.map((t, idx) => {
       const sideCls = t.side === "long" ? "bt-side-long" : "bt-side-short";
       const rowCls  = t.result === "win" ? "win" : (t.result === "loss" ? "loss" : "");
       return `
-        <tr class="${rowCls}">
+        <tr class="${rowCls} bt-trow" data-idx="${idx}">
+          <td><span class="bt-caret">▶</span></td>
           <td>${fmtTs(t.signal_time)}</td>
           <td>${t.label}</td>
           <td class="${sideCls}">${t.side.toUpperCase()}</td>
@@ -1218,8 +1340,98 @@ TG_CHAT_ID=987654321</pre>
           <td class="num">${t.pnl_r == null ? "—" : fmtNum(t.pnl_r, 2)}</td>
           <td>${t.result}</td>
         </tr>
+        <tr class="bt-detail-row hidden" data-detail="${idx}">
+          <td colspan="10">${renderTradeDetail(t)}</td>
+        </tr>
       `;
     }).join("");
+
+    btTbody.querySelectorAll("tr.bt-trow").forEach(row => {
+      row.addEventListener("click", () => {
+        const idx = row.dataset.idx;
+        const detail = btTbody.querySelector(`tr.bt-detail-row[data-detail="${idx}"]`);
+        const open = row.classList.toggle("open");
+        if (detail) detail.classList.toggle("hidden", !open);
+      });
+    });
+  }
+
+  function renderTradeDetail(t) {
+    const stopHit = t.would_stop_hit_atr;
+    const stopHitCls = stopHit ? "warn" : "pos";
+    const stopHitTxt = stopHit ? `Yes (bar ${t.stop_hit_bar})` : "No";
+    const mfeCls = (t.max_favorable_atr ?? 0) > 0 ? "pos" : "";
+    const maeCls = (t.max_adverse_atr ?? 0) < 0 ? "neg" : "";
+    const sideTxt = t.side ? t.side.toUpperCase() : "—";
+    const dirSign = t.side === "short" ? "−" : "+";
+
+    return `
+      <div class="bt-detail-pane">
+        <div class="dkv">
+          <div class="lbl">Signal time</div>
+          <div class="val">${fmtTs(t.signal_time)}</div>
+          <div class="sub">${t.label} · ${t.pass_type || "—"} pass · entry +${t.entry_offset_bars ?? "?"} bars</div>
+        </div>
+        <div class="dkv ${t.side === 'long' ? 'pos' : 'neg'}">
+          <div class="lbl">Side</div>
+          <div class="val">${sideTxt}</div>
+          <div class="sub">conf ${t.confidence ?? "—"}</div>
+        </div>
+        <div class="dkv">
+          <div class="lbl">Entry</div>
+          <div class="val">${fmtNum(t.entry_price, 2)}</div>
+          <div class="sub">${fmtTs(t.entry_time)}</div>
+        </div>
+        <div class="dkv warn">
+          <div class="lbl">Stop loss (${t.stop_atr_mult ?? 1}× ATR)</div>
+          <div class="val">${fmtNum(t.stop_loss, 2)}</div>
+          <div class="sub">risk ${fmtNum((t.stop_atr_mult ?? 1) * (t.atr ?? 0), 2)} pts</div>
+        </div>
+        <div class="dkv">
+          <div class="lbl">Exit (horizon)</div>
+          <div class="val">${fmtNum(t.exit_price, 2)}</div>
+          <div class="sub">${fmtTs(t.exit_time)}</div>
+        </div>
+        <div class="dkv">
+          <div class="lbl">ATR @ signal</div>
+          <div class="val">${fmtNum(t.atr, 2)}</div>
+          <div class="sub">1R = $${fmtNum(t.atr, 2)}</div>
+        </div>
+        <div class="dkv ${mfeCls}">
+          <div class="lbl">Max favorable</div>
+          <div class="val">${dirSign}${fmtNum(Math.abs(t.max_favorable_pts ?? 0), 2)} pts (${(t.max_favorable_atr ?? 0) >= 0 ? "+" : ""}${fmtNum(t.max_favorable_atr, 2)}R)</div>
+          <div class="sub">peak ${fmtNum(t.max_favorable_price, 2)} · bar ${t.bars_to_max_favorable ?? "—"}</div>
+        </div>
+        <div class="dkv ${maeCls}">
+          <div class="lbl">Max adverse</div>
+          <div class="val">${(t.max_adverse_atr ?? 0) >= 0 ? "+" : ""}${fmtNum(t.max_adverse_atr, 2)}R (${fmtNum(t.max_adverse_pts, 2)} pts)</div>
+          <div class="sub">trough ${fmtNum(t.max_adverse_price, 2)} · bar ${t.bars_to_max_adverse ?? "—"}</div>
+        </div>
+        <div class="dkv ${stopHitCls}">
+          <div class="lbl">Would stop hit?</div>
+          <div class="val">${stopHitTxt}</div>
+          <div class="sub">${stopHit ? "trade would stop out before horizon" : "held to horizon w/o stop-out"}</div>
+        </div>
+        <div class="dkv ${(t.pnl_pts ?? 0) >= 0 ? "pos" : "neg"}">
+          <div class="lbl">PnL @ horizon</div>
+          <div class="val">${fmtUsd(t.pnl_usd)}</div>
+          <div class="sub">${fmtNum(t.pnl_pts, 2)} pts · R ${t.pnl_r == null ? "—" : fmtNum(t.pnl_r, 2)}</div>
+        </div>
+        <div class="dkv ${(t.stop_pnl_pts ?? 0) >= 0 ? "pos" : "neg"}">
+          <div class="lbl">PnL with 1×ATR stop</div>
+          <div class="val">${fmtUsd(t.stop_pnl_usd)}</div>
+          <div class="sub">exit: ${t.exit_reason || "—"} · ${t.stop_exit_time ? fmtTs(t.stop_exit_time) : "—"} @ ${fmtNum(t.stop_exit_price, 2)} · R ${t.stop_pnl_r == null ? "—" : fmtNum(t.stop_pnl_r, 2)}</div>
+        </div>
+        <div class="dkv full">
+          <div class="lbl">Rules fired</div>
+          <div class="val" style="font-size:.78rem;">
+            ${(t.rules && t.rules.length)
+              ? t.rules.map(r => `<span class="chip" style="margin-right:.3rem;">${r}</span>`).join("")
+              : '<span class="muted">none recorded</span>'}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   async function fetchBT(opts) {
@@ -1242,7 +1454,7 @@ TG_CHAT_ID=987654321</pre>
       labels:   document.getElementById("bt-labels").value.trim(),
     };
 
-    btTbody.innerHTML = `<tr><td colspan="9" class="empty">Running backtest…</td></tr>`;
+    btTbody.innerHTML = `<tr><td colspan="10" class="empty">Running backtest…</td></tr>`;
     btSummary.innerHTML = "";
     try {
       let j = await fetchBT(opts);
@@ -1261,7 +1473,7 @@ TG_CHAT_ID=987654321</pre>
         btSub.textContent = "Live gate returned 0 trades — auto-relaxed: " + btSub.textContent;
       }
     } catch (e) {
-      btTbody.innerHTML = `<tr><td colspan="9" class="empty">Error: ${e.message}</td></tr>`;
+      btTbody.innerHTML = `<tr><td colspan="10" class="empty">Error: ${e.message}</td></tr>`;
     }
   }
 
@@ -1277,6 +1489,82 @@ TG_CHAT_ID=987654321</pre>
     if (e.target === btModal) btCloseBtn.click();
   });
   btRunBtn.addEventListener("click", runBacktest);
+
+  // ── outcome stats panel ─────────────────────────────────────────────
+  const ocFmtPct = (v) => (v == null) ? "—" : (v * 100).toFixed(1) + "%";
+  const ocFmtR   = (v) => (v == null || isNaN(v)) ? "—" :
+                          (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "R";
+  const ocColor  = (wr) => {
+    if (wr == null) return "";
+    if (wr >= 0.55) return "color:var(--buy);";
+    if (wr <  0.45) return "color:var(--sell);";
+    return "";
+  };
+  const ocExpColor = (e) => {
+    if (e == null || isNaN(e)) return "";
+    if (e >  0.10) return "color:var(--buy);";
+    if (e < -0.10) return "color:var(--sell);";
+    return "";
+  };
+
+  async function refreshOutcomeStats() {
+    const meta = document.getElementById("outcomes-meta");
+    try {
+      const res = await fetch("/api/order-flow/outcomes/stats");
+      const data = await res.json();
+      const r7  = data.rolling_7d  || {};
+      const r30 = data.rolling_30d || {};
+
+      const wr7 = document.getElementById("oc-7d-wr");
+      wr7.textContent = ocFmtPct(r7.win_rate);
+      wr7.setAttribute("style", ocColor(r7.win_rate));
+      document.getElementById("oc-7d-wins").textContent    = r7.wins    ?? 0;
+      document.getElementById("oc-7d-losses").textContent  = r7.losses  ?? 0;
+      document.getElementById("oc-7d-neutral").textContent = r7.neutral ?? 0;
+
+      const exp7 = document.getElementById("oc-7d-exp");
+      exp7.textContent = ocFmtR(r7.expectancy_atr);
+      exp7.setAttribute("style", ocExpColor(r7.expectancy_atr));
+
+      const wr30 = document.getElementById("oc-30d-wr");
+      wr30.textContent = ocFmtPct(r30.win_rate);
+      wr30.setAttribute("style", ocColor(r30.win_rate));
+      document.getElementById("oc-30d-count").textContent = r30.count ?? 0;
+
+      const exp30 = document.getElementById("oc-30d-exp");
+      exp30.textContent = ocFmtR(r30.expectancy_atr);
+      exp30.setAttribute("style", ocExpColor(r30.expectancy_atr));
+
+      meta.textContent = `${r7.count || 0} settled in 7d · ${r30.count || 0} in 30d`;
+      const t = data.tracker || {};
+      document.getElementById("oc-tracker-status").textContent =
+        t.running ? "tracker: running" : "tracker: idle";
+    } catch (e) {
+      meta.textContent = "stats unavailable";
+    }
+  }
+
+  document.getElementById("oc-refresh").addEventListener("click", refreshOutcomeStats);
+  document.getElementById("oc-settle").addEventListener("click", async () => {
+    const btn = document.getElementById("oc-settle");
+    btn.disabled = true; btn.textContent = "Settling…";
+    try {
+      const res = await fetch("/api/order-flow/outcomes/settle", { method: "POST" });
+      const data = await res.json();
+      btn.textContent = `Settled ${data.settled ?? 0}`;
+      await refreshOutcomeStats();
+    } catch (e) {
+      btn.textContent = "Settle failed";
+    } finally {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = "Settle pending now";
+      }, 2500);
+    }
+  });
+
+  refreshOutcomeStats();
+  setInterval(refreshOutcomeStats, 60_000);
 </script>
 </body>
 </html>

@@ -85,11 +85,34 @@ def register(app: Flask) -> None:
     except Exception:
         pass
 
+    # Auto-start the alert outcome tracker so the stats panel has data.
+    # Idempotent — safe to call on every register().
+    try:
+        from order_flow_engine.src import outcome_tracker
+        outcome_tracker.start_thread()
+    except Exception:
+        pass
+
     @app.route("/order-flow")
     def order_flow_view():  # pragma: no cover — exercised end-to-end
+        from order_flow_engine.src import backtester as _bt
         alerts = _load_alerts()
         alerts_desc = list(reversed(alerts))[:50]
         latest = alerts_desc[0] if alerts_desc else None
+        engine_config = {
+            "symbol":           of_cfg.OF_SYMBOL,
+            "anchor_tf":        of_cfg.OF_ANCHOR_TF,
+            "min_conf":         of_cfg.OF_ALERT_MIN_CONF,
+            "allowed_labels":   sorted(of_cfg.OF_ALERT_ALLOWED_LABELS) or ["all"],
+            "allowed_tfs":      sorted(of_cfg.OF_ALERT_ALLOWED_TFS) or ["all"],
+            "horizon_bars":     of_cfg.OF_FORWARD_BARS.get(of_cfg.OF_ANCHOR_TF, 1),
+            "stop_atr_mult":    _bt.BACKTEST_STOP_ATR_MULT,
+            "volume_gate_pctl": of_cfg.VOLUME_GATE_PCTL,
+            "cooldown_bars":    of_cfg.ALERT_COOLDOWN_BARS,
+            "rule_delta_dominance": of_cfg.RULE_DELTA_DOMINANCE,
+            "rule_absorption_delta": of_cfg.RULE_ABSORPTION_DELTA,
+            "rule_trap_delta":  of_cfg.RULE_TRAP_DELTA,
+        }
         return render_template(
             "order_flow.html",
             symbol=of_cfg.OF_SYMBOL,
@@ -99,6 +122,7 @@ def register(app: Flask) -> None:
             latest=latest,
             proxy_mode=_proxy_mode_flag(alerts),
             source=_source_status(),
+            engine_config=engine_config,
         )
 
     @app.route("/api/order-flow/alerts")
@@ -286,6 +310,39 @@ def register(app: Flask) -> None:
     def order_flow_tg_status():  # pragma: no cover
         from order_flow_engine.src import tg_bot
         return jsonify(tg_bot.status())
+
+    @app.route("/api/order-flow/outcomes/stats")
+    def order_flow_outcome_stats():  # pragma: no cover
+        """Rolling win-rate / expectancy stats over a window in days."""
+        from order_flow_engine.src import outcome_tracker
+        try:
+            window = int(request.args.get("days", 7))
+        except Exception:
+            window = 7
+        return jsonify({
+            "rolling_7d":  outcome_tracker.rolling_stats(7),
+            "rolling_30d": outcome_tracker.rolling_stats(30),
+            "selected":    outcome_tracker.rolling_stats(window),
+            "tracker":     outcome_tracker.status(),
+        })
+
+    @app.route("/api/order-flow/outcomes/recent")
+    def order_flow_outcomes_recent():  # pragma: no cover
+        """Latest N settled outcomes for inspection in the dashboard."""
+        from order_flow_engine.src import outcome_tracker
+        try:
+            limit = int(request.args.get("limit", 25))
+        except Exception:
+            limit = 25
+        rows = outcome_tracker._load_jsonl(outcome_tracker.OUTCOMES_PATH)
+        return jsonify(rows[-limit:])
+
+    @app.route("/api/order-flow/outcomes/settle", methods=["POST"])
+    def order_flow_outcomes_settle():  # pragma: no cover
+        """Force a synchronous settle pass — useful from the dashboard."""
+        from order_flow_engine.src import outcome_tracker
+        n = outcome_tracker._settle_pending()
+        return jsonify({"settled": n})
 
     @app.route("/api/order-flow/notifiers/test", methods=["POST"])
     def order_flow_notifiers_test():  # pragma: no cover
