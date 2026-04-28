@@ -306,33 +306,6 @@
       display: block; font-size: .72rem; font-weight: 500;
       color: #64748b; margin-top: .2rem; letter-spacing: 0; text-transform: none;
     }
-    /* TV alerts */
-    .tv-alerts-meta {
-      display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: .5rem; font-size: .75rem; color: #64748b;
-    }
-    .tv-alerts-table-wrap { overflow-x: auto; }
-    .tv-alerts-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
-    .tv-alerts-table th, .tv-alerts-table td {
-      padding: .45rem .6rem; border-bottom: 1px solid #f1f5f9;
-      text-align: left; white-space: nowrap;
-    }
-    .tv-alerts-table th {
-      font-size: .65rem; text-transform: uppercase; letter-spacing: .06em;
-      color: #64748b; font-weight: 700; background: #f8fafc;
-    }
-    .tv-alerts-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    .tv-alerts-table .side-long  { color: #047857; font-weight: 700; }
-    .tv-alerts-table .side-short { color: #991b1b; font-weight: 700; }
-    .tv-alerts-table .fuse-pill {
-      display: inline-block; padding: .15rem .5rem; border-radius: 999px;
-      font-size: .65rem; font-weight: 700; letter-spacing: .04em;
-    }
-    .fuse-full_agree    { background: #dcfce7; color: #166534; }
-    .fuse-partial_agree { background: #fef3c7; color: #92400e; }
-    .fuse-disagree      { background: #fee2e2; color: #991b1b; }
-    .fuse-neutral       { background: #f1f5f9; color: #475569; }
-    .fuse-unknown_side  { background: #e2e8f0; color: #334155; }
     .empty-row { text-align: center; color: #94a3b8; font-style: italic; padding: 1rem; }
     /* SPY detail card — mirrors explorer styles */
     .spy-detail h3 {
@@ -536,6 +509,16 @@
         </div>
       </div>
     {% endif %}
+
+    <!-- ── Futures last trades (Databento) ── -->
+    <div class="card" id="futures-quotes-card">
+      <h2>CME Futures — Last Trade
+        <span class="card-sub">Databento Historical · ~5-7 min lag · live engine feed</span>
+      </h2>
+      <div id="futures-quotes-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:.75rem;">
+        <div class="empty-row" style="grid-column:1/-1;">Loading…</div>
+      </div>
+    </div>
 
     <!-- ── Composite SPX score ── -->
     {% if aggregate.composite %}
@@ -796,36 +779,6 @@
         </div>
       </div>
     {% endif %}
-
-    {# ── TradingView Alerts feed ── #}
-    <div class="card tv-alerts-card">
-      <h2>TradingView Alerts
-        <span class="card-sub">pine-script webhooks · <code>POST /api/tv-alert</code> · fusion = alert vs macro+tactical</span>
-      </h2>
-      <div class="tv-alerts-meta">
-        <span id="tv-alerts-count">—</span>
-        <button class="refresh-btn" id="tv-alerts-refresh" style="padding:.25rem .6rem;font-size:.7rem;">Refresh</button>
-      </div>
-      <div class="tv-alerts-table-wrap">
-        <table class="tv-alerts-table">
-          <thead>
-            <tr>
-              <th>Time (UTC)</th>
-              <th>Symbol</th>
-              <th>Side</th>
-              <th class="num">Price</th>
-              <th>Macro</th>
-              <th>Tactical</th>
-              <th>Fusion</th>
-              <th>Strategy</th>
-            </tr>
-          </thead>
-          <tbody id="tv-alerts-body">
-            <tr><td colspan="8" class="empty-row">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
 
     <!-- ── Lean banner ── -->
     <div class="card">
@@ -1596,60 +1549,72 @@
   });
 </script>
 
-{# ── TradingView Alerts feed loader ── #}
+{# ── Futures last-trade poller (Databento) ── #}
 <script>
   (function () {
-    var fmtTime = function (iso) {
-      if (!iso) return '—';
-      return iso.replace('T', ' ').replace(/\+00:00$/, '').slice(0, 19);
+    var SYMS = "ESM6,GCM6,CLM6,NQM6";
+    var META = {
+      ESM6: { name: "E-mini S&P 500",   tick: 0.25 },
+      GCM6: { name: "Gold (COMEX)",     tick: 0.10 },
+      CLM6: { name: "WTI Crude (NYMEX)", tick: 0.01 },
+      NQM6: { name: "E-mini Nasdaq",    tick: 0.25 },
     };
-    var esc = function (s) {
-      return String(s == null ? '' : s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    };
-    function render(rows) {
-      var tb = document.getElementById('tv-alerts-body');
-      var ct = document.getElementById('tv-alerts-count');
-      if (!tb) return;
-      if (!rows || rows.length === 0) {
-        tb.innerHTML = '<tr><td colspan="8" class="empty-row">No alerts received yet. Wire a TradingView pine alert to <code>POST /api/tv-alert</code>.</td></tr>';
-        if (ct) ct.textContent = '0 alerts';
-        return;
-      }
-      if (ct) ct.textContent = rows.length + ' alert' + (rows.length === 1 ? '' : 's') + ' (latest first)';
-      tb.innerHTML = rows.map(function (r) {
-        var f = r.fusion || {};
-        var side = r.side || '—';
-        var sideCls = side === 'LONG' ? 'side-long' : side === 'SHORT' ? 'side-short' : '';
-        var price = r.price != null ? Number(r.price).toLocaleString(undefined, {maximumFractionDigits: 2}) : '—';
-        var strat = (r.payload && (r.payload.strategy || r.payload.alert_name)) || '—';
-        var fs = f.status || 'neutral';
-        return '<tr>' +
-          '<td>' + fmtTime(r.received_at) + '</td>' +
-          '<td>' + esc(r.symbol || '—') + '</td>' +
-          '<td class="' + sideCls + '">' + esc(side) + '</td>' +
-          '<td class="num">' + esc(price) + '</td>' +
-          '<td>' + esc(f.macro || '—') + '</td>' +
-          '<td>' + esc(f.tactical || '—') + '</td>' +
-          '<td><span class="fuse-pill fuse-' + esc(fs) + '">' + esc(fs.replace('_', ' ')) + '</span></td>' +
-          '<td>' + esc(strat) + '</td>' +
-          '</tr>';
-      }).join('');
+    var prev = {};
+    function fmtTs(ts) {
+      if (!ts) return "—";
+      var s = String(ts).replace(" ", "T").replace(/\+00:00$/, "Z");
+      var d = new Date(s);
+      if (isNaN(d)) return ts;
+      var now = Date.now();
+      var ageS = Math.floor((now - d.getTime()) / 1000);
+      if (ageS < 60)   return ageS + "s ago";
+      if (ageS < 3600) return Math.floor(ageS / 60) + "m ago";
+      return Math.floor(ageS / 3600) + "h ago";
     }
-    function load() {
-      fetch('/api/tv-alerts', {cache: 'no-store'})
+    function render(quotes) {
+      var grid = document.getElementById("futures-quotes-grid");
+      if (!grid) return;
+      var keys = Object.keys(META);
+      var html = keys.map(function (k) {
+        var q = quotes[k];
+        var meta = META[k];
+        if (!q) {
+          return '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:.65rem;">' +
+            '<div style="font-size:.7rem;color:#64748b;letter-spacing:.05em;text-transform:uppercase;">' + k + '</div>' +
+            '<div style="font-size:1.1rem;font-weight:700;color:#94a3b8;margin-top:.2rem;">no data</div>' +
+            '<div style="font-size:.65rem;color:#94a3b8;">' + meta.name + '</div>' +
+            '</div>';
+        }
+        var p = Number(q.price);
+        var prevP = prev[k];
+        var dir = "";
+        var color = "#0f172a";
+        if (prevP != null && Math.abs(p - prevP) > 1e-9) {
+          dir = p > prevP ? " ▲" : " ▼";
+          color = p > prevP ? "#047857" : "#991b1b";
+        }
+        prev[k] = p;
+        var precision = meta.tick < 0.05 ? 2 : (meta.tick < 0.5 ? 2 : 2);
+        return '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:.65rem;">' +
+          '<div style="font-size:.7rem;color:#64748b;letter-spacing:.05em;text-transform:uppercase;">' + k + '</div>' +
+          '<div style="font-size:1.25rem;font-weight:800;color:' + color + ';margin-top:.2rem;">' +
+              p.toLocaleString(undefined, {minimumFractionDigits: precision, maximumFractionDigits: precision}) +
+              '<span style="font-size:.85rem;font-weight:700;">' + dir + '</span>' +
+          '</div>' +
+          '<div style="font-size:.65rem;color:#64748b;">' + meta.name + ' · ' + fmtTs(q.ts) + '</div>' +
+          '</div>';
+      }).join("");
+      grid.innerHTML = html;
+    }
+    function tick() {
+      fetch('/api/futures/quotes?symbols=' + encodeURIComponent(SYMS) + '&tf=1m', {cache: 'no-store'})
         .then(function (r) { return r.json(); })
-        .then(render)
-        .catch(function () {
-          document.getElementById('tv-alerts-body').innerHTML =
-            '<tr><td colspan="8" class="empty-row">Failed to load alerts.</td></tr>';
-        });
+        .then(function (d) { render(d.quotes || {}); })
+        .catch(function () {});
     }
     document.addEventListener('DOMContentLoaded', function () {
-      load();
-      var btn = document.getElementById('tv-alerts-refresh');
-      if (btn) btn.addEventListener('click', load);
-      setInterval(load, 30000); // 30s poll
+      tick();
+      setInterval(tick, 30000);
     });
   })();
 </script>

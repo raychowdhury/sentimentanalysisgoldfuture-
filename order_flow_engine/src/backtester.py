@@ -44,7 +44,16 @@ def _direction_for_row(label: str, row: pd.Series) -> int:
     if fixed != 0:
         return fixed
     if label == "possible_reversal":
-        # fade the flow direction
+        # Prefer the precomputed reversal_direction (set in rule_engine):
+        # handles r7-only fires where delta_ratio is uninformative. Falls
+        # back to delta_ratio sign for older rows lacking the column.
+        rd = row.get("reversal_direction", 0)
+        try:
+            rd = int(rd)
+        except (TypeError, ValueError):
+            rd = 0
+        if rd != 0:
+            return rd
         return -1 if row.get("delta_ratio", 0) > 0 else 1
     return 0
 

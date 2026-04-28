@@ -97,6 +97,10 @@ _LEAKAGE_NAMES = {"label", "rule_hit_codes", "recent_high", "recent_low",
                   "cvd_price_corr",
                   "r1_buyer_down", "r2_seller_up",
                   "r3_absorption_resistance", "r4_absorption_support",
+                  # reversal_direction is derived partly from r1/r2 → carries
+                  # the same confirmation-rule leakage; safe for backtester /
+                  # outcome tracker, NOT for the trained model.
+                  "reversal_direction",
                   # total rule_hit_count sums r1..r4 too → leaky; the
                   # rule_hit_count_causal alias is the safe feature.
                   "rule_hit_count"}

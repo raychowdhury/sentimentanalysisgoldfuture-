@@ -584,6 +584,392 @@ def api_stocks_quotes():
     return jsonify({"quotes": quotes, "enabled": True})
 
 
+@app.route("/api/futures/snapshot")
+def api_futures_snapshot():
+    """Per-contract trader-view payload: last close, change, last N closes
+    (for sparkline), volume sum, latest delta_ratio + buy/sell split.
+
+    Reads engine's in-memory tail — zero extra Databento fetches.
+    Query: ?symbols=ESM6,GCM6,CLM6,NQM6&tf=1m&n=60
+    """
+    from order_flow_engine.src import ingest
+
+    raw = request.args.get("symbols", "")
+    tf  = request.args.get("tf", "1m")
+    n   = max(2, min(int(request.args.get("n", 60)), 500))
+    symbols = [s.strip().upper() for s in raw.split(",") if s.strip()]
+    enabled = bool(os.getenv("DATABENTO_API_KEY"))
+    out = {"enabled": enabled, "tf": tf, "snapshots": {}}
+    if not enabled or not symbols:
+        return jsonify(out)
+
+    for sym in symbols:
+        bars = ingest.get_recent_bars(sym, tf, n)
+        if not bars:
+            continue
+        closes = [float(b["Close"]) for b in bars]
+        vols   = [float(b.get("Volume", 0) or 0) for b in bars]
+        last   = bars[-1]
+        first  = bars[0]
+        delta_ratio = None
+        buy_vol = last.get("buy_vol_real")
+        sell_vol = last.get("sell_vol_real")
+        if buy_vol is not None and sell_vol is not None:
+            tot = float(buy_vol) + float(sell_vol)
+            if tot > 0:
+                delta_ratio = (float(buy_vol) - float(sell_vol)) / tot
+        out["snapshots"][sym] = {
+            "last":       float(last["Close"]),
+            "first":      float(first["Close"]),
+            "change_pct": (closes[-1] / closes[0] - 1) * 100 if closes[0] else 0,
+            "high":       max(float(b["High"]) for b in bars),
+            "low":        min(float(b["Low"]) for b in bars),
+            "vol_sum":    sum(vols),
+            "closes":     closes,
+            "ts":         str(last.get("ts")),
+            "delta_ratio": round(delta_ratio, 4) if delta_ratio is not None else None,
+            "real_flow":  buy_vol is not None and sell_vol is not None,
+            "n":          len(bars),
+        }
+    return jsonify(out)
+
+
+@app.route("/api/futures/footprint")
+def api_futures_footprint():
+    """Per-bar buy/sell/delta/cvd series for charting.
+
+    Query: ?symbol=GCM6&tf=1m&n=60
+    Returns: {symbol, tf, real_flow, bars: [{ts, close, buy, sell, delta, cvd}]}
+    """
+    from order_flow_engine.src import ingest
+
+    sym = request.args.get("symbol", "GCM6").strip().upper()
+    tf  = request.args.get("tf", "1m")
+    n   = max(2, min(int(request.args.get("n", 60)), 500))
+    bars = ingest.get_recent_bars(sym, tf, n)
+    out = {"symbol": sym, "tf": tf, "real_flow": False, "bars": []}
+    if not bars:
+        return jsonify(out)
+
+    cvd = 0.0
+    cum_pv, cum_v = 0.0, 0.0
+    real_flow = all(b.get("buy_vol_real") is not None for b in bars)
+    out["real_flow"] = real_flow
+    for b in bars:
+        buy  = float(b.get("buy_vol_real") or 0)
+        sell = float(b.get("sell_vol_real") or 0)
+        if not real_flow:
+            vol = float(b.get("Volume") or 0)
+            hi, lo, cl = float(b["High"]), float(b["Low"]), float(b["Close"])
+            clv = ((cl - lo) - (hi - cl)) / (hi - lo) if hi > lo else 0
+            buy  = vol * (1 + clv) / 2
+            sell = vol * (1 - clv) / 2
+        delta = buy - sell
+        cvd += delta
+        close = float(b["Close"])
+        # session VWAP — typical price ~ close, weighted by total bar volume
+        bar_vol = float(b.get("Volume") or (buy + sell))
+        cum_pv += close * bar_vol
+        cum_v  += bar_vol
+        vwap = (cum_pv / cum_v) if cum_v > 0 else close
+        out["bars"].append({
+            "ts":     str(b.get("ts")),
+            "close":  close,
+            "high":   float(b.get("High", close)),
+            "low":    float(b.get("Low", close)),
+            "volume": round(bar_vol, 2),
+            "buy":    round(buy, 2),
+            "sell":   round(sell, 2),
+            "delta":  round(delta, 2),
+            "cvd":    round(cvd, 2),
+            "vwap":   round(vwap, 4),
+        })
+    return jsonify(out)
+
+
+@app.route("/api/futures/volume-profile")
+def api_futures_volume_profile():
+    """Horizontal volume profile: volume binned by price level.
+
+    Query: ?symbol=GCM6&tf=1m&n=240&bins=30
+    Returns: {symbol, tf, real_flow, bins:[{low,high,buy,sell,total}], poc, vah, val, last_close}
+    """
+    from order_flow_engine.src import ingest
+
+    sym = request.args.get("symbol", "GCM6").strip().upper()
+    tf  = request.args.get("tf", "1m")
+    n     = max(2, min(int(request.args.get("n", 240)), 500))
+    nbins = max(5, min(int(request.args.get("bins", 30)), 100))
+    bars = ingest.get_recent_bars(sym, tf, n)
+    if not bars:
+        return jsonify({"symbol": sym, "tf": tf, "bins": [], "real_flow": False})
+
+    real = all(b.get("buy_vol_real") is not None for b in bars)
+    closes = [float(b["Close"]) for b in bars]
+    p_lo, p_hi = min(closes), max(closes)
+    if p_hi == p_lo:
+        p_hi = p_lo + 1.0
+    bw = (p_hi - p_lo) / nbins
+    bins = [{"low": p_lo + i*bw, "high": p_lo + (i+1)*bw, "buy": 0.0, "sell": 0.0, "total": 0.0}
+            for i in range(nbins)]
+
+    for b in bars:
+        cl = float(b["Close"])
+        if real:
+            buy  = float(b.get("buy_vol_real")  or 0)
+            sell = float(b.get("sell_vol_real") or 0)
+        else:
+            vol = float(b.get("Volume") or 0)
+            hi, lo = float(b["High"]), float(b["Low"])
+            clv = ((cl - lo) - (hi - cl)) / (hi - lo) if hi > lo else 0
+            buy  = vol * (1 + clv) / 2
+            sell = vol * (1 - clv) / 2
+        idx = min(nbins - 1, max(0, int((cl - p_lo) / bw)))
+        bins[idx]["buy"]  += buy
+        bins[idx]["sell"] += sell
+        bins[idx]["total"] += buy + sell
+
+    total = sum(b["total"] for b in bins) or 1
+    poc_idx = max(range(nbins), key=lambda i: bins[i]["total"])
+    target = total * 0.70
+    acc = bins[poc_idx]["total"]
+    lo_i = hi_i = poc_idx
+    while acc < target and (lo_i > 0 or hi_i < nbins - 1):
+        nxt_lo = bins[lo_i - 1]["total"] if lo_i > 0 else -1
+        nxt_hi = bins[hi_i + 1]["total"] if hi_i < nbins - 1 else -1
+        if nxt_hi >= nxt_lo:
+            hi_i += 1
+            acc += bins[hi_i]["total"]
+        else:
+            lo_i -= 1
+            acc += bins[lo_i]["total"]
+
+    return jsonify({
+        "symbol": sym, "tf": tf, "real_flow": real,
+        "bins": [{
+            "low":   round(b["low"], 4),
+            "high":  round(b["high"], 4),
+            "buy":   round(b["buy"], 2),
+            "sell":  round(b["sell"], 2),
+            "total": round(b["total"], 2),
+        } for b in bins],
+        "poc":  {"idx": poc_idx, "price": round((bins[poc_idx]["low"] + bins[poc_idx]["high"]) / 2, 4)},
+        "vah":  round(bins[hi_i]["high"], 4),
+        "val":  round(bins[lo_i]["low"], 4),
+        "last_close": round(closes[-1], 4),
+    })
+
+
+@app.route("/api/futures/grid")
+def api_futures_grid():
+    """Compact multi-symbol snapshot for the grid panel.
+
+    Query: ?symbols=ESM6,GCM6,NQM6,CLM6&tf=1m&n=30
+    Returns: {tf, snapshots: {SYM: {last, change_pct, vwap, cvd, buy_now, sell_now, closes, last_ts}}}
+    """
+    from order_flow_engine.src import ingest
+
+    raw = request.args.get("symbols", "ESM6,GCM6,NQM6,CLM6")
+    tf  = request.args.get("tf", "1m")
+    n   = max(2, min(int(request.args.get("n", 30)), 240))
+    symbols = [s.strip().upper() for s in raw.split(",") if s.strip()]
+    out: dict = {"tf": tf, "snapshots": {}}
+    for sym in symbols:
+        bars = ingest.get_recent_bars(sym, tf, n)
+        if not bars:
+            continue
+        closes = [float(b["Close"]) for b in bars]
+        cvd = 0.0
+        pv  = 0.0
+        v   = 0.0
+        last_buy = last_sell = 0.0
+        real = all(b.get("buy_vol_real") is not None for b in bars)
+        for b in bars:
+            cl = float(b["Close"])
+            if real:
+                buy  = float(b.get("buy_vol_real")  or 0)
+                sell = float(b.get("sell_vol_real") or 0)
+            else:
+                vol = float(b.get("Volume") or 0)
+                hi, lo = float(b["High"]), float(b["Low"])
+                clv = ((cl - lo) - (hi - cl)) / (hi - lo) if hi > lo else 0
+                buy  = vol * (1 + clv) / 2
+                sell = vol * (1 - clv) / 2
+            cvd += (buy - sell)
+            bar_vol = float(b.get("Volume") or (buy + sell))
+            pv += cl * bar_vol
+            v  += bar_vol
+            last_buy, last_sell = buy, sell
+        out["snapshots"][sym] = {
+            "last":       closes[-1],
+            "change_pct": ((closes[-1] / closes[0]) - 1) * 100 if closes[0] else 0,
+            "vwap":       round(pv / v, 4) if v > 0 else closes[-1],
+            "cvd":        round(cvd, 1),
+            "buy_now":    round(last_buy, 1),
+            "sell_now":   round(last_sell, 1),
+            "closes":     [round(c, 4) for c in closes],
+            "last_ts":    str(bars[-1].get("ts")),
+            "real_flow":  real,
+        }
+    return jsonify(out)
+
+
+@app.route("/api/futures/quote")
+def api_futures_quote():
+    """Best bid/ask from MBP-1 (Live SDK). Falls back to last close ± 1 tick."""
+    sym = request.args.get("symbol", "GCM6").strip().upper()
+    try:
+        from order_flow_engine.src import realtime_databento_live as rdl
+        q = rdl.get_best_quote(sym)
+    except Exception:
+        q = None
+    if q:
+        return jsonify({"symbol": sym, "source": "mbp-1", **q})
+    # Fallback: synthesize from last close
+    from order_flow_engine.src import ingest
+    bar = ingest.get_latest_bar(sym, "1m")
+    if not bar:
+        return jsonify({"symbol": sym, "source": "none"})
+    tick = {"GCM6": 0.10, "CLM6": 0.01}.get(sym, 0.25)
+    cl = float(bar["Close"])
+    return jsonify({
+        "symbol": sym, "source": "synth",
+        "bid": round(cl - tick, 4), "ask": round(cl + tick, 4),
+        "bid_sz": 0, "ask_sz": 0, "spread": tick * 2,
+        "ts": str(bar.get("ts")),
+    })
+
+
+@app.route("/api/futures/heatmap")
+def api_futures_heatmap():
+    """Trade-print heatmap.
+
+    Query: ?symbol=GCM6&minutes=10&tick=auto&time_bins=60
+    Returns:
+      {symbol, tick, p_lo, p_hi, last_close,
+       price_bins:[{price, buy, sell, total}],          # 1D
+       grid:[[vol, ...]], grid_x_secs:[t0,...], grid_p:[p0,...]} # 2D
+    """
+    from order_flow_engine.src import realtime_databento as rd
+
+    sym = request.args.get("symbol", "GCM6").strip().upper()
+    minutes = max(1, min(int(request.args.get("minutes", 10)), 60))
+    tick_arg = request.args.get("tick", "auto")
+    time_bins = max(10, min(int(request.args.get("time_bins", 60)), 240))
+
+    tick_defaults = {"ESM6": 0.25, "NQM6": 0.25, "GCM6": 0.10, "CLM6": 0.01}
+    tick = tick_defaults.get(sym, 0.25) if tick_arg == "auto" else float(tick_arg)
+
+    trades = rd.get_tape(sym, 500)
+    if not trades:
+        return jsonify({"symbol": sym, "tick": tick, "price_bins": [], "grid": []})
+
+    import datetime as _dt
+    now_ts = _dt.datetime.now(_dt.timezone.utc).timestamp()
+    cutoff = now_ts - minutes * 60
+    rows = []
+    for t in trades:
+        try:
+            ts = _dt.datetime.fromisoformat(t["ts"]).timestamp()
+        except Exception:
+            continue
+        if ts < cutoff:
+            continue
+        rows.append((ts, float(t["price"]), float(t["size"]), t.get("side", "buy")))
+    if not rows:
+        return jsonify({"symbol": sym, "tick": tick, "price_bins": [], "grid": []})
+
+    prices = [r[1] for r in rows]
+    p_lo = (round(min(prices) / tick) - 1) * tick
+    p_hi = (round(max(prices) / tick) + 1) * tick
+    nbins_p = max(1, int(round((p_hi - p_lo) / tick)))
+    bins = [{"price": round(p_lo + (i + 0.5) * tick, 4),
+             "buy": 0.0, "sell": 0.0, "total": 0.0}
+            for i in range(nbins_p)]
+    # 2D matrix [time_bins][nbins_p]
+    grid = [[0.0] * nbins_p for _ in range(time_bins)]
+    t_step = (minutes * 60) / time_bins
+    for ts, price, size, side in rows:
+        pi = min(nbins_p - 1, max(0, int((price - p_lo) / tick)))
+        ti = min(time_bins - 1, max(0, int((ts - cutoff) / t_step)))
+        if side == "buy":
+            bins[pi]["buy"] += size
+        else:
+            bins[pi]["sell"] += size
+        bins[pi]["total"] += size
+        grid[ti][pi] += size
+
+    grid_p = [round(p_lo + (i + 0.5) * tick, 4) for i in range(nbins_p)]
+    grid_x_secs = [int(cutoff + i * t_step) for i in range(time_bins)]
+
+    return jsonify({
+        "symbol": sym, "tick": tick, "minutes": minutes,
+        "p_lo": round(p_lo, 4), "p_hi": round(p_hi, 4),
+        "last_close": round(rows[-1][1], 4),
+        "price_bins": [{**b, "buy": round(b["buy"], 2),
+                        "sell": round(b["sell"], 2),
+                        "total": round(b["total"], 2)} for b in bins],
+        "grid": grid,
+        "grid_p": grid_p,
+        "grid_x_secs": grid_x_secs,
+    })
+
+
+@app.route("/api/futures/tape")
+def api_futures_tape():
+    """Last N raw trades for a contract from the live tape ring buffer.
+
+    Query: ?symbol=GCM6&n=50&min_size=0
+    Returns: {symbol, trades:[{ts, price, size, side}], p90_size}
+    """
+    from order_flow_engine.src import realtime_databento as rd
+
+    sym = request.args.get("symbol", "GCM6").strip().upper()
+    n   = max(1, min(int(request.args.get("n", 50)), 500))
+    min_size = float(request.args.get("min_size", 0) or 0)
+
+    raw = rd.get_tape(sym, n * 5 if min_size > 0 else n)
+    if min_size > 0:
+        raw = [t for t in raw if t["size"] >= min_size]
+    raw = raw[-n:]
+    p90 = 0.0
+    if raw:
+        sizes = sorted(t["size"] for t in raw)
+        p90 = sizes[int(len(sizes) * 0.9)] if len(sizes) > 1 else sizes[0]
+    return jsonify({"symbol": sym, "trades": raw, "p90_size": p90})
+
+
+@app.route("/api/futures/quotes")
+def api_futures_quotes():
+    """Last-trade prices for futures contracts pulled from the engine's
+    in-memory Databento tail. Lag = Databento Historical (~5-7 min).
+
+    Query: ?symbols=ESM6,GCM6,CLM6,NQM6&tf=1m
+    Returns {"quotes": {SYM: {price, ts, source: "databento"}}, "enabled": bool}.
+    """
+    from order_flow_engine.src import ingest
+
+    raw = request.args.get("symbols", "")
+    tf  = request.args.get("tf", "1m")
+    symbols = [s.strip().upper() for s in raw.split(",") if s.strip()]
+    enabled = bool(os.getenv("DATABENTO_API_KEY"))
+    if not enabled or not symbols:
+        return jsonify({"quotes": {}, "enabled": enabled})
+
+    quotes: dict[str, dict] = {}
+    for sym in symbols:
+        bar = ingest.get_latest_bar(sym, tf)
+        if not bar:
+            continue
+        ts = bar.get("ts")
+        quotes[sym] = {
+            "price":  float(bar["Close"]),
+            "ts":     str(ts) if ts is not None else None,
+            "source": "databento",
+        }
+    return jsonify({"quotes": quotes, "enabled": True})
+
+
 @app.route("/stocks/explorer")
 def stocks_explorer_view():
     """Click-through explorer — one ticker detail panel at a time."""
@@ -714,104 +1100,6 @@ def api_run():
     if started:
         return jsonify({"ok": True,  "message": "Run started"})
     return jsonify({"ok": False, "message": "A run is already in progress"}), 409
-
-
-# ── TradingView webhook bridge ────────────────────────────────────────────────
-
-TV_WEBHOOK_LOG = os.path.join(OUTPUT_DIR, "tv_webhook_hits.jsonl")
-TV_WEBHOOK_SECRET = os.getenv("TV_WEBHOOK_SECRET", "")
-
-
-def _tv_sentiment_snapshot():
-    """Latest cached sentiment score + direction for agreement check."""
-    cache = sentiment_cache.load_full()
-    if not cache:
-        return {"score": None, "direction": "unknown"}
-    latest_date = max(cache.keys())
-    rec = cache[latest_date]
-    score = float(rec.get("avg_score", 0.0))
-    direction = "up" if score > 0.05 else "down" if score < -0.05 else "flat"
-    return {
-        "date":      latest_date,
-        "score":     round(score, 4),
-        "direction": direction,
-        "n":         int(rec.get("n_articles", 0)),
-    }
-
-
-@app.route("/api/tv_webhook", methods=["POST"])
-def api_tv_webhook():
-    """
-    TradingView alert webhook receiver.
-
-    Expected payload (set in the Pine alert message as JSON):
-        {
-          "secret":   "<TV_WEBHOOK_SECRET>",
-          "ticker":   "GC1!",
-          "signal":   "LONG"|"SHORT"|"FLAT",
-          "price":    2315.5,
-          "bias":     0.21,
-          "time":     "2026-04-22T13:05:00Z"
-        }
-
-    Cross-checks against current sentiment cache and returns whether the
-    Pine signal agrees with the live sentiment bias.
-    """
-    payload = request.get_json(silent=True) or {}
-
-    if TV_WEBHOOK_SECRET:
-        if payload.get("secret") != TV_WEBHOOK_SECRET:
-            return jsonify({"ok": False, "error": "bad secret"}), 403
-
-    signal = str(payload.get("signal", "")).upper()
-    if signal not in {"LONG", "SHORT", "FLAT"}:
-        return jsonify({"ok": False, "error": "signal must be LONG|SHORT|FLAT"}), 400
-
-    sentiment = _tv_sentiment_snapshot()
-
-    # Agreement check: Pine long agrees with positive sentiment, etc.
-    agreement = "unknown"
-    if sentiment["direction"] != "unknown":
-        if signal == "LONG"  and sentiment["direction"] == "up":   agreement = "agree"
-        elif signal == "SHORT" and sentiment["direction"] == "down": agreement = "agree"
-        elif signal == "FLAT": agreement = "neutral"
-        else: agreement = "disagree"
-
-    entry = {
-        "received_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "ticker":      payload.get("ticker"),
-        "signal":      signal,
-        "price":       payload.get("price"),
-        "bias":        payload.get("bias"),
-        "tv_time":     payload.get("time"),
-        "sentiment":   sentiment,
-        "agreement":   agreement,
-    }
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    with open(TV_WEBHOOK_LOG, "a") as f:
-        f.write(json.dumps(entry) + "\n")
-
-    return jsonify({"ok": True, **entry})
-
-
-@app.route("/api/tv_webhook/recent")
-def api_tv_webhook_recent():
-    """Last 20 webhook hits — consumed by the autoresearch dashboard card."""
-    if not os.path.exists(TV_WEBHOOK_LOG):
-        return jsonify([])
-    lines: list[dict] = []
-    with open(TV_WEBHOOK_LOG) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                lines.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    resp = jsonify(lines[-20:][::-1])
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    return resp
 
 
 # ── OHLC feed for client-side charts (Lightweight Charts) ─────────────────
@@ -1028,125 +1316,6 @@ def api_gauge():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e), "symbol": symbol}), 500
-
-
-# ── TradingView webhook receiver ──────────────────────────────────────────
-# Pine-script alerts POST JSON here. Stored under outputs/alerts/, with a
-# "fusion" field comparing the alert to our current SPX/SPY bias.
-#
-# Securing against drive-by: shared-secret header `X-TV-Secret` checked when
-# TV_WEBHOOK_SECRET env var is set; open when unset (dev default).
-
-_TV_ALERT_DIR = Path(__file__).parent / "outputs" / "alerts"
-
-
-def _current_bias_snapshot() -> dict:
-    """Load current aggregate composite bias + SPX tactical signal for fusion."""
-    out = {"macro": None, "tactical": None}
-    agg_path = Path(__file__).parent / "outputs" / "stocks" / "_aggregate.json"
-    if agg_path.exists():
-        try:
-            d = json.loads(agg_path.read_text())
-            c = d.get("composite") or {}
-            out["macro"] = {"bias": c.get("bias"), "score": c.get("score")}
-        except json.JSONDecodeError:
-            pass
-    spx_path = Path(__file__).parent / "outputs" / "stocks" / "SPX.json"
-    if spx_path.exists():
-        try:
-            d = json.loads(spx_path.read_text())
-            out["tactical"] = {"signal": d.get("signal"), "sentiment": d.get("sentiment_score")}
-        except json.JSONDecodeError:
-            pass
-    return out
-
-
-def _fuse(alert_side: str | None, snap: dict) -> dict:
-    """Compare TradingView alert direction to our current bias.
-    alert_side ∈ {'LONG', 'SHORT', None}. Returns agreement status."""
-    macro = (snap.get("macro") or {}).get("bias") or ""
-    tac   = (snap.get("tactical") or {}).get("signal") or ""
-    macro_long  = macro in ("LONG", "STRONG LONG")
-    macro_short = macro in ("SHORT", "STRONG SHORT")
-    tac_long    = tac in ("BUY", "STRONG_BUY")
-    tac_short   = tac in ("SELL", "STRONG_SELL")
-
-    if alert_side not in ("LONG", "SHORT"):
-        return {"status": "unknown_side", "macro": macro, "tactical": tac}
-
-    alert_long = alert_side == "LONG"
-    both_us_long  = macro_long and tac_long
-    both_us_short = macro_short and tac_short
-
-    if (alert_long and both_us_long) or (not alert_long and both_us_short):
-        status = "full_agree"
-    elif (alert_long and (macro_long or tac_long)) or (not alert_long and (macro_short or tac_short)):
-        status = "partial_agree"
-    elif (alert_long and (macro_short or tac_short)) or (not alert_long and (macro_long or tac_long)):
-        status = "disagree"
-    else:
-        status = "neutral"
-    return {"status": status, "macro": macro, "tactical": tac}
-
-
-@app.route("/api/tv-alert", methods=["POST"])
-def api_tv_alert():
-    secret_required = os.environ.get("TV_WEBHOOK_SECRET")
-    if secret_required and request.headers.get("X-TV-Secret") != secret_required:
-        return jsonify({"error": "unauthorized"}), 401
-
-    payload = request.get_json(silent=True) or {}
-    if not payload and request.data:
-        # TV sometimes posts text/plain
-        try:
-            payload = json.loads(request.data.decode("utf-8", errors="replace"))
-        except json.JSONDecodeError:
-            payload = {"raw": request.data.decode("utf-8", errors="replace")}
-
-    side = (payload.get("side") or payload.get("action") or "").upper()
-    if side in ("BUY", "LONG"):
-        side = "LONG"
-    elif side in ("SELL", "SHORT"):
-        side = "SHORT"
-    else:
-        side = None
-
-    snap = _current_bias_snapshot()
-    fusion = _fuse(side, snap)
-
-    now = datetime.now(timezone.utc)
-    record = {
-        "received_at": now.isoformat(timespec="seconds"),
-        "symbol":  payload.get("symbol") or payload.get("ticker"),
-        "side":    side,
-        "price":   payload.get("price") or payload.get("close"),
-        "payload": payload,
-        "snapshot": snap,
-        "fusion":  fusion,
-        "source_ip": request.headers.get("X-Forwarded-For", request.remote_addr),
-    }
-
-    _TV_ALERT_DIR.mkdir(parents=True, exist_ok=True)
-    fname = f"tv_{now.strftime('%Y%m%dT%H%M%S')}_{(record['symbol'] or 'UNK')}.json"
-    fpath = _TV_ALERT_DIR / fname
-    fpath.write_text(json.dumps(record, indent=2, default=str))
-
-    return jsonify({"ok": True, "stored": str(fpath.name), "fusion": fusion})
-
-
-@app.route("/api/tv-alerts")
-def api_tv_alerts_list():
-    """Tail of recent TradingView alerts received — debug / audit."""
-    if not _TV_ALERT_DIR.exists():
-        return jsonify([])
-    files = sorted(_TV_ALERT_DIR.glob("tv_*.json"), reverse=True)[:50]
-    items = []
-    for p in files:
-        try:
-            items.append(json.loads(p.read_text()))
-        except json.JSONDecodeError:
-            continue
-    return jsonify(items)
 
 
 if __name__ == "__main__":

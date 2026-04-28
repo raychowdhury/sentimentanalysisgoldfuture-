@@ -216,7 +216,8 @@ def ingest_bar(
 
         key = (symbol, timeframe)
         tail = _tails[key]
-        if tail and tail[-1]["ts"] == ts:
+        is_new = not (tail and tail[-1]["ts"] == ts)
+        if not is_new:
             tail[-1] = bar_payload
         else:
             tail.append(bar_payload)
@@ -226,6 +227,11 @@ def ingest_bar(
                 _persist_live_tail(symbol, timeframe)
 
         _poll_state["last_tick"] = ts.isoformat()
+        if is_new:
+            _broadcast({
+                "type": "bar", "symbol": symbol, "timeframe": timeframe,
+                "ts": ts.isoformat(), "close": float(close),
+            })
 
         # Build anchor features + higher-TF context from whatever tails we hold.
         anchor_df = _tail_to_frame(symbol, timeframe)
@@ -359,6 +365,9 @@ def _score_and_emit(
             "clv":         row.get("clv"),
             "dist_to_recent_high_atr": row.get("dist_to_recent_high_atr"),
             "dist_to_recent_low_atr":  row.get("dist_to_recent_low_atr"),
+            "buy_vol":  row.get("buy_vol"),
+            "sell_vol": row.get("sell_vol"),
+            "volume":   row.get("Volume"),
         },
         model_info=model_payload,
         proxy_mode=proxy_mode,
@@ -524,3 +533,27 @@ def poll_status() -> dict:
         "last_alert": (_poll_state.get("last_alert") or {}).get("timestamp_utc"),
         "subscribers": len(_subscribers),
     }
+
+
+def get_latest_bar(symbol: str, tf: str) -> dict | None:
+    """Public accessor for the most recent bar in the in-memory tail.
+
+    Returns a dict with keys ts/Open/High/Low/Close/Volume, or None if
+    the (symbol, tf) tail is empty. Used by Trader Desk-style "last
+    trade" UIs that want the freshest close without a fresh API fetch.
+    """
+    with _lock:
+        tail = _tails.get((symbol, tf))
+        if not tail:
+            return None
+        return dict(tail[-1])
+
+
+def get_recent_bars(symbol: str, tf: str, n: int = 60) -> list[dict]:
+    """Return last n bars (oldest → newest) from the in-memory tail."""
+    with _lock:
+        tail = _tails.get((symbol, tf))
+        if not tail:
+            return []
+        n = max(1, min(int(n), len(tail)))
+        return [dict(b) for b in list(tail)[-n:]]

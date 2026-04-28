@@ -749,39 +749,8 @@ bgcolor(gated     ? color.new(color.yellow,90) : na)
 plotshape(long_sig  and not long_sig[1],  "Flip LONG",  shape.triangleup,   location.bottom, color=color.green, size=size.tiny)
 plotshape(short_sig and not short_sig[1], "Flip SHORT", shape.triangledown, location.top,    color=color.red,   size=size.tiny)
 
-// ── Webhook payload (for TradingView alerts → Sentiment Flask) ────────
-// In "Create Alert" paste one of these as the Message. Webhook URL:
-//   http://&lt;your-host&gt;:5001/api/tv_webhook   (use ngrok to expose)
-// LONG:
-//   {"secret":"YOUR_SECRET","ticker":"{{ticker}}","signal":"LONG","price":{{close}},"bias":{{plot_0}},"time":"{{timenow}}"}
-// SHORT:
-//   {"secret":"YOUR_SECRET","ticker":"{{ticker}}","signal":"SHORT","price":{{close}},"bias":{{plot_0}},"time":"{{timenow}}"}
-
 alertcondition(long_sig  and not long_sig[1],  "Gold next-day LONG",  "Composite bias flipped long.")
 alertcondition(short_sig and not short_sig[1], "Gold next-day SHORT", "Composite bias flipped short.")</code></pre>
-</div>
-
-<!-- TradingView webhook hits -->
-<div class="card wh-card">
-  <div class="wh-head">
-    <div>
-      <h2 style="margin:0;">TradingView → Sentiment Bridge</h2>
-      <p class="pine-sub">
-        Live webhook hits from TradingView Pine alerts · cross-checked against parent sentiment cache ·
-        <a href="http://localhost:5001/api/tv_webhook/recent" target="_blank" rel="noopener">raw JSON →</a>
-      </p>
-    </div>
-    <span id="whPill" class="wh-pill"><span class="wh-dot"></span><span id="whText">waiting</span></span>
-  </div>
-  <ol id="whList" class="wh-list"><li class="empty">No webhook hits yet. Setup steps below.</li></ol>
-  <details class="wh-setup">
-    <summary>Setup (3 steps)</summary>
-    <ol>
-      <li><b>Expose Flask publicly</b> — run <code class="mono">ngrok http 5001</code>, copy the https URL.</li>
-      <li><b>Set secret</b> — add <code class="mono">TV_WEBHOOK_SECRET=your-secret</code> to parent <code class="mono">.env</code> and restart Flask.</li>
-      <li><b>Create TradingView alert</b> — Condition: <i>Gold next-day LONG</i> (or SHORT) · Webhook URL: <code class="mono">https://&lt;ngrok&gt;/api/tv_webhook</code> · Message: paste JSON template from Pine comments.</li>
-    </ol>
-  </details>
 </div>
 
 <div class="tl-head">
@@ -1061,55 +1030,6 @@ async function tickSignal() {
 }
 tickSignal();
 setInterval(tickSignal, POLL_MS);
-
-// ── Webhook hits poller ──
-const WH_URL = "http://localhost:5001/api/tv_webhook/recent";
-
-function renderWhItem(h) {
-  const sig      = esc(h.signal || "—");
-  const agree    = esc(h.agreement || "unknown");
-  const price    = h.price != null ? Number(h.price).toFixed(2) : "—";
-  const bias     = h.bias  != null ? Number(h.bias).toFixed(3)  : "—";
-  const sent     = h.sentiment || {};
-  const sentTxt  = sent.score != null
-    ? `sent ${Number(sent.score).toFixed(3)} (${esc(sent.direction)})`
-    : "no sentiment data";
-  const t = h.received_at ? new Date(h.received_at).toLocaleTimeString() : "";
-  return `
-    <li class="wh-item">
-      <span class="wh-sig ${sig}">${sig}</span>
-      <span class="wh-detail">
-        <b>${esc(h.ticker || "—")}</b> @ <b>${price}</b> · bias <b>${bias}</b> · ${esc(sentTxt)}
-      </span>
-      <span class="wh-agree ${agree}">${agree}</span>
-      <span class="wh-time">${t}</span>
-    </li>
-  `;
-}
-
-async function tickWebhook() {
-  const pill = document.getElementById("whPill");
-  const text = document.getElementById("whText");
-  const list = document.getElementById("whList");
-  try {
-    const r = await fetch(WH_URL, { cache: "no-store" });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const hits = await r.json();
-    pill.className = "wh-pill ok";
-    text.textContent = hits.length ? `${hits.length} hits` : "connected · 0 hits";
-    if (!hits.length) {
-      list.innerHTML = `<li class="empty">No webhook hits yet. Setup steps below.</li>`;
-    } else {
-      list.innerHTML = hits.map(renderWhItem).join("");
-    }
-  } catch (e) {
-    pill.className = "wh-pill err";
-    text.textContent = "bridge offline";
-    list.innerHTML = `<li class="empty">Parent Flask offline or <code class="mono">/api/tv_webhook/recent</code> unreachable.</li>`;
-  }
-}
-tickWebhook();
-setInterval(tickWebhook, 15000);
 
 // ── Pine Script copy button ──
 document.getElementById("copyPine").addEventListener("click", async (e) => {

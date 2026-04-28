@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -39,6 +40,73 @@ logger = setup_logger(__name__)
 
 REST_BASE = "https://data.alpaca.markets/v2/stocks"
 
+# CME single-contract pattern (e.g. ESM6, GCM6) — route to Databento.
+_FUT_RAW_RE = re.compile(r"^[A-Z]{1,3}[FGHJKMNQUVXZ]\d{1,2}$")
+# yfinance futures symbol (e.g. ES=F). For these we can back-resolve the
+# alert-time front-month contract via Databento parent volume.
+_YF_FUT_RE = re.compile(r"^([A-Z]{1,3})=F$")
+# yfinance root -> Databento parent token + dataset.
+_YF_ROOT_TO_PARENT: dict[str, tuple[str, str]] = {
+    "ES": ("ES.FUT", "GLBX.MDP3"),
+    "NQ": ("NQ.FUT", "GLBX.MDP3"),
+    "GC": ("GC.FUT", "GLBX.MDP3"),
+    "SI": ("SI.FUT", "GLBX.MDP3"),
+    "CL": ("CL.FUT", "GLBX.MDP3"),
+    "ZN": ("ZN.FUT", "GLBX.MDP3"),
+    "ZB": ("ZB.FUT", "GLBX.MDP3"),
+    "YM": ("YM.FUT", "GLBX.MDP3"),
+    "RTY": ("RTY.FUT", "GLBX.MDP3"),
+}
+_RAW_CONTRACT_RE = re.compile(r"^[A-Z]{1,3}[FGHJKMNQUVXZ]\d{1,2}$")
+# Per-alert-date resolution cache: (parent, date_iso) -> raw_contract
+_alert_front_cache: dict[tuple[str, str], str] = {}
+# Symbols/dates we've logged a "no resolve" message for, to avoid spam.
+_skip_logged: set[str] = set()
+
+
+def _resolve_front_at(parent: str, dataset: str, on_date) -> str | None:
+    """
+    Resolve the most-active outright contract for `parent` on a given date.
+
+    Uses ohlcv-1d on the parent symbol for a 1-day window centered on the
+    alert date and picks the single contract (no `-` spread, raw-contract
+    regex match) with the highest volume.
+    """
+    import pandas as _pd
+    key = (parent, on_date.isoformat() if hasattr(on_date, "isoformat") else str(on_date))
+    cached = _alert_front_cache.get(key)
+    if cached:
+        return cached
+
+    key_db = os.getenv("DATABENTO_API_KEY", "").strip()
+    if not key_db:
+        return None
+    try:
+        import databento as _db
+    except ImportError:
+        return None
+    client = _db.Historical(key_db)
+
+    start = on_date - timedelta(days=1)
+    end = on_date + timedelta(days=1)
+    try:
+        df = client.timeseries.get_range(
+            dataset=dataset, symbols=parent, stype_in="parent",
+            schema="ohlcv-1d",
+            start=start.isoformat(), end=end.isoformat(),
+        ).to_df()
+    except Exception as e:
+        logger.warning(f"front-month back-resolve {parent}@{on_date}: {e}")
+        return None
+    if df is None or df.empty or "symbol" not in df.columns:
+        return None
+    single = df[df["symbol"].astype(str).str.match(_RAW_CONTRACT_RE)]
+    if single.empty:
+        return None
+    raw = str(single.groupby("symbol")["volume"].sum().idxmax())
+    _alert_front_cache[key] = raw
+    return raw
+
 # Forward horizons (minutes) at which to record return + extremes.
 HORIZONS_MIN: tuple[int, ...] = (60, 240)
 
@@ -47,8 +115,14 @@ TARGET_ATR: float = 1.0
 STOP_ATR:   float = 1.0
 
 # Long-bias labels (alert implies buyer-favored move ahead).
-LONG_LABELS = {"buyer_absorption", "bullish_trap", "possible_reversal"}
-SHORT_LABELS = {"seller_absorption", "bearish_trap"}
+LONG_LABELS = {
+    "buyer_absorption", "bullish_trap", "possible_reversal",
+    "sweep_buy", "block_buy", "iceberg_buy",
+}
+SHORT_LABELS = {
+    "seller_absorption", "bearish_trap",
+    "sweep_sell", "block_sell", "iceberg_sell",
+}
 
 OUTCOMES_PATH = of_cfg.OF_OUTPUT_DIR / "alert_outcomes.jsonl"
 ALERTS_PATH   = of_cfg.OF_OUTPUT_DIR / "alerts.jsonl"
@@ -74,7 +148,48 @@ def _completed_alert_ids() -> set[str]:
     return {r.get("alert_id") for r in _load_jsonl(OUTCOMES_PATH) if r.get("alert_id")}
 
 
+def _fetch_bars_databento(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
+    """Pull 1m OHLCV for a CME contract from Databento Historical."""
+    key = os.getenv("DATABENTO_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("DATABENTO_API_KEY not set")
+    try:
+        import databento as db
+    except ImportError:
+        raise RuntimeError("databento package not installed")
+    client = db.Historical(key)
+    data = client.timeseries.get_range(
+        dataset="GLBX.MDP3", symbols=symbol, stype_in="raw_symbol",
+        schema="ohlcv-1m",
+        start=start.isoformat(), end=end.isoformat(),
+    )
+    df = data.to_df()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df.index = pd.to_datetime(df.index).tz_convert("UTC")
+    df = df.rename(columns={"open": "Open", "high": "High", "low": "Low",
+                            "close": "Close", "volume": "Volume"})
+    return df[["Open", "High", "Low", "Close", "Volume"]].sort_index()
+
+
 def _fetch_bars(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
+    # Route by symbol shape so futures don't get slammed against Alpaca.
+    if _FUT_RAW_RE.match(symbol):
+        return _fetch_bars_databento(symbol, start, end)
+    m = _YF_FUT_RE.match(symbol)
+    if m:
+        root = m.group(1)
+        parent_info = _YF_ROOT_TO_PARENT.get(root)
+        if not parent_info:
+            return pd.DataFrame()
+        parent, dataset = parent_info
+        # Back-resolve the contract that was front-month on the alert date.
+        on_date = start.date()
+        raw = _resolve_front_at(parent, dataset, on_date)
+        if not raw:
+            return pd.DataFrame()
+        return _fetch_bars_databento(raw, start, end)
+
     key    = os.getenv("ALPACA_KEY", "").strip()
     secret = os.getenv("ALPACA_SECRET", "").strip()
     if not key or not secret:
@@ -218,23 +333,30 @@ def _settle_pending(min_age_minutes: int = 240) -> int:
         return 0
 
     written = 0
+    skipped_unsupported = 0
     OUTCOMES_PATH.parent.mkdir(parents=True, exist_ok=True)
     with OUTCOMES_PATH.open("a") as f:
         for a in pending:
+            sym = a.get("symbol", "")
+            aid = a.get("id", "")
             try:
                 ts = pd.Timestamp(a["timestamp_utc"])
                 start = ts - pd.Timedelta(minutes=5)
                 end   = ts + pd.Timedelta(minutes=max(HORIZONS_MIN) + 30)
-                bars = _fetch_bars(a["symbol"], start.to_pydatetime(), end.to_pydatetime())
+                bars = _fetch_bars(sym, start.to_pydatetime(), end.to_pydatetime())
                 outcome = _compute_outcome(a, bars)
                 if outcome is None:
                     continue
                 f.write(json.dumps(outcome) + "\n")
                 written += 1
             except Exception as e:
-                logger.warning(f"outcome compute failed {a.get('id')}: {e}")
+                logger.warning(f"outcome compute failed {aid}: {e}")
     if written:
         logger.info(f"outcome_tracker: settled {written} alerts")
+    if skipped_unsupported:
+        logger.info(
+            f"outcome_tracker: skipped {skipped_unsupported} legacy futures alerts"
+        )
     return written
 
 
@@ -280,6 +402,81 @@ def rolling_stats(window_days: int = 7) -> dict:
         "expectancy_atr":  round(exp, 4),
         "window_days":     window_days,
     }
+
+
+def stats_by_label(window_days: int = 30) -> dict:
+    """Group outcomes by label, compute per-detector win rate / expectancy / R-curve."""
+    rows = _load_jsonl(OUTCOMES_PATH)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    keep = []
+    for r in rows:
+        try:
+            ts = pd.Timestamp(r["alert_ts"]).to_pydatetime()
+        except Exception:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts >= cutoff:
+            keep.append(r)
+
+    by_label: dict[str, list] = {}
+    for r in keep:
+        by_label.setdefault(r.get("label", "?"), []).append(r)
+
+    out = {"window_days": window_days, "labels": {}}
+    for label, group in by_label.items():
+        wins   = sum(1 for r in group if r["outcome"] == "win")
+        losses = sum(1 for r in group if r["outcome"] == "loss")
+        neutral = sum(1 for r in group if r["outcome"] == "neutral")
+        decisive = wins + losses
+        win_rate = wins / decisive if decisive else 0.0
+        exp = sum(
+            TARGET_ATR if r["outcome"] == "win" else
+            -STOP_ATR  if r["outcome"] == "loss" else
+            r.get("max_fav_atr", 0) + r.get("max_adv_atr", 0)
+            for r in group
+        ) / len(group) if group else 0
+        out["labels"][label] = {
+            "count": len(group), "wins": wins, "losses": losses, "neutral": neutral,
+            "win_rate": round(win_rate, 4),
+            "expectancy_atr": round(exp, 4),
+            "total_R": round(wins * TARGET_ATR - losses * STOP_ATR, 2),
+        }
+    return out
+
+
+def equity_curve(window_days: int = 30) -> dict:
+    """Cumulative R-multiple curve assuming 1R risk per trade. Win=+TARGET_ATR,
+    loss=-STOP_ATR, neutral=close-to-close in ATR."""
+    rows = _load_jsonl(OUTCOMES_PATH)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    series: list[dict] = []
+    cum = 0.0
+    for r in rows:
+        try:
+            ts = pd.Timestamp(r["alert_ts"]).to_pydatetime()
+        except Exception:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts < cutoff:
+            continue
+        if r["outcome"] == "win":
+            r_pnl = TARGET_ATR
+        elif r["outcome"] == "loss":
+            r_pnl = -STOP_ATR
+        else:
+            r_pnl = float(r.get("max_fav_atr", 0)) + float(r.get("max_adv_atr", 0))
+        cum += r_pnl
+        series.append({
+            "ts":    r["alert_ts"],
+            "label": r.get("label"),
+            "sym":   r.get("symbol"),
+            "r":     round(r_pnl, 4),
+            "cum":   round(cum, 4),
+            "outcome": r["outcome"],
+        })
+    return {"window_days": window_days, "trades": series, "final_R": round(cum, 4)}
 
 
 # ── background loop ─────────────────────────────────────────────────────────

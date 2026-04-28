@@ -29,6 +29,29 @@ OF_TIMEFRAMES: list[str] = _get("ORDER_FLOW_TIMEFRAMES", ["5m", "15m", "1h", "1d
 OF_LOOKBACK_DAYS: int = _get("ORDER_FLOW_LOOKBACK_DAYS", 180)
 OF_ANCHOR_TF: str     = _get("ORDER_FLOW_ANCHOR_TF", "15m")
 
+# Databento real-time adapter (CME futures). Auto-started by dashboard
+# register() when OF_DATABENTO_ENABLED is truthy. Symbols accept either
+# raw contracts (`GCM6`) or parent tokens (`ES.FUT`, `GC.FUT`) which auto-
+# resolve to the most-active front-month at startup.
+#
+# Multi-symbol via OF_DATABENTO_SYMBOLS (comma-separated). The singular
+# OF_DATABENTO_SYMBOL is kept as a fallback for older configs.
+OF_DATABENTO_ENABLED: bool = bool(int(os.getenv("OF_DATABENTO_ENABLED", "0")))
+OF_DATABENTO_SYMBOL: str   = os.getenv("OF_DATABENTO_SYMBOL", "GCM6")
+OF_DATABENTO_SYMBOLS: list[str] = [
+    s.strip() for s in os.getenv(
+        "OF_DATABENTO_SYMBOLS", OF_DATABENTO_SYMBOL
+    ).split(",") if s.strip()
+]
+OF_DATABENTO_TF: str       = os.getenv("OF_DATABENTO_TF", "1m")
+# Multi-TF feed — comma-separated. Each (symbol, tf) gets its own poll thread
+# + tail bucket. Falls back to OF_DATABENTO_TF if unset.
+OF_DATABENTO_TFS: list[str] = [
+    s.strip() for s in os.getenv(
+        "OF_DATABENTO_TFS", OF_DATABENTO_TF
+    ).split(",") if s.strip()
+]
+
 # yfinance window caps per interval — enforced by data_loader.
 YF_INTRADAY_CAPS: dict[str, int] = {
     "1m":  7,
@@ -90,7 +113,7 @@ for _d in (OF_OUTPUT_DIR, OF_RAW_DIR, OF_PROCESSED_DIR, OF_MODELS_DIR):
 # 0.25 produced +$0.84/trade with-stop expectancy vs −$0.42 at 0.4. Catches
 # more setups for R1/R2; absorption/trap thresholds stay tighter so quality
 # rules don't over-fire. Re-tune when live real-flow data lands.
-RULE_DELTA_DOMINANCE   = 0.25
+RULE_DELTA_DOMINANCE   = 0.30   # retuned 2026-04-28 on ESM6/Databento 30d (was 0.25)
 RULE_ABSORPTION_DELTA  = 0.5
 RULE_TRAP_DELTA        = 0.3
 RULE_SR_ATR_MULT       = 0.5   # "near S/R" window in ATR multiples

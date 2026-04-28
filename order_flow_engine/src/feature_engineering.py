@@ -164,8 +164,16 @@ def add_sr_features(df: pd.DataFrame, lookback: int | None = None) -> pd.DataFra
     out["recent_low"]  = recent_low
 
     atr_safe = out["atr"].replace(0, np.nan)
-    out["dist_to_recent_high"] = (recent_high - out["Close"]).abs()
-    out["dist_to_recent_low"]  = (out["Close"] - recent_low).abs()
+    # Directional distance — only valid when close is on the inside of the
+    # level. Once price closes above recent_high it has broken through, so
+    # "near resistance" is no longer the right framing; same for breakdowns
+    # below recent_low. We mask those rows to NaN here so the absorption rules
+    # (R3 / R4) don't fire post-breakout. NaN gets replaced with the _FAR
+    # sentinel below to keep the model frame numeric.
+    diff_high = recent_high - out["Close"]   # > 0 below resistance
+    diff_low  = out["Close"] - recent_low    # > 0 above support
+    out["dist_to_recent_high"] = diff_high.where(diff_high >= 0)
+    out["dist_to_recent_low"]  = diff_low.where(diff_low  >= 0)
     # Use a large finite sentinel (not inf) so downstream sklearn/xgb accept
     # the frame without special handling. 99 ATR multiples is effectively
     # "not near" without polluting numerics.

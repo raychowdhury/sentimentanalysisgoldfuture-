@@ -90,12 +90,37 @@ def apply_rules(df: pd.DataFrame) -> pd.DataFrame:
         (dr < -of_cfg.RULE_TRAP_DELTA)
     ).fillna(False)
 
-    # R7 — rolling correlation between CVD z and price. Strongly negative
-    # means flow disagrees with trend.
+    # R7 — rolling correlation between CVD-z and *bar returns* (not raw price).
+    # Correlating against price levels mostly tracks the underlying trend, so
+    # a strong trend with rising CVD would never fire even though CVD is just
+    # following the trend. Using returns isolates per-bar agreement: negative
+    # correlation = flow consistently disagrees with bar direction = real
+    # divergence.
     w = of_cfg.RULE_CVD_CORR_WINDOW
-    corr = out["cvd_z"].rolling(w, min_periods=w).corr(close)
+    ret = close.pct_change()
+    corr = out["cvd_z"].rolling(w, min_periods=w).corr(ret)
     out["cvd_price_corr"] = corr
     out["r7_cvd_divergence"] = (corr < of_cfg.RULE_CVD_CORR_THRESH).fillna(False)
+
+    # Per-bar trade direction for possible_reversal: r1 → fade buy (-1),
+    # r2 → fade sell (+1), r7-only → follow CVD slope sign (price will
+    # likely revert toward the flow). Stored so backtester / outcome tracker
+    # don't have to re-derive direction from delta_ratio (which is undefined
+    # for r7-only fires).
+    # Compose direction without boolean-mask Series assignment — live ingest
+    # frames can carry duplicate timestamps which break .loc[mask] = Series
+    # alignment with "cannot reindex on an axis with duplicate labels".
+    r1 = out["r1_buyer_down"].fillna(False).to_numpy()
+    r2 = out["r2_seller_up"].fillna(False).to_numpy()
+    r7 = out["r7_cvd_divergence"].fillna(False).to_numpy()
+    cvd_slope = out["cvd_z"].diff(w).fillna(0.0).to_numpy()
+    r7_dir = np.sign(cvd_slope).astype(int)
+    r7_only = r7 & ~r1 & ~r2
+    direction = np.zeros(len(out), dtype=int)
+    direction[r1] = -1
+    direction[r2] = +1
+    direction[r7_only] = r7_dir[r7_only]
+    out["reversal_direction"] = direction
 
     # Aggregations
     bool_block = out[ALL_RULE_COLS].astype(bool)

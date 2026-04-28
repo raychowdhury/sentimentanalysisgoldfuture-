@@ -3,14 +3,16 @@ Market data fetcher.
 
 Pulls daily OHLCV for the market factors. Primary source is yfinance
 (gold, DXY, VIX). FRED (public CSV endpoint, no key) supplies real-yield
-series; FRED sources override same-named entries in MARKET_SYMBOLS.
+series. Databento (CME Globex MDP3) supplies tick-accurate futures.
+
+Override precedence (highest wins): Databento > FRED > yfinance.
 """
 
 import pandas as pd
 import yfinance as yf
 
 import config
-from market import fred_fetcher
+from market import databento_fetcher, fred_fetcher
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -85,15 +87,34 @@ def fetch_all(lookback_days: int | None = None) -> dict[str, pd.DataFrame | None
     result: dict[str, pd.DataFrame | None] = {}
 
     fred_symbols = getattr(config, "FRED_SYMBOLS", {})
+    databento_symbols = getattr(config, "DATABENTO_SYMBOLS", {})
 
     for name, symbol in config.MARKET_SYMBOLS.items():
-        if name in fred_symbols:
-            continue  # FRED wins
+        if name in databento_symbols or name in fred_symbols:
+            continue  # higher-precedence source wins
         logger.info(f"Fetching {name} ({symbol})")
         result[name] = fetch_series(symbol, days)
 
     for name, series_id in fred_symbols.items():
+        if name in databento_symbols:
+            continue  # Databento wins
         logger.info(f"Fetching {name} (FRED {series_id})")
         result[name] = fred_fetcher.fetch_series(series_id, days)
+
+    for name, spec in databento_symbols.items():
+        if isinstance(spec, str):
+            logger.info(f"Fetching {name} (Databento {spec})")
+            result[name] = databento_fetcher.fetch_series(spec, days)
+            continue
+        symbol  = spec["symbol"]
+        dataset = spec.get("dataset", "GLBX.MDP3")
+        stype   = spec.get("stype", "continuous")
+        logger.info(f"Fetching {name} (Databento {symbol} / {dataset} / {stype})")
+        if stype == "front_month_parent":
+            result[name] = databento_fetcher.fetch_front_month_daily(
+                symbol, days, dataset=dataset)
+        else:
+            result[name] = databento_fetcher.fetch_series(
+                symbol, days, dataset=dataset, stype_in=stype)
 
     return result

@@ -1,5 +1,7 @@
 # config.py — Central configuration for NewsSentimentScanner + Gold Bias Engine
 
+import os
+
 # ── RSS / News ────────────────────────────────────────────────────────────────
 RSS_QUERIES: list[str] = [
     "gold price",
@@ -212,6 +214,21 @@ FRED_SYMBOLS: dict[str, str] = {
     "yield_10y":         "DFII10",  # 10Y TIPS real yield (replaces ^TNX)
     "nominal_yield_10y": "DGS10",   # kept for a future breakeven-inflation factor
 }
+
+# Databento futures sources. Value can be either:
+#   • a string  → legacy: GLBX.MDP3 dataset, continuous stype, e.g. "GC.c.0"
+#   • a dict    → {"symbol": ..., "dataset": ..., "stype": "continuous"
+#                  | "front_month_parent"}
+# A Databento entry sharing a name with MARKET_SYMBOLS or FRED_SYMBOLS
+# overrides those entries. Requires DATABENTO_API_KEY.
+DATABENTO_SYMBOLS: dict = {
+    "gold": "GC.c.0",   # COMEX gold front-month continuous (replaces GC=F)
+    "dxy":  {           # ICE Dollar Index front-month (replaces DX-Y.NYB)
+        "symbol":  "DX.FUT",
+        "dataset": "IFUS.IMPACT",
+        "stype":   "front_month_parent",
+    },
+}
 MARKET_LOOKBACK_DAYS: int  = 90   # fetch 90 days → ~63 trading days (enough for EMA50)
 RETURN_WINDOW_DAYS: int    = 5    # n-day return for trend detection
 EMA_SHORT: int             = 20
@@ -423,7 +440,7 @@ TIMEFRAME_PROFILES: dict[str, dict] = {
 # trade-by-trade buy/sell flow (proxy_mode=False) versus yfinance candle
 # proxy. ES=F is more liquid but free streaming requires IBKR/Tradovate.
 ORDER_FLOW_ENABLED: bool         = True
-ORDER_FLOW_SYMBOL: str           = "SPY"
+ORDER_FLOW_SYMBOL: str           = os.getenv("ORDER_FLOW_SYMBOL", "SPY")
 ORDER_FLOW_TIMEFRAMES: list[str] = ["5m", "15m", "1h", "1d"]
 ORDER_FLOW_LOOKBACK_DAYS: int    = 180
 # 15m anchor outperformed 5m and 1h in the param-sweep (180d, SPY yfinance

@@ -19,13 +19,18 @@ via SSE so the dashboard never has to poll the JSON file.
 from __future__ import annotations
 
 import json
+import os
 import queue as _queue
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 from order_flow_engine.src import alert_store, config as of_cfg, ingest
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def _load_alerts(limit: int = 1000) -> list[dict]:
@@ -60,13 +65,19 @@ def _proxy_mode_flag(alerts: list[dict]) -> bool:
 
 def _source_status() -> dict:
     """Inspect which real-time adapters are running so the banner can be honest."""
-    out = {"alpaca_running": False, "alpaca_symbol": None,
-           "poll_running": False}
+    out = {"poll_running": False,
+           "databento_running": False, "databento_symbol": None,
+           "databento_bars": 0, "databento_last_ts": None,
+           "databento_feeds": []}
     try:
-        from order_flow_engine.src import realtime_alpaca as ra
-        s = ra.status()
-        out["alpaca_running"] = bool(s.get("running"))
-        out["alpaca_symbol"]  = s.get("symbol")
+        from order_flow_engine.src import realtime_databento as rd
+        s = rd.status()
+        out["databento_running"]  = bool(s.get("running"))
+        out["databento_symbol"]   = s.get("symbol")
+        out["databento_bars"]     = int(s.get("bars_ingested") or 0)
+        last_ts = s.get("last_ts")
+        out["databento_last_ts"]  = str(last_ts) if last_ts is not None else None
+        out["databento_feeds"]    = list(s.get("feeds") or [])
     except Exception:
         pass
     try:
@@ -93,12 +104,52 @@ def register(app: Flask) -> None:
     except Exception:
         pass
 
+    # Auto-start Databento intraday adapter if enabled — feeds CME futures
+    # bars into the engine. Live SDK (OF_DATABENTO_LIVE=1) streams trades
+    # tick-by-tick; otherwise Historical poll runs at 60s/900s cadence.
+    if of_cfg.OF_DATABENTO_ENABLED:
+        try:
+            if int(os.getenv("OF_DATABENTO_LIVE", "0")):
+                from order_flow_engine.src import realtime_databento_live as rdl
+                ok = rdl.start(list(of_cfg.OF_DATABENTO_SYMBOLS))
+                logger.info(f"Databento Live SDK auto-start: {'ok' if ok else 'noop'}")
+            else:
+                from order_flow_engine.src import realtime_databento as rd
+                specs = [(s, tf)
+                         for s in of_cfg.OF_DATABENTO_SYMBOLS
+                         for tf in of_cfg.OF_DATABENTO_TFS]
+                n = rd.start_many(specs)
+                logger.info(f"Databento auto-start: {n}/{len(specs)} feeds running")
+        except Exception as e:
+            logger.warning(f"Databento auto-start failed: {e}")
+
     @app.route("/order-flow")
     def order_flow_view():  # pragma: no cover — exercised end-to-end
         from order_flow_engine.src import backtester as _bt
         alerts = _load_alerts()
         alerts_desc = list(reversed(alerts))[:50]
         latest = alerts_desc[0] if alerts_desc else None
+        latest_bar = None
+        if latest:
+            try:
+                latest_bar = ingest.get_latest_bar(
+                    latest.get("symbol"), latest.get("timeframe"))
+            except Exception:
+                latest_bar = None
+        if latest_bar is None:
+            for _sym in ("GCM6", "ESM6", "NQM6", "CLM6"):
+                for _tf in ("1m", "15m"):
+                    try:
+                        b = ingest.get_latest_bar(_sym, _tf)
+                    except Exception:
+                        b = None
+                    if b:
+                        latest_bar = b
+                        latest_bar["_symbol"] = _sym
+                        latest_bar["_tf"] = _tf
+                        break
+                if latest_bar:
+                    break
         engine_config = {
             "symbol":           of_cfg.OF_SYMBOL,
             "anchor_tf":        of_cfg.OF_ANCHOR_TF,
@@ -120,6 +171,7 @@ def register(app: Flask) -> None:
             alert_min_conf=of_cfg.OF_ALERT_MIN_CONF,
             alerts=alerts_desc,
             latest=latest,
+            latest_bar=latest_bar,
             proxy_mode=_proxy_mode_flag(alerts),
             source=_source_status(),
             engine_config=engine_config,
@@ -228,79 +280,6 @@ def register(app: Flask) -> None:
     def order_flow_poll_status():  # pragma: no cover
         return jsonify(ingest.poll_status())
 
-    @app.route("/api/order-flow/alpaca/start", methods=["POST"])
-    def order_flow_alpaca_start():  # pragma: no cover
-        body = request.get_json(force=True, silent=True) or {}
-        from order_flow_engine.src import realtime_alpaca as ra
-        started = ra.start_thread(
-            symbol=str(body.get("symbol", "SPY")).upper(),
-            tf=str(body.get("tf", "1m")),
-        )
-        return jsonify({"started": started, **ra.status()})
-
-    @app.route("/api/order-flow/alpaca/status")
-    def order_flow_alpaca_status():  # pragma: no cover
-        from order_flow_engine.src import realtime_alpaca as ra
-        return jsonify(ra.status())
-
-    # ── IBKR adapter ───────────────────────────────────────────────
-    @app.route("/api/order-flow/ibkr/start", methods=["POST"])
-    def order_flow_ibkr_start():  # pragma: no cover
-        body = request.get_json(force=True, silent=True) or {}
-        from order_flow_engine.src import realtime_ibkr as rb
-        started = rb.start_thread(
-            symbol=str(body.get("symbol", "ES")).upper(),
-            tf=str(body.get("tf", of_cfg.OF_ANCHOR_TF)),
-            host=str(body.get("host", "127.0.0.1")),
-            port=int(body.get("port", 7497)),
-            client_id=int(body.get("client_id", 42)),
-        )
-        return jsonify({"started": started, **rb.status()})
-
-    @app.route("/api/order-flow/ibkr/status")
-    def order_flow_ibkr_status():  # pragma: no cover
-        from order_flow_engine.src import realtime_ibkr as rb
-        return jsonify(rb.status())
-
-    @app.route("/api/order-flow/ibkr/stop", methods=["POST"])
-    def order_flow_ibkr_stop():  # pragma: no cover
-        from order_flow_engine.src import realtime_ibkr as rb
-        rb.stop()
-        return jsonify({"stopped": True, **rb.status()})
-
-    # ── TradingView webhook ────────────────────────────────────────
-    @app.route("/api/order-flow/tv/<secret>", methods=["POST"])
-    def order_flow_tv_webhook(secret):  # pragma: no cover
-        from order_flow_engine.src import tv_webhook as tv
-        if secret != tv.SECRET:
-            return jsonify({"error": "bad secret"}), 403
-        # TV may send body as string or JSON; pull raw and let handler decide.
-        raw = request.get_data(as_text=True)
-        try:
-            payload = request.get_json(force=True, silent=True)
-            if payload is None:
-                payload = raw
-        except Exception:
-            payload = raw
-        status, body = tv.handle(payload)
-        return jsonify(body), status
-
-    @app.route("/api/order-flow/tv/info")
-    def order_flow_tv_info():  # pragma: no cover
-        from order_flow_engine.src import tv_webhook as tv
-        public = request.args.get("host") or request.host_url.rstrip("/")
-        return jsonify({
-            "webhook_url":    f"{public}/api/order-flow/tv/{tv.SECRET}",
-            "secret":         tv.SECRET,
-            "payload_template": tv.example_payload(),
-            "interval_map":   tv.TV_INTERVAL_MAP,
-        })
-
-    @app.route("/api/order-flow/tv/recent")
-    def order_flow_tv_recent():  # pragma: no cover
-        from order_flow_engine.src import tv_webhook as tv
-        return jsonify(tv.recent_hits())
-
     @app.route("/api/order-flow/notifiers")
     def order_flow_notifiers():  # pragma: no cover
         from order_flow_engine.src import notifier
@@ -325,6 +304,432 @@ def register(app: Flask) -> None:
             "selected":    outcome_tracker.rolling_stats(window),
             "tracker":     outcome_tracker.status(),
         })
+
+    @app.route("/api/order-flow/outcomes/by-label")
+    def order_flow_outcomes_by_label():  # pragma: no cover
+        from order_flow_engine.src import outcome_tracker
+        try:
+            window = int(request.args.get("days", 30))
+        except Exception:
+            window = 30
+        return jsonify(outcome_tracker.stats_by_label(window))
+
+    @app.route("/trader-desk")
+    def trader_desk_view():  # pragma: no cover
+        return render_template("trader_desk.html")
+
+    PAPER_ORDERS_PATH    = of_cfg.OF_OUTPUT_DIR / "paper_orders.jsonl"
+    PAPER_POSITIONS_PATH = of_cfg.OF_OUTPUT_DIR / "paper_positions.json"
+    PAPER_RISK_PATH      = of_cfg.OF_OUTPUT_DIR / "paper_risk.json"
+
+    # Contract multipliers for PnL ($ per point)
+    _CONTRACT_MULT = {"ESM6": 50, "NQM6": 20, "GCM6": 100, "CLM6": 1000}
+
+    def _load_paper_orders() -> list[dict]:
+        if not PAPER_ORDERS_PATH.exists():
+            return []
+        rows = []
+        with PAPER_ORDERS_PATH.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try: rows.append(json.loads(line))
+                except Exception: continue
+        return rows
+
+    def _load_positions() -> dict:
+        if not PAPER_POSITIONS_PATH.exists():
+            return {"positions": {}, "realized_pnl": 0.0, "trades_today": 0}
+        try:
+            return json.loads(PAPER_POSITIONS_PATH.read_text())
+        except Exception:
+            return {"positions": {}, "realized_pnl": 0.0, "trades_today": 0}
+
+    def _save_positions(state: dict) -> None:
+        PAPER_POSITIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PAPER_POSITIONS_PATH.write_text(json.dumps(state, indent=2))
+
+    def _load_risk() -> dict:
+        defaults = {"max_qty": 10, "daily_loss_limit": 1000.0, "trading_enabled": True}
+        if not PAPER_RISK_PATH.exists():
+            return defaults
+        try:
+            saved = json.loads(PAPER_RISK_PATH.read_text())
+            return {**defaults, **saved}
+        except Exception:
+            return defaults
+
+    def _save_risk(risk: dict) -> None:
+        PAPER_RISK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PAPER_RISK_PATH.write_text(json.dumps(risk, indent=2))
+
+    def _apply_fill(state: dict, symbol: str, side: str, qty: int,
+                    fill_price: float) -> dict:
+        """Update positions on a fill. Returns realized pnl from this fill (if any)."""
+        mult = _CONTRACT_MULT.get(symbol, 1)
+        positions = state.setdefault("positions", {})
+        pos = positions.get(symbol) or {"qty": 0, "avg": 0.0}
+        signed = qty if side == "buy" else -qty
+        old_qty = pos["qty"]
+        new_qty = old_qty + signed
+        realized = 0.0
+        if old_qty == 0 or (old_qty > 0 and signed > 0) or (old_qty < 0 and signed < 0):
+            # Opening or adding — weighted avg
+            total = pos["avg"] * abs(old_qty) + fill_price * abs(signed)
+            pos["avg"] = total / max(1, abs(old_qty) + abs(signed))
+            pos["qty"] = new_qty
+        else:
+            # Closing or reversing
+            closing_qty = min(abs(old_qty), abs(signed))
+            sign = 1 if old_qty > 0 else -1
+            realized = (fill_price - pos["avg"]) * closing_qty * sign * mult
+            state["realized_pnl"] = round(state.get("realized_pnl", 0.0) + realized, 2)
+            pos["qty"] = new_qty
+            if new_qty == 0:
+                pos["avg"] = 0.0
+            elif (old_qty > 0 and new_qty < 0) or (old_qty < 0 and new_qty > 0):
+                # Reversed — new avg = fill_price
+                pos["avg"] = fill_price
+        if pos["qty"] == 0:
+            positions.pop(symbol, None)
+        else:
+            pos["qty"] = int(pos["qty"])
+            positions[symbol] = pos
+        state["trades_today"] = int(state.get("trades_today", 0)) + 1
+        return realized
+
+    @app.route("/api/paper-orders", methods=["GET", "POST"])
+    def paper_orders():  # pragma: no cover
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            symbol = (body.get("symbol") or "").strip().upper()
+            side   = (body.get("side")   or "").strip().lower()
+            qty    = int(body.get("qty")  or 1)
+            otype  = (body.get("type")   or "MKT").upper()
+            limit  = body.get("limit_price")
+            stop   = body.get("stop_price")
+            target = body.get("target_price")
+            risk = _load_risk()
+            if not risk.get("trading_enabled", True):
+                return jsonify({"error": "trading disabled — daily loss limit reached"}), 400
+            if symbol not in _CONTRACT_MULT:
+                return jsonify({"error": "invalid symbol"}), 400
+            if side not in {"buy", "sell"}:
+                return jsonify({"error": "invalid side"}), 400
+            max_q = int(risk.get("max_qty", 10))
+            qty = max(1, min(qty, max_q))
+            last_bar = ingest.get_latest_bar(symbol, "1m")
+            fill_price = float((last_bar or {}).get("Close") or 0)
+            if otype == "LMT" and limit is not None:
+                fill_price = float(limit)
+            now = datetime.now(timezone.utc).isoformat()
+            state = _load_positions()
+            realized = _apply_fill(state, symbol, side, qty, fill_price)
+            # Loss-limit check (after fill)
+            if state.get("realized_pnl", 0.0) <= -float(risk.get("daily_loss_limit", 1000.0)):
+                risk["trading_enabled"] = False
+                _save_risk(risk)
+            _save_positions(state)
+            order = {
+                "id": f"po_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                "ts": now, "symbol": symbol, "side": side, "qty": qty,
+                "type": otype, "fill_price": round(fill_price, 4),
+                "stop_price":   float(stop) if stop is not None else None,
+                "target_price": float(target) if target is not None else None,
+                "realized_pnl": round(realized, 2),
+                "status": "filled",
+            }
+            PAPER_ORDERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with PAPER_ORDERS_PATH.open("a") as f:
+                f.write(json.dumps(order) + "\n")
+            try:
+                ingest._broadcast({"type": "paper_order", "order": order})
+            except Exception:
+                pass
+            return jsonify(order)
+        try: limit = int(request.args.get("limit", 50))
+        except Exception: limit = 50
+        rows = _load_paper_orders()[-limit:]
+        return jsonify(rows)
+
+    @app.route("/api/paper-positions", methods=["GET"])
+    def paper_positions():  # pragma: no cover
+        """Open positions + unrealized PnL (mark to last close) + account summary."""
+        state = _load_positions()
+        positions = state.get("positions", {})
+        unrealized = 0.0
+        out_pos = []
+        for sym, p in positions.items():
+            mult = _CONTRACT_MULT.get(sym, 1)
+            last_bar = ingest.get_latest_bar(sym, "1m")
+            last = float((last_bar or {}).get("Close") or p["avg"])
+            pnl = (last - p["avg"]) * p["qty"] * mult
+            unrealized += pnl
+            out_pos.append({
+                "symbol": sym, "qty": p["qty"], "avg": round(p["avg"], 4),
+                "last": round(last, 4),
+                "unrealized": round(pnl, 2),
+                "side": "long" if p["qty"] > 0 else "short",
+            })
+        risk = _load_risk()
+        return jsonify({
+            "positions": out_pos,
+            "realized_pnl":   round(state.get("realized_pnl", 0.0), 2),
+            "unrealized_pnl": round(unrealized, 2),
+            "total_pnl":      round(state.get("realized_pnl", 0.0) + unrealized, 2),
+            "trades_today":   state.get("trades_today", 0),
+            "open_count":     len(out_pos),
+            "risk":           risk,
+        })
+
+    @app.route("/api/paper-flatten", methods=["POST"])
+    def paper_flatten():  # pragma: no cover
+        """Close all open positions at current last price."""
+        state = _load_positions()
+        positions = dict(state.get("positions", {}))
+        closed = []
+        now = datetime.now(timezone.utc).isoformat()
+        for sym, p in positions.items():
+            if p["qty"] == 0:
+                continue
+            last_bar = ingest.get_latest_bar(sym, "1m")
+            fill_price = float((last_bar or {}).get("Close") or p["avg"])
+            close_side = "sell" if p["qty"] > 0 else "buy"
+            close_qty  = abs(p["qty"])
+            realized = _apply_fill(state, sym, close_side, close_qty, fill_price)
+            order = {
+                "id": f"po_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                "ts": now, "symbol": sym, "side": close_side, "qty": close_qty,
+                "type": "MKT", "fill_price": round(fill_price, 4),
+                "realized_pnl": round(realized, 2),
+                "status": "filled (flatten)",
+            }
+            PAPER_ORDERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with PAPER_ORDERS_PATH.open("a") as f:
+                f.write(json.dumps(order) + "\n")
+            closed.append(order)
+            try: ingest._broadcast({"type": "paper_order", "order": order})
+            except Exception: pass
+        _save_positions(state)
+        return jsonify({"closed": closed, "count": len(closed)})
+
+    @app.route("/api/paper-risk", methods=["GET", "POST"])
+    def paper_risk():  # pragma: no cover
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            risk = _load_risk()
+            if "max_qty" in body:
+                risk["max_qty"] = max(1, min(int(body["max_qty"]), 100))
+            if "daily_loss_limit" in body:
+                risk["daily_loss_limit"] = max(0.0, float(body["daily_loss_limit"]))
+            if "trading_enabled" in body:
+                risk["trading_enabled"] = bool(body["trading_enabled"])
+            _save_risk(risk)
+            return jsonify(risk)
+        return jsonify(_load_risk())
+
+    @app.route("/api/paper-reset", methods=["POST"])
+    def paper_reset():  # pragma: no cover
+        """Reset positions + realized PnL (keeps order history)."""
+        _save_positions({"positions": {}, "realized_pnl": 0.0, "trades_today": 0})
+        risk = _load_risk(); risk["trading_enabled"] = True
+        _save_risk(risk)
+        return jsonify({"ok": True})
+
+    AUTOTRADE_PATH = of_cfg.OF_OUTPUT_DIR / "autotrade_config.json"
+    JOURNAL_PATH   = of_cfg.OF_OUTPUT_DIR / "trade_journal.jsonl"
+
+    def _load_autotrade() -> dict:
+        defaults = {"enabled": False, "qty": 1, "atr_stop": 1.0, "atr_target": 1.0,
+                    "labels": {}}  # labels[label] = bool
+        if not AUTOTRADE_PATH.exists():
+            return defaults
+        try:
+            saved = json.loads(AUTOTRADE_PATH.read_text())
+            return {**defaults, **saved, "labels": {**defaults["labels"], **saved.get("labels", {})}}
+        except Exception:
+            return defaults
+
+    def _save_autotrade(cfg: dict) -> None:
+        AUTOTRADE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        AUTOTRADE_PATH.write_text(json.dumps(cfg, indent=2))
+
+    @app.route("/api/auto-trade", methods=["GET", "POST"])
+    def auto_trade_config():  # pragma: no cover
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            cfg = _load_autotrade()
+            for k in ("enabled",):
+                if k in body: cfg[k] = bool(body[k])
+            for k in ("qty",):
+                if k in body: cfg[k] = max(1, min(int(body[k]), 50))
+            for k in ("atr_stop", "atr_target"):
+                if k in body: cfg[k] = max(0.1, min(float(body[k]), 5.0))
+            if "labels" in body and isinstance(body["labels"], dict):
+                cfg["labels"] = {str(k): bool(v) for k, v in body["labels"].items()}
+            _save_autotrade(cfg)
+            return jsonify(cfg)
+        return jsonify(_load_autotrade())
+
+    @app.route("/api/trade-journal", methods=["GET", "POST"])
+    def trade_journal():  # pragma: no cover
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            entry = {
+                "ts":     datetime.now(timezone.utc).isoformat(),
+                "symbol": (body.get("symbol") or "").upper(),
+                "tags":   list(body.get("tags") or []),
+                "note":   str(body.get("note") or "")[:2000],
+                "ref":    body.get("ref"),  # order id / alert id
+            }
+            if not entry["note"].strip():
+                return jsonify({"error": "empty note"}), 400
+            JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with JOURNAL_PATH.open("a") as f:
+                f.write(json.dumps(entry) + "\n")
+            return jsonify(entry)
+        # GET — return recent
+        try: limit = int(request.args.get("limit", 50))
+        except Exception: limit = 50
+        if not JOURNAL_PATH.exists():
+            return jsonify([])
+        rows = []
+        with JOURNAL_PATH.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line: continue
+                try: rows.append(json.loads(line))
+                except Exception: continue
+        return jsonify(rows[-limit:])
+
+    # Background SSE listener — auto-trade on tape alerts when enabled.
+    def _autotrade_listener():
+        q = ingest.subscribe()
+        logger.info("autotrade listener started")
+        try:
+            while True:
+                try:
+                    evt = q.get(timeout=30)
+                except _queue.Empty:
+                    continue
+                if evt.get("type") != "alert":
+                    continue
+                a = evt.get("alert") or {}
+                cfg = _load_autotrade()
+                if not cfg.get("enabled"):
+                    continue
+                label = a.get("label", "")
+                if not cfg.get("labels", {}).get(label):
+                    continue
+                side = "buy" if label.endswith("_buy") else "sell" if label.endswith("_sell") else None
+                if not side:
+                    continue
+                symbol = a.get("symbol", "")
+                if symbol not in _CONTRACT_MULT:
+                    continue
+                price = float(a.get("price") or 0)
+                atr   = float(a.get("atr") or 0)
+                qty   = int(cfg.get("qty", 1))
+                stop  = price - (atr * cfg["atr_stop"]   * (+1 if side == "buy" else -1))
+                tgt   = price + (atr * cfg["atr_target"] * (+1 if side == "buy" else -1))
+                state = _load_positions()
+                _apply_fill(state, symbol, side, qty, price)
+                _save_positions(state)
+                order = {
+                    "id": f"po_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "symbol": symbol, "side": side, "qty": qty, "type": "MKT",
+                    "fill_price": round(price, 4),
+                    "stop_price": round(stop, 4) if atr > 0 else None,
+                    "target_price": round(tgt, 4) if atr > 0 else None,
+                    "realized_pnl": 0.0,
+                    "status": f"filled (auto · {label})",
+                }
+                with PAPER_ORDERS_PATH.open("a") as f:
+                    f.write(json.dumps(order) + "\n")
+                try: ingest._broadcast({"type": "paper_order", "order": order})
+                except Exception: pass
+                logger.info(f"AUTO-TRADE: {label} {symbol} {side} {qty}@{price}")
+        finally:
+            ingest.unsubscribe(q)
+
+    import threading as _threading
+    _threading.Thread(target=_autotrade_listener, daemon=True,
+                      name="autotrade-listener").start()
+
+    @app.route("/api/order-flow/backtest/list")
+    def order_flow_backtest_list():  # pragma: no cover
+        """List available tape-backtest reports."""
+        out_dir = of_cfg.OF_OUTPUT_DIR
+        reports = sorted(out_dir.glob("tape_backtest_*.json"),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+        return jsonify([
+            {"name": p.name, "mtime": p.stat().st_mtime, "size": p.stat().st_size}
+            for p in reports
+        ])
+
+    @app.route("/api/order-flow/backtest/load")
+    def order_flow_backtest_load():  # pragma: no cover
+        """Load a specific report or the latest one."""
+        out_dir = of_cfg.OF_OUTPUT_DIR
+        name = request.args.get("name", "").strip()
+        if name:
+            p = out_dir / name
+            if not p.exists() or not p.name.startswith("tape_backtest_"):
+                return jsonify({"error": "not found"}), 404
+        else:
+            files = sorted(out_dir.glob("tape_backtest_*.json"),
+                           key=lambda x: x.stat().st_mtime, reverse=True)
+            if not files:
+                return jsonify({"error": "no reports"}), 404
+            p = files[0]
+        try:
+            data = json.loads(p.read_text())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        # Compute top winners / losers across all symbols, then trim fire lists
+        all_fires = []
+        if "per_symbol" in data:
+            for sym, rep in data["per_symbol"].items():
+                fires = rep.get("fires") or []
+                for f in fires:
+                    if f.get("outcome") in ("win", "loss") and "r" in f:
+                        all_fires.append({**f, "symbol": sym})
+                if len(fires) > 100:
+                    rep["fires_total"] = len(fires)
+                    rep["fires_sample"] = fires[:100]
+                    del rep["fires"]
+        all_fires.sort(key=lambda x: float(x.get("r") or 0))
+        data["top_losses"]  = all_fires[:10]
+        data["top_winners"] = list(reversed(all_fires[-10:]))
+        return jsonify({"name": p.name, "mtime": p.stat().st_mtime, "report": data})
+
+    @app.route("/api/order-flow/backtest/run", methods=["POST"])
+    def order_flow_backtest_run():  # pragma: no cover
+        """Trigger a backtest run in the background. Returns immediately."""
+        import subprocess
+        import sys as _sys
+        symbol = (request.json or {}).get("symbol", "ALL")
+        days   = int((request.json or {}).get("days", 1))
+        if symbol.upper() != "ALL" and not symbol.replace("_", "").isalnum():
+            return jsonify({"error": "invalid symbol"}), 400
+        days = max(1, min(days, 14))
+        script = Path(__file__).resolve().parent.parent.parent / "scripts" / "backtest_tape_detectors.py"
+        cmd = [_sys.executable, str(script), "--symbol", symbol, "--days", str(days)]
+        # Fire-and-forget; the script writes the JSON file when done.
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         close_fds=True)
+        return jsonify({"started": True, "symbol": symbol, "days": days})
+
+    @app.route("/api/order-flow/outcomes/equity")
+    def order_flow_outcomes_equity():  # pragma: no cover
+        from order_flow_engine.src import outcome_tracker
+        try:
+            window = int(request.args.get("days", 30))
+        except Exception:
+            window = 30
+        return jsonify(outcome_tracker.equity_curve(window))
 
     @app.route("/api/order-flow/outcomes/recent")
     def order_flow_outcomes_recent():  # pragma: no cover

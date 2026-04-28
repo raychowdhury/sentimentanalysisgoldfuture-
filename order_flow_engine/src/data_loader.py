@@ -14,17 +14,21 @@ silently rather than erroring.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
-from market import data_fetcher
+from market import data_fetcher, databento_fetcher
 from utils.logger import setup_logger
 
 from order_flow_engine.src import config as of_cfg
 
 logger = setup_logger(__name__)
+
+# CME single-contract pattern (ESM6, GCM6, CLM6) — route to Databento.
+_FUT_RAW_RE = re.compile(r"^[A-Z]{1,3}[FGHJKMNQUVXZ]\d{1,2}$")
 
 TICK_COLS = {"bid_size", "ask_size", "trade_side"}
 OHLCV_COLS = {"Open", "High", "Low", "Close", "Volume"}
@@ -71,7 +75,15 @@ def fetch_ohlcv(
         except Exception as e:
             logger.warning(f"Cache read failed {cache}: {e} — refetching")
 
-    if timeframe in ("1d", "1D"):
+    is_futures_raw = bool(_FUT_RAW_RE.match(symbol))
+    if is_futures_raw:
+        # Databento route — yfinance doesn't recognise raw CME contracts.
+        if timeframe in ("1d", "1D"):
+            df = databento_fetcher.fetch_series(symbol, lookback_days,
+                                                stype_in="raw_symbol")
+        else:
+            df = databento_fetcher.fetch_intraday(symbol, timeframe, lookback_days)
+    elif timeframe in ("1d", "1D"):
         df = data_fetcher.fetch_series(symbol, lookback_days)
     else:
         period = _capped_period(timeframe, lookback_days)
