@@ -939,6 +939,419 @@ def api_futures_tape():
     return jsonify({"symbol": sym, "trades": raw, "p90_size": p90})
 
 
+@app.route("/api/futures/footprint-bars")
+def api_futures_footprint_bars():
+    """Per-bar footprint: OHLC + per-price-level buy/sell volumes from live tape.
+
+    Query: ?symbol=ESM6&tf=1m&n=20&tick=0.25
+    Returns: {symbol, tf, tick, real_flow, bars:[{ts,o,h,l,c,buy_total,
+              sell_total,delta,vol,levels:[{price,buy,sell}],poc}]}
+    """
+    from order_flow_engine.src import ingest, realtime_databento as rd
+    import pandas as pd
+
+    sym = request.args.get("symbol", "ESM6").strip().upper()
+    tf  = request.args.get("tf", "1m")
+    n   = max(2, min(int(request.args.get("n", 20)), 60))
+    tick = float(request.args.get("tick", 0.25) or 0.25)
+
+    bars = ingest.get_recent_bars(sym, tf, n)
+    if not bars:
+        return jsonify({"symbol": sym, "tf": tf, "tick": tick, "bars": [],
+                        "real_flow": False})
+
+    tape = rd.get_tape(sym, 500)
+    trades_df = pd.DataFrame(tape) if tape else pd.DataFrame(
+        columns=["ts", "price", "size", "side"]
+    )
+    if not trades_df.empty:
+        trades_df["ts"] = pd.to_datetime(trades_df["ts"], utc=True)
+
+    unit_min = {"m": 1, "h": 60, "d": 1440}.get(tf[-1], 1)
+    try:
+        bar_min = int(tf[:-1]) * unit_min
+    except Exception:
+        bar_min = 1
+    bar_td = pd.Timedelta(minutes=bar_min)
+
+    real_flow = all(b.get("buy_vol_real") is not None for b in bars)
+    out_bars = []
+    for b in bars:
+        ts_end = pd.Timestamp(b["ts"])
+        if ts_end.tzinfo is None:
+            ts_end = ts_end.tz_localize("UTC")
+        ts_start = ts_end - bar_td
+        hi, lo = float(b["High"]), float(b["Low"])
+        op = float(b.get("Open", b["Close"]))
+        cl = float(b["Close"])
+
+        # Aggregate trades that fall inside this bar window into price bins.
+        levels: dict[float, dict] = {}
+        if not trades_df.empty:
+            mask = (trades_df["ts"] > ts_start) & (trades_df["ts"] <= ts_end) \
+                   & (trades_df["price"] >= lo) & (trades_df["price"] <= hi)
+            sub = trades_df[mask]
+            for _, t in sub.iterrows():
+                p_bin = round(round(float(t["price"]) / tick) * tick, 4)
+                lv = levels.setdefault(p_bin, {"buy": 0.0, "sell": 0.0})
+                if t["side"] == "buy":
+                    lv["buy"]  += float(t["size"])
+                else:
+                    lv["sell"] += float(t["size"])
+
+        # Fallback: if no tape data inside window, distribute bar buy/sell
+        # evenly across the H-L range using OHLC proxy. Keeps chart usable.
+        if not levels:
+            n_bins = max(1, int(round((hi - lo) / tick)) + 1)
+            bvol = float(b.get("buy_vol_real") or 0)
+            svol = float(b.get("sell_vol_real") or 0)
+            if bvol == 0 and svol == 0:
+                vol = float(b.get("Volume") or 0)
+                clv = ((cl - lo) - (hi - cl)) / (hi - lo) if hi > lo else 0
+                bvol = vol * (1 + clv) / 2
+                svol = vol * (1 - clv) / 2
+            per_buy  = bvol / n_bins if n_bins else 0
+            per_sell = svol / n_bins if n_bins else 0
+            for i in range(n_bins):
+                p_bin = round(lo + i * tick, 4)
+                levels[p_bin] = {"buy": per_buy, "sell": per_sell}
+
+        lvl_list = sorted(
+            ({"price": p, "buy": round(v["buy"], 2), "sell": round(v["sell"], 2)}
+             for p, v in levels.items()),
+            key=lambda r: r["price"],
+        )
+        buy_total  = sum(l["buy"]  for l in lvl_list)
+        sell_total = sum(l["sell"] for l in lvl_list)
+        poc = max(lvl_list, key=lambda r: r["buy"] + r["sell"])["price"] \
+              if lvl_list else cl
+        out_bars.append({
+            "ts": ts_end.isoformat(),
+            "o": op, "h": hi, "l": lo, "c": cl,
+            "buy_total":  round(buy_total, 2),
+            "sell_total": round(sell_total, 2),
+            "delta":      round(buy_total - sell_total, 2),
+            "vol":        round(buy_total + sell_total, 2),
+            "levels":     lvl_list,
+            "poc":        poc,
+        })
+    return jsonify({"symbol": sym, "tf": tf, "tick": tick,
+                    "real_flow": real_flow, "bars": out_bars})
+
+
+_RAW_TO_PARENT = {
+    "ES": "ES.FUT", "NQ": "NQ.FUT", "GC": "GC.FUT", "SI": "SI.FUT",
+    "CL": "CL.FUT", "ZN": "ZN.FUT", "ZB": "ZB.FUT", "YM": "YM.FUT",
+    "RTY": "RTY.FUT",
+}
+_RAW_RE = __import__("re").compile(r"^([A-Z]{1,3})[FGHJKMNQUVXZ]\d{1,2}$")
+
+
+def _fetch_historical_trades(symbol: str, start_iso: str, end_iso: str) -> list[dict]:
+    """Pull raw trades from Databento Historical for [start, end] and apply
+    Lee–Ready tick-rule for aggressor side. Returns list[{ts,price,size,side}].
+
+    For windows > ~5 days, raw single-contract symbols (ESM6) miss volume from
+    prior front-month contracts. Auto-switch to parent (ES.FUT) with stype_in
+    parent so Databento aggregates the continuous front-month series.
+    """
+    import os
+    import pandas as pd
+    key = os.getenv("DATABENTO_API_KEY", "").strip()
+    if not key:
+        return []
+    try:
+        import databento as db
+    except ImportError:
+        return []
+
+    # Decide stype: parent for long windows on known contracts.
+    stype = "raw_symbol"
+    sym_query = symbol
+    try:
+        win_days = (pd.Timestamp(end_iso) - pd.Timestamp(start_iso)).days
+    except Exception:
+        win_days = 0
+    if win_days >= 5:
+        m = _RAW_RE.match(symbol)
+        if m and m.group(1) in _RAW_TO_PARENT:
+            sym_query = _RAW_TO_PARENT[m.group(1)]
+            stype = "parent"
+
+    # Long windows: trades schema returns millions of records → timeout.
+    # Fall back to ohlcv-1m + CLV split to synthesize per-trade buckets.
+    use_trades = win_days <= 2
+    schema = "trades" if use_trades else "ohlcv-1m"
+
+    import re as _re
+    _AVAIL_RE = _re.compile(r"data available up to '([^']+)'")
+    df = None
+    try:
+        client = db.Historical(key)
+        data = client.timeseries.get_range(
+            dataset="GLBX.MDP3", symbols=sym_query, stype_in=stype,
+            schema=schema, start=start_iso, end=end_iso,
+        )
+        df = data.to_df()
+    except Exception as e:
+        msg = str(e)
+        m = _AVAIL_RE.search(msg)
+        if m:
+            try:
+                avail_end = pd.Timestamp(m.group(1)).tz_convert("UTC").isoformat()
+                data = client.timeseries.get_range(
+                    dataset="GLBX.MDP3", symbols=sym_query, stype_in=stype,
+                    schema=schema, start=start_iso, end=avail_end,
+                )
+                df = data.to_df()
+            except Exception as e2:
+                from utils.logger import setup_logger
+                setup_logger(__name__).warning(
+                    f"historical {schema} {sym_query} retry: {e2}")
+                return []
+        else:
+            from utils.logger import setup_logger
+            setup_logger(__name__).warning(
+                f"historical {schema} {sym_query} ({stype}): {msg}")
+            return []
+    if df is None or df.empty:
+        return []
+
+    # ohlcv-1m path: synthesize trades from each 1m bar via CLV proxy
+    if not use_trades:
+        # Drop calendar-spread instruments (e.g. "ESM6-ESU6") returned by
+        # parent stype. Outright contract regex enforces single underlying.
+        if stype == "parent" and "symbol" in df.columns:
+            outright = df["symbol"].astype(str).str.match(r"^[A-Z]{1,3}[FGHJKMNQUVXZ]\d{1,2}$")
+            df = df[outright]
+            if df.empty:
+                return []
+            # Per minute, prefer the contract with most volume (front-month).
+            cols = {c.lower(): c for c in df.columns}
+            cv = cols.get("volume")
+            if cv:
+                df = df.reset_index()
+                ts_col = df.columns[0]
+                top = df.sort_values(cv, ascending=False).drop_duplicates(
+                    subset=[ts_col], keep="first")
+                df = top.set_index(ts_col).sort_index()
+
+        out = []
+        cols = {c.lower(): c for c in df.columns}
+        co, ch, cl, cc, cv = (cols.get("open"), cols.get("high"),
+                              cols.get("low"), cols.get("close"),
+                              cols.get("volume"))
+        # Sanity filter — drop any bar with implausible range (>5% of price).
+        # Catches spread junk ($55 lows on a $7000 contract).
+        for ts, row in df.iterrows():
+            o = float(row[co]); h = float(row[ch])
+            lo = float(row[cl]); c = float(row[cc])
+            v = float(row[cv]) if cv else 0.0
+            if v <= 0 or h <= lo:
+                continue
+            if h <= 0 or (h - lo) / h > 0.05:
+                continue
+            clv = ((c - lo) - (h - c)) / (h - lo)
+            buy_share  = max(0.0, min(1.0, (1 + clv) / 2))
+            sell_share = 1.0 - buy_share
+            ts_iso = pd.Timestamp(ts).tz_convert("UTC").isoformat()
+            out.append({"ts": ts_iso, "price": (o + c) / 2,
+                        "size": v * buy_share, "side": "buy"})
+            out.append({"ts": ts_iso, "price": (o + c) / 2,
+                        "size": v * sell_share, "side": "sell"})
+            out.append({"ts": ts_iso, "price": h, "size": 0.001, "side": "buy"})
+            out.append({"ts": ts_iso, "price": lo, "size": 0.001, "side": "sell"})
+        return out
+    if df is None or df.empty:
+        return []
+    df = df[["price", "size"]].copy()
+    df["price"] = df["price"].astype(float)
+    df["size"]  = df["size"].astype(float)
+    diff = df["price"].diff()
+    import pandas as pd
+    sign = pd.Series(0, index=df.index, dtype=int)
+    sign[diff > 0] = +1
+    sign[diff < 0] = -1
+    sign = sign.replace(0, pd.NA).ffill().fillna(+1).astype(int)
+    sides = ["buy" if s > 0 else "sell" for s in sign.to_numpy()]
+    out = []
+    for i, (ts, row) in enumerate(df.iterrows()):
+        out.append({
+            "ts":    pd.Timestamp(ts).tz_convert("UTC").isoformat(),
+            "price": float(row["price"]),
+            "size":  float(row["size"]),
+            "side":  sides[i],
+        })
+    return out
+
+
+@app.route("/api/futures/range-bars")
+def api_futures_range_bars():
+    """Range bars (price-excursion based, not time) with per-bar footprint
+    + aggregate VP. Source = live tape OR Databento historical when both
+    `start` and `end` provided (ISO 8601, UTC).
+
+    Query: ?symbol=ESM6&range=20&tick=0.25&maxbars=20&taken=2000
+           [&start=2026-04-28T13:30:00Z&end=2026-04-28T20:00:00Z]
+    """
+    from order_flow_engine.src import realtime_databento as rd
+
+    sym       = request.args.get("symbol", "ESM6").strip().upper()
+    rng_ticks = max(1, int(request.args.get("range", 20)))
+    tick      = float(request.args.get("tick", 0.25) or 0.25)
+    maxbars   = max(2, min(int(request.args.get("maxbars", 20)), 200))
+    offset    = max(0, int(request.args.get("offset", 0) or 0))
+    taken     = max(100, min(int(request.args.get("taken", 2000)), 5000))
+    start_iso = request.args.get("start", "").strip()
+    end_iso   = request.args.get("end", "").strip()
+
+    if start_iso and end_iso:
+        trades = _fetch_historical_trades(sym, start_iso, end_iso)
+        source = "historical"
+    else:
+        trades = rd.get_tape(sym, taken)
+        source = "live"
+    if not trades:
+        return jsonify({"symbol": sym, "range": rng_ticks, "tick": tick,
+                        "real_flow": False, "source": source,
+                        "start": start_iso or None, "end": end_iso or None,
+                        "bars": [],
+                        "profile": {"levels": [], "total_vol": 0,
+                                    "poc": None, "vah": None, "val": None}})
+
+    rng_dist = rng_ticks * tick
+    bars: list[dict] = []
+    cur: dict | None = None
+
+    def _init_bar(t):
+        p = float(t["price"])
+        return {
+            "ts_open":   t["ts"], "ts_close": t["ts"],
+            "o": p, "h": p, "l": p, "c": p,
+            "buy_total": 0.0, "sell_total": 0.0, "trades": 0,
+            "_levels": {},  # price-bin -> {buy, sell}
+        }
+
+    for t in trades:
+        if cur is None:
+            cur = _init_bar(t)
+        p = float(t["price"]); s = float(t["size"]); side = t.get("side", "buy")
+        if p > cur["h"]: cur["h"] = p
+        if p < cur["l"]: cur["l"] = p
+        cur["c"] = p
+        cur["ts_close"] = t["ts"]
+        cur["trades"] += 1
+        if side == "buy":
+            cur["buy_total"]  += s
+        else:
+            cur["sell_total"] += s
+        p_bin = round(round(p / tick) * tick, 4)
+        lv = cur["_levels"].setdefault(p_bin, {"buy": 0.0, "sell": 0.0})
+        if side == "buy":
+            lv["buy"]  += s
+        else:
+            lv["sell"] += s
+        if (cur["h"] - cur["l"]) >= rng_dist - 1e-9:
+            bars.append(cur)
+            cur = None
+
+    if cur is not None and cur["trades"] > 0:
+        bars.append(cur)
+
+    total_bars = len(bars)
+    # Window into the carved bars: offset = bars to skip from the most-recent
+    # end. offset=0 → latest N. offset=N → previous page.
+    end_idx = total_bars - offset
+    start_idx = max(0, end_idx - maxbars)
+    bars = bars[start_idx:end_idx]
+
+    def _compute_va(levels_sorted: list[dict], pct: float = 0.70):
+        """Return (poc, vah, val) using expand-toward-larger-side from POC
+        until cumulative volume >= pct * total."""
+        if not levels_sorted:
+            return None, None, None
+        totals = [(r["buy"] + r["sell"]) for r in levels_sorted]
+        tot = sum(totals)
+        if tot <= 0:
+            return None, None, None
+        poc_i = max(range(len(totals)), key=lambda i: totals[i])
+        target = tot * pct
+        lo = hi = poc_i
+        acc = totals[poc_i]
+        while acc < target and (lo > 0 or hi < len(totals) - 1):
+            up = totals[hi+1] if hi < len(totals) - 1 else -1
+            dn = totals[lo-1] if lo > 0 else -1
+            if up >= dn and hi < len(totals) - 1:
+                hi += 1; acc += totals[hi]
+            elif lo > 0:
+                lo -= 1; acc += totals[lo]
+            else:
+                break
+        return (levels_sorted[poc_i]["price"],
+                levels_sorted[hi]["price"],
+                levels_sorted[lo]["price"])
+
+    # Format bars + aggregate profile across visible window
+    profile_levels: dict[float, dict] = {}
+    out_bars = []
+    for b in bars:
+        lvls = sorted(
+            ({"price": p, "buy": round(v["buy"], 2), "sell": round(v["sell"], 2)}
+             for p, v in b["_levels"].items()),
+            key=lambda r: r["price"],
+        )
+        for r in lvls:
+            agg = profile_levels.setdefault(r["price"],
+                                            {"buy": 0.0, "sell": 0.0})
+            agg["buy"]  += r["buy"]
+            agg["sell"] += r["sell"]
+        vol = b["buy_total"] + b["sell_total"]
+        delta = b["buy_total"] - b["sell_total"]
+        poc, vah, val = _compute_va(lvls, 0.70)
+        if poc is None:
+            poc = b["c"]
+        out_bars.append({
+            "ts_open":    b["ts_open"], "ts_close": b["ts_close"],
+            "o": b["o"], "h": b["h"], "l": b["l"], "c": b["c"],
+            "buy_total":  round(b["buy_total"], 2),
+            "sell_total": round(b["sell_total"], 2),
+            "vol":        round(vol, 2),
+            "delta":      round(delta, 2),
+            "delta_pct":  round((delta / vol * 100) if vol > 0 else 0, 2),
+            "trades":     b["trades"],
+            "levels":     lvls,
+            "poc":        poc,
+            "vah":        vah,
+            "val":        val,
+        })
+
+    # Aggregate VP — sort + compute POC, VA70 (70% volume around POC)
+    prof_list = sorted(
+        ({"price": p, "buy": round(v["buy"], 2), "sell": round(v["sell"], 2),
+          "total": round(v["buy"] + v["sell"], 2)}
+         for p, v in profile_levels.items()),
+        key=lambda r: r["price"],
+    )
+    total_vol = sum(r["total"] for r in prof_list)
+    poc, vah, val = _compute_va(prof_list, 0.70)
+
+    return jsonify({
+        "symbol": sym, "range": rng_ticks, "tick": tick,
+        "real_flow": True, "source": source,
+        "start": start_iso or None, "end": end_iso or None,
+        "offset": offset, "total_bars": total_bars,
+        "has_older": start_idx > 0, "has_newer": offset > 0,
+        "bars": out_bars,
+        "profile": {"levels": prof_list, "total_vol": round(total_vol, 2),
+                    "poc": poc, "vah": vah, "val": val},
+    })
+
+
+@app.route("/footprint")
+def footprint_view():
+    return render_template("footprint_chart.html")
+
+
 @app.route("/api/futures/quotes")
 def api_futures_quotes():
     """Last-trade prices for futures contracts pulled from the engine's

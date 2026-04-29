@@ -61,7 +61,7 @@ _lock = threading.Lock()
 
 # Live trade tape — last N raw prints per symbol. Filled as a side-effect of
 # `_fetch_real_flow` so no extra Databento bandwidth is used.
-_TAPE_LEN = 500
+_TAPE_LEN = 5000
 _trade_tapes: dict[str, deque] = {}
 _last_tape_ts: dict[str, pd.Timestamp] = {}
 _tape_lock = threading.Lock()

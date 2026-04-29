@@ -135,7 +135,19 @@
       border:1px solid var(--border); padding:.15rem .5rem; border-radius:2px;
       font-size:.7rem; cursor:pointer; font-family:ui-monospace,monospace; }
     .td-chart-head .ctrls button.on { background:var(--info); color:#0a0e16; border-color:var(--info); }
-    #td-candles { width:100%; height:100%; flex:1; min-height:0; }
+    #td-candles { width:100%; flex:1.8 1 0; min-height:0; }
+    #td-cvd     { width:100%; flex:1   1 0; min-height:0; border-top:1px solid var(--border); }
+    .td-cvd-head {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:.25rem .6rem; background:var(--panel2); border-top:1px solid var(--border);
+      font-size:.65rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
+    }
+    .td-cvd-head .vals { display:flex; gap:.8rem; font-family:ui-monospace,monospace;
+      text-transform:none; letter-spacing:0; }
+    .td-cvd-head .vals .k { color:var(--muted); margin-right:.3rem; }
+    .td-cvd-head .vals .v { color:var(--ink); font-weight:700; }
+    .td-cvd-head .vals .pos { color:var(--buy); }
+    .td-cvd-head .vals .neg { color:var(--sell); }
 
     /* Orders / Activity */
     .td-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); }
@@ -333,6 +345,15 @@
       </div>
     </div>
     <svg id="td-candles" viewBox="0 0 800 360" preserveAspectRatio="none"></svg>
+    <div class="td-cvd-head">
+      <span>CVD · Δ histogram &amp; cumulative</span>
+      <span class="vals">
+        <span><span class="k">CVD</span><span class="v" id="td-cvd-last">—</span></span>
+        <span><span class="k">Δ</span><span class="v" id="td-cvd-delta">—</span></span>
+        <span><span class="k">flow</span><span class="v" id="td-cvd-mode">proxy</span></span>
+      </span>
+    </div>
+    <svg id="td-cvd" viewBox="0 0 800 200" preserveAspectRatio="none"></svg>
   </div>
 
   <!-- Watchlist -->
@@ -497,7 +518,111 @@
       const d = await fetch(`/api/futures/footprint?symbol=${curSym}&tf=${curTf}&n=80`).then(r=>r.json());
       lastFootprint = d;
       drawCandles(d.bars || []);
+      drawCvd(d.bars || [], !!d.real_flow);
     } catch(e){}
+  }
+
+  function drawCvd(bars, realFlow){
+    const svg = $("td-cvd");
+    clear(svg);
+    const lastEl = $("td-cvd-last"), dEl = $("td-cvd-delta"), mEl = $("td-cvd-mode");
+    if (mEl) { mEl.textContent = realFlow ? "real" : "proxy"; mEl.className = "v " + (realFlow ? "pos" : "neg"); }
+    if (!bars.length){ if(lastEl) lastEl.textContent="—"; if(dEl) dEl.textContent="—"; return; }
+    const W = 800, H = 200, ML = 50, MR = 10, MT = 8, MB = 18;
+    const PW = W - ML - MR, PH = H - MT - MB;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+    const cvds   = bars.map(b => +b.cvd   || 0);
+    const deltas = bars.map(b => +b.delta || 0);
+    const cMin = Math.min(...cvds), cMax = Math.max(...cvds);
+    const cRange = (cMax - cMin) || 1;
+    const dMaxAbs = Math.max(1, ...deltas.map(Math.abs));
+    const cw = PW / bars.length;
+    const bw = Math.max(1, cw * 0.6);
+
+    // Zero reference for cvd line
+    const yZeroC = cMin <= 0 && cMax >= 0
+      ? MT + PH - ((0 - cMin) / cRange) * PH
+      : null;
+
+    // Histogram zero band — center vertically in the pane for delta bars
+    const histTop = MT + PH * 0.55;
+    const histBottom = MT + PH;
+    const histH = histBottom - histTop;
+    const yZeroD = histTop + histH / 2;
+
+    // y-axis grid
+    const ticks = 4;
+    for (let i=0; i<=ticks; i++){
+      const v = cMin + cRange * (i/ticks);
+      const y = MT + PH - (i/ticks) * PH;
+      svg.appendChild(el("line", {x1:ML, x2:ML+PW, y1:y, y2:y,
+        stroke:"#1a2032", "stroke-dasharray":"2,3"}));
+      const t = el("text", {x:ML-3, y:y+3, fill:"#64748b", "font-size":9,
+        "text-anchor":"end", "font-family":"ui-monospace,monospace"});
+      t.textContent = Math.abs(v) >= 1000 ? (v/1000).toFixed(1)+"k" : v.toFixed(0);
+      svg.appendChild(t);
+    }
+    if (yZeroC !== null){
+      svg.appendChild(el("line", {x1:ML, x2:ML+PW, y1:yZeroC, y2:yZeroC,
+        stroke:"#3a4257", "stroke-width":1}));
+    }
+
+    // x-axis time labels
+    const step = Math.max(1, Math.floor(bars.length / 8));
+    for (let i=0; i<bars.length; i+=step){
+      const x = ML + i*cw + cw/2;
+      const t = el("text", {x, y:H-5, fill:"#64748b", "font-size":9,
+        "text-anchor":"middle", "font-family":"ui-monospace,monospace"});
+      t.textContent = nyHMS(bars[i].ts).slice(0, 5);
+      svg.appendChild(t);
+    }
+
+    // Delta histogram (overlaid in lower half)
+    bars.forEach((b, i) => {
+      const x = ML + i*cw + cw/2;
+      const d = +b.delta || 0;
+      const h = (Math.abs(d) / dMaxAbs) * (histH / 2);
+      const up = d >= 0;
+      const top = up ? (yZeroD - h) : yZeroD;
+      const color = up ? "#34d399" : "#f87171";
+      svg.appendChild(el("rect", {x: x-bw/2, y: top, width: bw, height: Math.max(1, h),
+        fill: color, opacity: 0.55}));
+    });
+
+    // CVD line (foreground)
+    let path = "";
+    bars.forEach((b, i) => {
+      const x = ML + i*cw + cw/2;
+      const y = MT + PH - ((+b.cvd - cMin) / cRange) * PH;
+      path += (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1) + " ";
+    });
+    svg.appendChild(el("path", {d: path, fill:"none", stroke:"#fbbf24",
+      "stroke-width":1.6, "stroke-linejoin":"round"}));
+
+    // Right-edge CVD value tag
+    const lastCvd = cvds[cvds.length-1];
+    const yLast = MT + PH - ((lastCvd - cMin) / cRange) * PH;
+    svg.appendChild(el("rect", {x:ML+PW-58, y:yLast-7, width:58, height:14,
+      fill:"#fbbf24"}));
+    const tagTxt = el("text", {x:ML+PW-29, y:yLast+4, fill:"#0a0e16",
+      "font-size":10, "font-weight":700, "text-anchor":"middle",
+      "font-family":"ui-monospace,monospace"});
+    tagTxt.textContent = Math.abs(lastCvd) >= 1000
+      ? (lastCvd/1000).toFixed(2)+"k" : lastCvd.toFixed(0);
+    svg.appendChild(tagTxt);
+
+    // Header readouts
+    const lastDelta = deltas[deltas.length-1];
+    if (lastEl){
+      lastEl.textContent = Math.abs(lastCvd) >= 1000
+        ? (lastCvd/1000).toFixed(2)+"k" : lastCvd.toFixed(0);
+      lastEl.className = "v " + (lastCvd >= 0 ? "pos" : "neg");
+    }
+    if (dEl){
+      dEl.textContent = (lastDelta >= 0 ? "+" : "") + lastDelta.toFixed(0);
+      dEl.className = "v " + (lastDelta >= 0 ? "pos" : "neg");
+    }
   }
   function drawCandles(bars){
     const svg = $("td-candles");
