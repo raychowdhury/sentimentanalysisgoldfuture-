@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeepChart Footprint · Multi-Pane</title>
+<style>
+  :root {
+    --bg:        #0a0a0a;
+    --up:        #22c55e;
+    --down:      #ef4444;
+    --profile:   #1e3a5f;
+    --grid:      #1f2937;
+    --text:      #e5e7eb;
+    --poc:       #94a3b8;
+    --crosshair: #64748b;
+    --muted:     #64748b;
+    --border:    #1f2937;
+    --accent:    #fbbf24;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; height:100%;
+    background:var(--bg); color:var(--text);
+    font-family:system-ui,-apple-system,sans-serif; font-size:13px;
+    overflow:hidden; }
+
+  /* Top toolbar — global (layout switch only) */
+  #top {
+    display:flex; align-items:center; gap:.6rem; padding:.4rem .8rem;
+    background:#000; border-bottom:1px solid var(--border);
+    font-family:ui-monospace,monospace; font-size:.78rem;
+    height:38px;
+  }
+  #top .ttl { font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--accent); font-size:.74rem; }
+  #top .layout-grp { display:flex; gap:.15rem; margin-left:.6rem; }
+  #top .lay-btn {
+    background:#172132; color:var(--text); border:1px solid var(--border);
+    padding:.3rem .55rem; font-size:.72rem; cursor:pointer; font-weight:700;
+    border-radius:2px; min-width:32px;
+  }
+  #top .lay-btn:hover { background:#1e3a5f; }
+  #top .lay-btn.on { background:#1e3a5f; border-color:#3b82f6; color:#fff; }
+  #top a { color:var(--muted); margin-left:auto; }
+
+  /* Layout grid — populated by JS */
+  #panes {
+    display:grid; gap:1px; background:var(--border);
+    height:calc(100vh - 38px); width:100%;
+  }
+  #panes.lay-1 { grid-template:"a" 1fr / 1fr; }
+  #panes.lay-2h { grid-template:"a b" 1fr / 1fr 1fr; }
+  #panes.lay-2v { grid-template:"a" 1fr "b" 1fr / 1fr; }
+  #panes.lay-3 {
+    grid-template:"a b" 1fr "a c" 1fr / 1fr 1fr;
+  }
+  #panes.lay-4 { grid-template:"a b" 1fr "c d" 1fr / 1fr 1fr; }
+
+  /* Each pane */
+  .pane {
+    display:flex; flex-direction:column; background:var(--bg);
+    min-width:0; min-height:0; overflow:hidden;
+  }
+  .pane.p0 { grid-area:a; } .pane.p1 { grid-area:b; }
+  .pane.p2 { grid-area:c; } .pane.p3 { grid-area:d; }
+  .pane.active { outline:1px solid var(--accent); outline-offset:-1px; }
+
+  .pane-head {
+    display:flex; align-items:center; gap:.4rem; padding:.3rem .5rem;
+    background:#000; border-bottom:1px solid var(--border);
+    font-family:ui-monospace,monospace; font-size:.72rem;
+    flex-shrink:0; flex-wrap:wrap;
+  }
+  .pane-head .pill {
+    background:#9ca3af; color:#0a0e16; border:none; border-radius:12px;
+    padding:.2rem .8rem .2rem .55rem; font-size:.7rem; font-weight:600;
+    appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3l4 4 4-4' stroke='%230a0e16' stroke-width='1.5' fill='none'/></svg>");
+    background-repeat:no-repeat; background-position:right .45rem center;
+    padding-right:1.4rem; cursor:pointer;
+  }
+  .pane-head .live-dot { width:6px; height:6px; border-radius:50%;
+    background:#475569; display:inline-block; }
+  .pane-head .live-dot.on { background:var(--up); box-shadow:0 0 4px var(--up); }
+  .pane-head .live-dot.off { background:var(--down); }
+  .pane-head .stats { display:flex; gap:.5rem; font-size:.7rem;
+    margin-left:auto; align-items:center; }
+  .pane-head .stats .lbl { color:var(--muted); }
+  .pane-head .stats .v { color:var(--text); font-weight:700; }
+  .pane-head .stats .pos { color:var(--up); }
+  .pane-head .stats .neg { color:var(--down); }
+  .pane-head .ts { color:var(--accent); font-weight:700; }
+
+  .pane-body { flex:1; position:relative; min-height:0; }
+  .pane-body canvas { display:block; width:100%; height:100%;
+    cursor:crosshair; }
+  .pane-body canvas.dragging { cursor:grabbing; }
+
+  .pane-tabs {
+    display:flex; gap:.15rem; padding:.2rem .4rem; background:#000;
+    border-top:1px solid var(--border);
+    font-family:ui-monospace,monospace; font-size:.66rem;
+    flex-shrink:0; flex-wrap:wrap;
+  }
+  .pane-tabs button {
+    background:transparent; color:var(--muted); border:1px solid transparent;
+    padding:.18rem .4rem; cursor:pointer; font-weight:600;
+    border-radius:2px; font-size:.66rem;
+  }
+  .pane-tabs button:hover { color:var(--text); }
+  .pane-tabs button.on { background:#1e3a5f; color:#e5e7eb; border-color:#3b82f6; }
+  .pane-tabs .gap { width:1px; background:var(--border); margin:0 .2rem; }
+</style>
+</head>
+<body>
+
+<div id="top">
+  <span class="ttl">DeepChart · Multi-Pane Footprint</span>
+  <span style="color:var(--muted); margin-left:.4rem;">Layout</span>
+  <div class="layout-grp">
+    <button class="lay-btn on"  data-lay="1"  title="Single">1</button>
+    <button class="lay-btn"     data-lay="2h" title="2 horizontal (side by side)">2H</button>
+    <button class="lay-btn"     data-lay="2v" title="2 vertical (stacked)">2V</button>
+    <button class="lay-btn"     data-lay="3"  title="3 panes (1 large + 2 right)">3</button>
+    <button class="lay-btn"     data-lay="4"  title="4 quad grid">4</button>
+  </div>
+  <span style="color:var(--muted); font-size:.7rem; margin-left:1rem;">
+    each pane: independent symbol · BT · range · mode · view
+  </span>
+  <a href="/footprint">SVG</a>
+</div>
+
+<div id="panes" class="lay-1"></div>
+
+<script>
+(function(){
+  /* ── Constants & helpers ─────────────────────────────────────────────── */
+  const COLORS = {
+    bg: "#0a0a0a", up: "#22c55e", down: "#ef4444",
+    profile: "#1e3a5f", grid: "#1f2937", text: "#e5e7eb",
+    poc: "#94a3b8", crosshair: "#64748b",
+    bid: "#ef4444", ask: "#22c55e", muted: "#64748b",
+    accent: "#fbbf24", border: "#1f2937",
+  };
+  const $ = id => document.getElementById(id);
+
+  function fmtV(v){
+    const a = Math.abs(v);
+    if (a >= 1_000_000) return (v/1_000_000).toFixed(1) + "M";
+    if (a >= 1_000)     return (v/1_000).toFixed(1) + "K";
+    if (a >= 100)       return v.toFixed(0);
+    return v.toFixed(1);
+  }
+  function fmtSigned(v){ return (v >= 0 ? "+" : "") + fmtV(v); }
+  function fmtPct(v){    return (v >= 0 ? "+" : "") + v.toFixed(2) + "%"; }
+  const NY_TZ = "America/New_York";
+  const _hm = new Intl.DateTimeFormat("en-US",
+    {hour:"2-digit", minute:"2-digit", hour12:false, timeZone: NY_TZ});
+  const _hms = new Intl.DateTimeFormat("en-US",
+    {hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false, timeZone: NY_TZ});
+  const _full = new Intl.DateTimeFormat("en-GB",
+    {day:"2-digit", month:"2-digit", year:"numeric",
+     hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false, timeZone: NY_TZ});
+  function fmtT(ms){    return _hm.format(new Date(ms)); }
+  function fmtTSec(ms){ return _hms.format(new Date(ms)); }
+  function fmtTFull(ms){ return _full.format(new Date(ms)).replace(",", ""); }
+
+  /* ── Per-pane state factory ──────────────────────────────────────────── */
+  function makeState(saved){
+    return Object.assign({
+      bars: [],
+      meta: { source:null, total:0, real_flow:false },
+      layout: { w:800, h:600, dpr:1 },
+      view:  { panSlots:0, barsPerScreen:50, priceZoom:1.0, priceCenter:null },
+      cursor:{ active:false, x:0, y:0, hoverIdx:-1 },
+      mode: "OF-VP", showGrid:true, showVP:true,
+      autoScroll:true,
+      cfg: { sym:"ESM6", bt:0, tf:"range", range:20 },
+      live:{ connected:false, lastUpdate:0, pollMs:1500 },
+    }, saved || {});
+  }
+
+  /* ── Data adapter & loader ───────────────────────────────────────────── */
+  function adaptBar(b){
+    const levels = (b.levels || []).map(lv => ({
+      price: lv.price,
+      bidVolume:   lv.sell || 0,
+      askVolume:   lv.buy  || 0,
+      totalVolume: (lv.buy || 0) + (lv.sell || 0),
+    }));
+    return {
+      id: `${b.ts_open}-${b.ts_close}`,
+      startTime: new Date(b.ts_open ).getTime(),
+      endTime:   new Date(b.ts_close).getTime(),
+      open:b.o, high:b.h, low:b.l, close:b.c,
+      totalVolume:b.vol, delta:b.delta, deltaPct:b.delta_pct,
+      poc:b.poc, vah:b.vah, val:b.val, trades:b.trades, levels,
+    };
+  }
+  async function loadBars(cfg){
+    // tf === "range" → range bars (price excursion).
+    // tf === "1m"|"5m"|"15m"|"30m"|"1h" → time-binned footprint bars.
+    let url;
+    if (cfg.tf === "range" || !cfg.tf){
+      url = `/api/futures/range-bars?symbol=${cfg.sym}&range=${cfg.range}`+
+            `&tick=0.25&maxbars=200&taken=5000`;
+    } else {
+      url = `/api/futures/time-footprint?symbol=${cfg.sym}&tf=${cfg.tf}`+
+            `&tick=0.25&n=120`;
+    }
+    if (cfg.bt > 0){
+      const end   = Date.now() - 12 * 60_000;
+      const start = end - cfg.bt * 24 * 3600 * 1000;
+      url += `&start=${encodeURIComponent(new Date(start).toISOString())}`+
+             `&end=${  encodeURIComponent(new Date(end).toISOString())}`;
+    }
+    const r = await fetch(url).then(r => r.json());
+    return {
+      bars: (r.bars || []).map(adaptBar),
+      meta: { source:r.source, total:r.total_bars, real_flow:r.real_flow },
+    };
+  }
+
+  /* ── Renderer (pure: render(ctx, state)) ─────────────────────────────── */
+  function computeScale(state){
+    const { w, h } = state.layout;
+    const ML = 14, MR = 60, MT = 8, MB = 26;
+    const VP_W = state.showVP ? Math.min(160, w * 0.18) : 0;
+    const VP_GAP = state.showVP ? 6 : 0;
+    const PW = w - ML - MR - VP_W - VP_GAP;
+    const PH = h - MT - MB;
+    const N = state.bars.length;
+    if (N === 0 || PW <= 50 || PH <= 50) return null;
+    const visN = Math.max(2, Math.min(N, Math.round(state.view.barsPerScreen)));
+    const endIdx = Math.min(N, N + state.view.panSlots);
+    const startIdx = Math.max(0, endIdx - visN);
+    const visible = state.bars.slice(startIdx, endIdx);
+    if (!visible.length) return null;
+    let pHi = -Infinity, pLo = Infinity;
+    for (const b of visible){
+      if (b.high > pHi) pHi = b.high;
+      if (b.low  < pLo) pLo = b.low;
+    }
+    let center = (pHi + pLo) / 2;
+    let halfRange = (pHi - pLo) / 2 * 1.05 / state.view.priceZoom;
+    if (state.view.priceCenter != null) center = state.view.priceCenter;
+    pHi = center + halfRange; pLo = center - halfRange;
+    const pRange = pHi - pLo || 1;
+    const slotW = PW / visible.length;
+    return {
+      ML, MR, MT, MB, PW, PH, VP_W, VP_GAP,
+      startIdx, endIdx, visible, slotW,
+      pHi, pLo, pRange,
+      yFor: p => MT + PH - ((p - pLo) / pRange) * PH,
+      xForIdx: i => ML + i * slotW + slotW / 2,
+      priceForY: y => pHi - ((y - MT) / PH) * pRange,
+    };
+  }
+
+  function render(ctx, state){
+    const { w, h } = state.layout;
+    ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, w, h);
+    const sc = computeScale(state);
+    if (!sc){
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = "13px ui-monospace, monospace";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(state.bars.length ? "loading..." : "no data — adjust controls",
+                   w/2, h/2);
+      return;
+    }
+    drawGrid(ctx, sc, state);
+    drawBars(ctx, sc, state);
+    drawAxes(ctx, sc);
+    drawLastClose(ctx, sc);
+    drawAggregateVP(ctx, sc, state);
+    drawCrosshair(ctx, sc, state);
+  }
+
+  function drawGrid(ctx, sc, state){
+    const { ML, MT, PW, PH, pLo, pHi, pRange, yFor } = sc;
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    const step = Math.max(0.25, Math.round(pRange / 14 * 4) / 4);
+    for (let p = Math.ceil(pLo / step) * step; p <= pHi; p += step){
+      const y = yFor(p);
+      if (state.showGrid){
+        ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
+      }
+      ctx.fillStyle = "#94a3b8";
+      ctx.fillText(p.toFixed(2), ML + PW + 4, y);
+    }
+  }
+
+  function computeVA(levels, pct){
+    pct = pct || 0.70;
+    if (!levels || !levels.length) return null;
+    const sorted = [...levels].sort((a, b) => a.price - b.price);
+    const totals = sorted.map(l => l.totalVolume != null
+      ? l.totalVolume : (l.askVolume || 0) + (l.bidVolume || 0));
+    const tot = totals.reduce((a, b) => a + b, 0);
+    if (tot <= 0) return null;
+    let pocI = 0, pocV = -1;
+    for (let i = 0; i < totals.length; i++){
+      if (totals[i] > pocV){ pocV = totals[i]; pocI = i; }
+    }
+    let lo = pocI, hi = pocI, acc = totals[pocI];
+    const target = tot * pct;
+    while (acc < target && (lo > 0 || hi < totals.length - 1)){
+      const up = hi < totals.length - 1 ? totals[hi+1] : -1;
+      const dn = lo > 0                 ? totals[lo-1] : -1;
+      if (up >= dn && hi < totals.length - 1){ hi++; acc += totals[hi]; }
+      else if (lo > 0){                        lo--; acc += totals[lo]; }
+      else break;
+    }
+    return { poc: sorted[pocI].price, vah: sorted[hi].price,
+             val: sorted[lo].price, total: tot };
+  }
+
+  function drawBars(ctx, sc, state){
+    const { visible, slotW, yFor } = sc;
+    const tick = 0.25;
+    const candleW = Math.max(2, Math.min(slotW * 0.18, 8));
+    const halfHist = (slotW - candleW) / 2 - 4;
+    const rowH = Math.max(1.2, (sc.PH / (sc.pRange / tick)) * 0.85);
+    const mode = state.mode;
+
+    for (let i = 0; i < visible.length; i++){
+      const b = visible[i];
+      const cx = sc.xForIdx(i);
+      const xCandleL = cx - candleW / 2;
+      const isUp = b.close >= b.open;
+      const bodyColor = isUp ? COLORS.up : COLORS.down;
+      const maxLevel = Math.max(1, ...b.levels.map(lv => lv.totalVolume));
+
+      switch (mode){
+        case "OF-VP": {
+          for (const lv of b.levels){
+            const y = yFor(lv.price);
+            const total = lv.totalVolume;
+            if (total <= 0) continue;
+            const dlt    = lv.askVolume - lv.bidVolume;
+            const wDelta = (Math.abs(dlt) / maxLevel) * halfHist;
+            const wTotal = (total          / maxLevel) * halfHist;
+            const dColor = dlt >= 0 ? COLORS.ask : COLORS.bid;
+            if (wDelta > 0){
+              ctx.fillStyle = dColor; ctx.globalAlpha = 0.9;
+              ctx.fillRect(xCandleL - wDelta - 2, y - rowH/2, wDelta, rowH);
+            }
+            ctx.fillStyle = COLORS.accent; ctx.globalAlpha = 0.7;
+            ctx.fillRect(xCandleL + candleW + 2, y - rowH/2, wTotal, rowH);
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case "OF-B/A": {
+          ctx.font = `${Math.max(8, Math.min(slotW * 0.22, 11))}px ui-monospace, monospace`;
+          ctx.textBaseline = "middle";
+          for (const lv of b.levels){
+            if (lv.totalVolume <= 0) continue;
+            const y = yFor(lv.price);
+            ctx.fillStyle = COLORS.bid; ctx.textAlign = "right";
+            ctx.fillText(fmtV(lv.bidVolume), xCandleL - 4, y);
+            ctx.fillStyle = COLORS.ask; ctx.textAlign = "left";
+            ctx.fillText(fmtV(lv.askVolume), xCandleL + candleW + 4, y);
+          }
+          break;
+        }
+        case "D-VP": {
+          for (const lv of b.levels){
+            const y = yFor(lv.price);
+            const dlt = lv.askVolume - lv.bidVolume;
+            const tot = lv.totalVolume;
+            if (tot <= 0) continue;
+            const wT = (tot / maxLevel) * halfHist;
+            ctx.fillStyle = dlt >= 0 ? COLORS.ask : COLORS.bid;
+            ctx.globalAlpha = 0.85;
+            ctx.fillRect(xCandleL + candleW + 2, y - rowH/2, wT, rowH);
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case "D-DP": {
+          for (const lv of b.levels){
+            const y = yFor(lv.price);
+            const dlt = lv.askVolume - lv.bidVolume;
+            const r = Math.max(1.5, Math.min(rowH * 1.3,
+              (Math.abs(dlt) / maxLevel) * (slotW * 0.3)));
+            ctx.beginPath(); ctx.arc(cx, y, r, 0, Math.PI * 2);
+            ctx.fillStyle = dlt >= 0 ? COLORS.ask : COLORS.bid;
+            ctx.globalAlpha = 0.85; ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case "D-VL": {
+          let cum = 0;
+          const sorted = [...b.levels].sort((a, c) => a.price - c.price);
+          const cumValues = sorted.map(lv => cum += (lv.askVolume - lv.bidVolume));
+          const maxCum = Math.max(1, ...cumValues.map(Math.abs));
+          for (let j = 0; j < sorted.length; j++){
+            const lv = sorted[j];
+            const y = yFor(lv.price);
+            const cv = cumValues[j];
+            const w = (Math.abs(cv) / maxCum) * halfHist;
+            ctx.fillStyle = cv >= 0 ? COLORS.ask : COLORS.bid;
+            ctx.globalAlpha = 0.85;
+            const x0 = cv >= 0 ? xCandleL + candleW + 2 : xCandleL - w - 2;
+            ctx.fillRect(x0, y - rowH/2, w, rowH);
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case "W-VP": {
+          const weighted = b.levels.map(lv => ({ ...lv, w: lv.totalVolume * lv.price }));
+          const maxW = Math.max(1, ...weighted.map(x => x.w));
+          for (const lv of weighted){
+            const y = yFor(lv.price);
+            const w = (lv.w / maxW) * halfHist * 2;
+            ctx.fillStyle = COLORS.profile; ctx.globalAlpha = 0.95;
+            ctx.fillRect(cx - w/2, y - rowH/2, w, rowH);
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case "W-DP": {
+          const weighted = b.levels.map(lv => ({
+            price: lv.price,
+            w: (lv.askVolume - lv.bidVolume) * lv.price,
+          }));
+          const maxW = Math.max(1, ...weighted.map(x => Math.abs(x.w)));
+          for (const lv of weighted){
+            const y = yFor(lv.price);
+            const w = (Math.abs(lv.w) / maxW) * halfHist;
+            ctx.fillStyle = lv.w >= 0 ? COLORS.ask : COLORS.bid;
+            ctx.globalAlpha = 0.85;
+            const x0 = lv.w >= 0 ? xCandleL + candleW + 2 : xCandleL - w - 2;
+            ctx.fillRect(x0, y - rowH/2, w, rowH);
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case "C-VP": {
+          const sorted = [...b.levels].sort((a, c) => a.price - c.price);
+          let cum = 0;
+          const cums = sorted.map(lv => cum += lv.totalVolume);
+          const maxC = Math.max(1, cum);
+          for (let j = 0; j < sorted.length; j++){
+            const lv = sorted[j];
+            const y = yFor(lv.price);
+            const w = (cums[j] / maxC) * halfHist * 2;
+            ctx.fillStyle = COLORS.profile; ctx.globalAlpha = 0.9;
+            ctx.fillRect(cx - w/2, y - rowH/2, w, rowH);
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+      }
+
+      // Body + wick
+      const yO = yFor(b.open), yC = yFor(b.close);
+      const yH = yFor(b.high), yL = yFor(b.low);
+      ctx.strokeStyle = bodyColor; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(cx, yH); ctx.lineTo(cx, yL); ctx.stroke();
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(xCandleL, Math.min(yO, yC), candleW,
+                   Math.max(2, Math.abs(yO - yC)));
+
+      // Per-bar VA (70%) shading + VAH/VAL dashed + POC
+      const xLline = cx - halfHist - 6;
+      const xRline = cx + halfHist + 6;
+      if (b.vah != null && b.val != null){
+        const yV1 = yFor(b.vah), yV2 = yFor(b.val);
+        ctx.fillStyle = COLORS.accent; ctx.globalAlpha = 0.08;
+        ctx.fillRect(xLline, Math.min(yV1, yV2), xRline - xLline,
+                     Math.abs(yV2 - yV1));
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(xLline, yV1); ctx.lineTo(xRline, yV1);
+        ctx.moveTo(xLline, yV2); ctx.lineTo(xRline, yV2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (b.poc != null){
+        const yP = yFor(b.poc);
+        ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(xLline, yP); ctx.lineTo(xRline, yP);
+        ctx.stroke();
+      }
+
+      // Top annotations — hide when hovered
+      const hovered = state.cursor.active && i === state.cursor.hoverIdx;
+      if (slotW >= 18 && !hovered){
+        const above = b.delta >= 0;
+        const dColor = above ? COLORS.up : COLORS.down;
+        const fSz = visible.length <= 12 ? 16
+                  : visible.length <= 25 ? 13
+                  : visible.length <= 50 ? 11
+                  : 9;
+        ctx.font = `bold ${fSz}px ui-monospace, monospace`;
+        ctx.textAlign = "center";
+        const topY = above ? yH - 6 : yL + 12;
+        const dir  = above ? -1 : 1;
+        const lh   = fSz + 3;
+        ctx.textBaseline = above ? "alphabetic" : "top";
+        ctx.fillStyle = dColor;
+        ctx.fillText(fmtPct(b.deltaPct), cx, topY);
+        ctx.fillText(fmtSigned(b.delta), cx, topY + dir * lh);
+        ctx.fillStyle = "#e5e7eb";
+        ctx.font = `bold ${fSz + 1}px ui-monospace, monospace`;
+        ctx.fillText(fmtV(b.totalVolume), cx, topY + dir * lh * 2);
+      }
+    }
+  }
+
+  function drawAxes(ctx, sc){
+    const { MT, PH, slotW, visible } = sc;
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "9px ui-monospace, monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    const stepLbl = Math.max(1, Math.ceil(visible.length / 10));
+    for (let i = 0; i < visible.length; i += stepLbl){
+      const cx = sc.xForIdx(i);
+      ctx.fillText(fmtT(visible[i].endTime), cx, MT + PH + 6);
+    }
+  }
+
+  function drawLastClose(ctx, sc){
+    const last = sc.visible[sc.visible.length - 1];
+    if (!last) return;
+    const yLast = sc.yFor(last.close);
+    ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(sc.ML, yLast); ctx.lineTo(sc.ML + sc.PW, yLast);
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = COLORS.up;
+    ctx.fillRect(sc.ML + sc.PW + 2, yLast - 8, 50, 16);
+    ctx.fillStyle = "#0a0e16";
+    ctx.font = "bold 10px ui-monospace, monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(last.close.toFixed(2), sc.ML + sc.PW + 27, yLast);
+  }
+
+  function drawAggregateVP(ctx, sc, state){
+    if (!state.showVP) return;
+    const { visible, MT, PH, PW, ML, MR, VP_W, VP_GAP, yFor } = sc;
+    if (VP_W < 60) return;     // pane too narrow — skip
+    const x0 = ML + PW + MR + VP_GAP;
+    const x1 = x0 + VP_W;
+    const agg = new Map();
+    for (const b of visible){
+      for (const lv of b.levels){
+        const cur = agg.get(lv.price) || { price:lv.price, askVolume:0, bidVolume:0, totalVolume:0 };
+        cur.askVolume   += lv.askVolume;
+        cur.bidVolume   += lv.bidVolume;
+        cur.totalVolume += lv.totalVolume;
+        agg.set(lv.price, cur);
+      }
+    }
+    const levels = Array.from(agg.values()).sort((a, b) => a.price - b.price);
+    if (!levels.length) return;
+    const va = computeVA(levels, 0.70);
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(x0 - 3, MT - 3, VP_W + 6, PH + 6);
+    ctx.strokeStyle = COLORS.border; ctx.lineWidth = 1;
+    ctx.strokeRect(x0 - 3, MT - 3, VP_W + 6, PH + 6);
+
+    ctx.fillStyle = COLORS.accent;
+    ctx.font = "bold 9px ui-monospace, monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillText("VP · 70% VA", x0 + VP_W/2, MT - 1);
+
+    if (va){
+      const yV1 = yFor(va.vah), yV2 = yFor(va.val);
+      ctx.fillStyle = COLORS.accent; ctx.globalAlpha = 0.07;
+      ctx.fillRect(x0, Math.min(yV1, yV2), VP_W, Math.abs(yV2 - yV1));
+      ctx.globalAlpha = 1;
+    }
+
+    const tick = 0.25;
+    const rowH = Math.max(1.2, (PH / (sc.pRange / tick)) * 0.85);
+    const maxRow = Math.max(1, ...levels.map(l => l.totalVolume));
+    for (const lv of levels){
+      const y = yFor(lv.price);
+      const w = (lv.totalVolume / maxRow) * (VP_W - 8);
+      const dlt = lv.askVolume - lv.bidVolume;
+      ctx.fillStyle = dlt >= 0 ? COLORS.ask : COLORS.bid;
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(x0 + 4, y - rowH/2, w, rowH);
+    }
+    ctx.globalAlpha = 1;
+
+    if (va){
+      const yPoc = yFor(va.poc), yVah = yFor(va.vah), yVal = yFor(va.val);
+      ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(x0 - 3, yPoc); ctx.lineTo(x1 + 3, yPoc); ctx.stroke();
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x0 - 3, yVah); ctx.lineTo(x1 + 3, yVah);
+      ctx.moveTo(x0 - 3, yVal); ctx.lineTo(x1 + 3, yVal);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function drawCrosshair(ctx, sc, state){
+    const c = state.cursor;
+    if (!c.active) return;
+    const { ML, MT, PW, PH } = sc;
+    const x = c.x, y = c.y;
+    if (x < ML || x > ML + PW || y < MT || y > MT + PH){
+      state.cursor.hoverIdx = -1;
+      return;
+    }
+    const idx = Math.max(0, Math.min(sc.visible.length - 1,
+      Math.round((x - ML) / sc.slotW - 0.5)));
+    const cxBar = sc.xForIdx(idx);
+    const priceAtY = sc.priceForY(y);
+
+    ctx.strokeStyle = COLORS.crosshair; ctx.lineWidth = 0.6;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(cxBar, MT); ctx.lineTo(cxBar, MT + PH);
+    ctx.moveTo(ML, y);     ctx.lineTo(ML + PW, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = COLORS.accent;
+    ctx.fillRect(ML + PW + 2, y - 8, 56, 16);
+    ctx.fillStyle = "#0a0e16";
+    ctx.font = "bold 10px ui-monospace, monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(priceAtY.toFixed(2), ML + PW + 30, y);
+    state.cursor.hoverIdx = idx;
+  }
+
+  /* ── Pane factory ────────────────────────────────────────────────────── */
+  function buildPaneDom(paneId){
+    const html = `
+      <div class="pane p${paneId}" data-pane="${paneId}">
+        <div class="pane-head">
+          <select class="pill cfg-sym">
+            <option value="ESM6">MES-202606</option>
+            <option value="GCM6">MGC-202606</option>
+            <option value="NQM6">MNQ-202606</option>
+            <option value="CLM6">MCL-202606</option>
+          </select>
+          <select class="pill cfg-bt">
+            <option value="0" selected>Live</option>
+            <option value="1">1D-BT</option>
+            <option value="5">5D-BT</option>
+            <option value="15">15D-BT</option>
+          </select>
+          <select class="pill cfg-tf" title="Bar type / timeframe">
+            <option value="range" selected>Range</option>
+            <option value="1m">1m</option>
+            <option value="5m">5m</option>
+            <option value="15m">15m</option>
+            <option value="30m">30m</option>
+            <option value="1h">1h</option>
+          </select>
+          <select class="pill cfg-range" title="Range bar size (only when TF=Range)">
+            <option value="5">5R</option>
+            <option value="10">10R</option>
+            <option value="20" selected>20R</option>
+            <option value="50">50R</option>
+            <option value="100">100R</option>
+          </select>
+          <span><span class="live-dot"></span><span class="live-status" style="font-size:.65rem; color:var(--muted);">init</span></span>
+          <span class="stats">
+            <span class="ts">—</span>
+            <span><span class="lbl">O</span><span class="v stat-o">—</span></span>
+            <span><span class="lbl">H</span><span class="v stat-h">—</span></span>
+            <span><span class="lbl">L</span><span class="v stat-l">—</span></span>
+            <span><span class="lbl">C</span><span class="v stat-c">—</span></span>
+            <span><span class="lbl">ΣV</span><span class="v stat-v">—</span></span>
+            <span><span class="lbl">ΔV</span><span class="v stat-d">—</span></span>
+          </span>
+        </div>
+        <div class="pane-body"><canvas></canvas></div>
+        <div class="pane-tabs">
+          <button data-mode="OF-VP" class="on">OF-VP</button>
+          <button data-mode="OF-B/A">OF-B/A</button>
+          <span class="gap"></span>
+          <button data-mode="D-VP">D-VP</button>
+          <button data-mode="D-DP">D-DP</button>
+          <button data-mode="D-VL">D-VL</button>
+          <span class="gap"></span>
+          <button data-mode="W-VP">W-VP</button>
+          <button data-mode="W-DP">W-DP</button>
+          <span class="gap"></span>
+          <button data-mode="C-VP">C-VP</button>
+          <span class="gap"></span>
+          <button class="tog-grid on">Grid</button>
+          <button class="tog-vp   on">VP</button>
+        </div>
+      </div>`;
+    const tpl = document.createElement("template");
+    tpl.innerHTML = html.trim();
+    return tpl.content.firstChild;
+  }
+
+  function makePane(paneId, hostEl, savedCfg){
+    const root = buildPaneDom(paneId);
+    hostEl.appendChild(root);
+    const state = makeState({ cfg: Object.assign({sym:"ESM6", bt:0, tf:"range", range:20}, savedCfg || {}) });
+    const canvas = root.querySelector("canvas");
+    const ctx = canvas.getContext("2d");
+    let _rafPending = false, _svgRect = null, _drag = null;
+    let _pollTimer = null, _backoff = 1500;
+
+    // Restore controls from saved cfg
+    root.querySelector(".cfg-sym").value   = state.cfg.sym;
+    root.querySelector(".cfg-bt").value    = state.cfg.bt;
+    root.querySelector(".cfg-tf").value    = state.cfg.tf;
+    root.querySelector(".cfg-range").value = state.cfg.range;
+    // Hide/show range pill based on tf
+    function syncRangePillVisibility(){
+      const isRange = state.cfg.tf === "range";
+      root.querySelector(".cfg-range").style.display = isRange ? "" : "none";
+    }
+    syncRangePillVisibility();
+
+    const sel = s => root.querySelector(s);
+
+    function sizeCanvas(){
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.floor(rect.width  * dpr);
+      const h = Math.floor(rect.height * dpr);
+      if (canvas.width !== w || canvas.height !== h){
+        canvas.width = w; canvas.height = h;
+      }
+      return { w: rect.width, h: rect.height, dpr };
+    }
+    function refreshRect(){ _svgRect = canvas.getBoundingClientRect(); }
+    function requestRender(){
+      if (_rafPending) return;
+      _rafPending = true;
+      requestAnimationFrame(() => {
+        _rafPending = false;
+        const layout = sizeCanvas();
+        state.layout = layout;
+        ctx.setTransform(layout.dpr, 0, 0, layout.dpr, 0, 0);
+        render(ctx, state);
+        updateStats();
+      });
+    }
+
+    function updateStats(){
+      let b = null, idx = -1;
+      if (state.cursor.active && state.cursor.hoverIdx >= 0){
+        const sc = computeScale(state);
+        if (sc){ b = sc.visible[state.cursor.hoverIdx]; idx = sc.startIdx + state.cursor.hoverIdx; }
+      }
+      if (!b && state.bars.length){ b = state.bars[state.bars.length - 1]; idx = state.bars.length - 1; }
+      const setV = (cls, txt, klass) => {
+        const e = sel("." + cls);
+        if (!e) return;
+        e.textContent = txt;
+        if (klass !== undefined) e.className = "v " + cls + " " + klass;
+      };
+      if (!b){
+        ["stat-o","stat-h","stat-l","stat-c","stat-v","stat-d"]
+          .forEach(c => setV(c, "—"));
+        sel(".ts").textContent = "—";
+        return;
+      }
+      sel(".ts").textContent = fmtTSec(b.endTime) +
+        ` · #${idx+1}/${state.meta.total || state.bars.length}`;
+      setV("stat-o", b.open.toFixed(2));
+      setV("stat-h", b.high.toFixed(2));
+      setV("stat-l", b.low.toFixed(2));
+      setV("stat-c", b.close.toFixed(2));
+      setV("stat-v", fmtV(b.totalVolume));
+      setV("stat-d", fmtSigned(b.delta), b.delta >= 0 ? "pos" : "neg");
+    }
+
+    /* Mouse handlers — scoped to this pane's canvas */
+    canvas.addEventListener("mousemove", e => {
+      if (!_svgRect) refreshRect();
+      state.cursor.active = true;
+      state.cursor.x = e.clientX - _svgRect.left;
+      state.cursor.y = e.clientY - _svgRect.top;
+      requestRender();
+    });
+    canvas.addEventListener("mouseleave", () => {
+      state.cursor.active = false; state.cursor.hoverIdx = -1;
+      requestRender();
+    });
+    canvas.addEventListener("mousedown", e => {
+      _drag = { startX: e.clientX, startPan: state.view.panSlots };
+      canvas.classList.add("dragging");
+      // Mark this pane active
+      document.querySelectorAll(".pane").forEach(p => p.classList.remove("active"));
+      root.classList.add("active");
+    });
+    window.addEventListener("mousemove", e => {
+      if (!_drag) return;
+      const sc = computeScale(state);
+      if (!sc) return;
+      const shiftSlots = -Math.round((e.clientX - _drag.startX) / sc.slotW);
+      const N = state.bars.length, visN = sc.visible.length;
+      state.view.panSlots = Math.max(visN - N,
+        Math.min(0, _drag.startPan + shiftSlots));
+      state.autoScroll = (state.view.panSlots === 0);
+      requestRender();
+    });
+    window.addEventListener("mouseup", () => {
+      if (_drag){ _drag = null; canvas.classList.remove("dragging"); }
+    });
+    canvas.addEventListener("wheel", e => {
+      e.preventDefault();
+      const N = state.bars.length;
+      if (e.shiftKey){
+        const sc = computeScale(state);
+        if (sc){
+          const priceAtCursor = sc.priceForY(state.cursor.y || sc.MT + sc.PH/2);
+          const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
+          state.view.priceZoom = Math.max(0.05, Math.min(10, state.view.priceZoom * factor));
+          const centerNow = (sc.pHi + sc.pLo) / 2;
+          state.view.priceCenter = priceAtCursor - (priceAtCursor - centerNow) / factor;
+        }
+      } else {
+        const factor = e.deltaY < 0 ? 1/1.18 : 1.18;
+        state.view.barsPerScreen = Math.max(5, Math.min(N, state.view.barsPerScreen * factor));
+      }
+      requestRender();
+    }, { passive: false });
+    canvas.addEventListener("dblclick", () => {
+      state.view = { panSlots:0, barsPerScreen:50, priceZoom:1.0, priceCenter:null };
+      state.autoScroll = true;
+      requestRender();
+    });
+
+    /* Pill / tab handlers */
+    root.querySelectorAll(".pane-tabs button[data-mode]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        root.querySelectorAll(".pane-tabs button[data-mode]").forEach(b => b.classList.remove("on"));
+        btn.classList.add("on");
+        state.mode = btn.getAttribute("data-mode");
+        requestRender();
+      });
+    });
+    sel(".tog-grid").addEventListener("click", () => {
+      state.showGrid = !state.showGrid;
+      sel(".tog-grid").classList.toggle("on", state.showGrid);
+      requestRender();
+    });
+    sel(".tog-vp").addEventListener("click", () => {
+      state.showVP = !state.showVP;
+      sel(".tog-vp").classList.toggle("on", state.showVP);
+      requestRender();
+    });
+    [".cfg-sym",".cfg-bt",".cfg-tf",".cfg-range"].forEach(s => sel(s).addEventListener("change", () => {
+      state.cfg.sym   = sel(".cfg-sym").value;
+      state.cfg.bt    = parseInt(sel(".cfg-bt").value);
+      state.cfg.tf    = sel(".cfg-tf").value;
+      state.cfg.range = parseInt(sel(".cfg-range").value);
+      syncRangePillVisibility();
+      state.view = { panSlots:0, barsPerScreen:50, priceZoom:1.0, priceCenter:null };
+      state.autoScroll = true;
+      stopPolling();
+      reload().then(() => { if (state.cfg.bt === 0) startPolling(); });
+      saveLayout();
+    }));
+
+    /* Live polling */
+    function setLive(cls, txt){
+      sel(".live-dot").className = "live-dot " + (cls || "");
+      sel(".live-status").textContent = txt;
+    }
+    async function pollOnce(){
+      if (state.cfg.bt !== 0) return;
+      try {
+        const { bars, meta } = await loadBars(state.cfg);
+        state.bars = bars; state.meta = meta;
+        state.live.connected = true; state.live.lastUpdate = Date.now();
+        _backoff = 1500;
+        setLive("on", "live");
+        requestRender();
+      } catch (e){
+        state.live.connected = false;
+        setLive("off", "reconnect…");
+        _backoff = Math.min(30_000, _backoff * 1.6);
+      }
+    }
+    function startPolling(){
+      if (_pollTimer) return;
+      const tick = () => pollOnce().finally(() => {
+        _pollTimer = setTimeout(tick, state.live.connected ? state.live.pollMs : _backoff);
+      });
+      tick();
+    }
+    function stopPolling(){
+      if (_pollTimer){ clearTimeout(_pollTimer); _pollTimer = null; }
+      setLive("", "static");
+    }
+    async function reload(){
+      try {
+        const { bars, meta } = await loadBars(state.cfg);
+        state.bars = bars; state.meta = meta;
+        requestRender();
+      } catch (e){ console.warn("loadBars fail", e); }
+    }
+
+    // ResizeObserver — repaint on layout changes
+    new ResizeObserver(() => { refreshRect(); requestRender(); }).observe(canvas);
+
+    refreshRect();
+    reload().then(() => { if (state.cfg.bt === 0) startPolling(); });
+
+    return {
+      paneId, root, state,
+      destroy(){ stopPolling(); root.remove(); },
+      cfg: () => ({ sym: state.cfg.sym, bt: state.cfg.bt, tf: state.cfg.tf,
+                    range: state.cfg.range, mode: state.mode }),
+    };
+  }
+
+  /* ── Layout manager ──────────────────────────────────────────────────── */
+  const PANES_HOST = $("panes");
+  const LAYOUT_PANE_COUNT = { "1":1, "2h":2, "2v":2, "3":3, "4":4 };
+  let activePanes = [];
+  let curLayout = localStorage.getItem("fpd-layout") || "1";
+
+  function saveLayout(){
+    const cfgs = activePanes.map(p => p.cfg());
+    localStorage.setItem("fpd-panes", JSON.stringify(cfgs));
+    localStorage.setItem("fpd-layout", curLayout);
+  }
+  function loadCfgs(){
+    try { return JSON.parse(localStorage.getItem("fpd-panes") || "[]"); }
+    catch(e){ return []; }
+  }
+
+  function applyLayout(lay){
+    curLayout = lay;
+    PANES_HOST.className = "lay-" + lay;
+    document.querySelectorAll("#top .lay-btn").forEach(b =>
+      b.classList.toggle("on", b.dataset.lay === lay));
+
+    // Tear down existing
+    activePanes.forEach(p => p.destroy());
+    activePanes = [];
+
+    const n = LAYOUT_PANE_COUNT[lay];
+    const saved = loadCfgs();
+    for (let i = 0; i < n; i++){
+      activePanes.push(makePane(i, PANES_HOST, saved[i]));
+    }
+    // Mark first active
+    if (activePanes[0]) activePanes[0].root.classList.add("active");
+    saveLayout();
+  }
+
+  document.querySelectorAll("#top .lay-btn").forEach(btn => {
+    btn.addEventListener("click", () => applyLayout(btn.dataset.lay));
+  });
+
+  applyLayout(curLayout);
+
+  // Save when the user changes mode/range (other handlers fire saveLayout)
+  // Periodic save in case user changes mode via tabs (per-pane fires too)
+  setInterval(saveLayout, 5000);
+})();
+</script>
+</body>
+</html>

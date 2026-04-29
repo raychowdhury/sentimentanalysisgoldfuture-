@@ -1352,6 +1352,178 @@ def footprint_view():
     return render_template("footprint_chart.html")
 
 
+@app.route("/footprint-deep")
+def footprint_deep_view():
+    """DeepChart-style canvas footprint chart (separate from SVG /footprint)."""
+    return render_template("footprint_deep.html")
+
+
+@app.route("/api/futures/time-footprint")
+def api_futures_time_footprint():
+    """Time-based footprint bars: same shape as range-bars but bins by
+    fixed-duration windows instead of price excursion.
+
+    Query: ?symbol=ESM6&tf=5m&n=40&tick=0.25[&start=...&end=...]
+    Returns: {symbol, tf, tick, source, bars:[{ts_open,ts_close,o,h,l,c,
+              buy_total,sell_total,delta,vol,trades,levels,poc,vah,val}],
+              profile:{...}, total_bars, has_older, has_newer, offset}
+    """
+    from order_flow_engine.src import realtime_databento as rd
+    import pandas as pd
+
+    sym       = request.args.get("symbol", "ESM6").strip().upper()
+    tf        = request.args.get("tf", "5m").strip()
+    n_bars    = max(2, min(int(request.args.get("n", 40)), 200))
+    tick      = float(request.args.get("tick", 0.25) or 0.25)
+    offset    = max(0, int(request.args.get("offset", 0) or 0))
+    start_iso = request.args.get("start", "").strip()
+    end_iso   = request.args.get("end", "").strip()
+
+    # Parse tf to seconds
+    unit = tf[-1].lower()
+    try:
+        tf_sec = int(tf[:-1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+    except Exception:
+        return jsonify({"error": f"bad tf: {tf}"}), 400
+
+    if start_iso and end_iso:
+        trades = _fetch_historical_trades(sym, start_iso, end_iso)
+        source = "historical"
+    else:
+        trades = rd.get_tape(sym, 5000)
+        source = "live"
+
+    if not trades:
+        return jsonify({"symbol": sym, "tf": tf, "tick": tick,
+                        "source": source, "bars": [],
+                        "total_bars": 0, "offset": offset,
+                        "has_older": False, "has_newer": False,
+                        "profile": {"levels": [], "total_vol": 0,
+                                    "poc": None, "vah": None, "val": None}})
+
+    # Group trades by floor(ts / tf_sec) bucket
+    buckets: dict[int, dict] = {}
+    for t in trades:
+        ts_ms = pd.Timestamp(t["ts"]).value // 1_000_000  # → ms
+        ts_sec = ts_ms / 1000
+        key = int(ts_sec // tf_sec)
+        bucket = buckets.get(key)
+        p = float(t["price"]); s = float(t["size"]); side = t.get("side", "buy")
+        if bucket is None:
+            bucket = {
+                "key": key,
+                "ts_open":  key * tf_sec * 1000,
+                "ts_close": (key + 1) * tf_sec * 1000,
+                "o": p, "h": p, "l": p, "c": p,
+                "buy_total": 0.0, "sell_total": 0.0, "trades": 0,
+                "_first_ts": ts_ms,
+                "_last_ts":  ts_ms,
+                "_levels": {},
+            }
+            buckets[key] = bucket
+        if ts_ms < bucket["_first_ts"]:
+            bucket["_first_ts"] = ts_ms
+            bucket["o"] = p
+        if ts_ms >= bucket["_last_ts"]:
+            bucket["_last_ts"] = ts_ms
+            bucket["c"] = p
+        if p > bucket["h"]: bucket["h"] = p
+        if p < bucket["l"]: bucket["l"] = p
+        bucket["trades"] += 1
+        if side == "buy":
+            bucket["buy_total"] += s
+        else:
+            bucket["sell_total"] += s
+        p_bin = round(round(p / tick) * tick, 4)
+        lv = bucket["_levels"].setdefault(p_bin, {"buy": 0.0, "sell": 0.0})
+        if side == "buy":
+            lv["buy"]  += s
+        else:
+            lv["sell"] += s
+
+    # Reuse VA helper from range-bars endpoint via inline copy
+    def _compute_va(levels_sorted, pct=0.70):
+        if not levels_sorted:
+            return None, None, None
+        totals = [r["buy"] + r["sell"] for r in levels_sorted]
+        tot = sum(totals)
+        if tot <= 0:
+            return None, None, None
+        poc_i = max(range(len(totals)), key=lambda i: totals[i])
+        target = tot * pct
+        lo = hi = poc_i
+        acc = totals[poc_i]
+        while acc < target and (lo > 0 or hi < len(totals) - 1):
+            up = totals[hi+1] if hi < len(totals) - 1 else -1
+            dn = totals[lo-1] if lo > 0 else -1
+            if up >= dn and hi < len(totals) - 1:
+                hi += 1; acc += totals[hi]
+            elif lo > 0:
+                lo -= 1; acc += totals[lo]
+            else:
+                break
+        return (levels_sorted[poc_i]["price"],
+                levels_sorted[hi]["price"],
+                levels_sorted[lo]["price"])
+
+    sorted_buckets = sorted(buckets.values(), key=lambda b: b["key"])
+    total_bars = len(sorted_buckets)
+    end_idx = total_bars - offset
+    start_idx = max(0, end_idx - n_bars)
+    sorted_buckets = sorted_buckets[start_idx:end_idx]
+
+    profile_levels: dict[float, dict] = {}
+    out_bars = []
+    for b in sorted_buckets:
+        lvls = sorted(
+            ({"price": p, "buy": round(v["buy"], 2), "sell": round(v["sell"], 2)}
+             for p, v in b["_levels"].items()),
+            key=lambda r: r["price"])
+        for r in lvls:
+            agg = profile_levels.setdefault(r["price"],
+                                            {"buy": 0.0, "sell": 0.0})
+            agg["buy"]  += r["buy"]
+            agg["sell"] += r["sell"]
+        vol = b["buy_total"] + b["sell_total"]
+        delta = b["buy_total"] - b["sell_total"]
+        poc, vah, val = _compute_va(lvls, 0.70)
+        if poc is None:
+            poc = b["c"]
+        out_bars.append({
+            "ts_open":  pd.Timestamp(b["ts_open"],  unit="ms", tz="UTC").isoformat(),
+            "ts_close": pd.Timestamp(b["ts_close"], unit="ms", tz="UTC").isoformat(),
+            "o": b["o"], "h": b["h"], "l": b["l"], "c": b["c"],
+            "buy_total":  round(b["buy_total"], 2),
+            "sell_total": round(b["sell_total"], 2),
+            "vol":        round(vol, 2),
+            "delta":      round(delta, 2),
+            "delta_pct":  round((delta / vol * 100) if vol > 0 else 0, 2),
+            "trades":     b["trades"],
+            "levels":     lvls,
+            "poc":        poc, "vah": vah, "val": val,
+        })
+
+    prof_list = sorted(
+        ({"price": p, "buy": round(v["buy"], 2), "sell": round(v["sell"], 2),
+          "total": round(v["buy"] + v["sell"], 2)}
+         for p, v in profile_levels.items()),
+        key=lambda r: r["price"])
+    total_vol = sum(r["total"] for r in prof_list)
+    pp = [{"price": r["price"], "buy": r["buy"], "sell": r["sell"]} for r in prof_list]
+    poc, vah, val = _compute_va(pp, 0.70)
+
+    return jsonify({
+        "symbol": sym, "tf": tf, "tick": tick,
+        "real_flow": True, "source": source,
+        "start": start_iso or None, "end": end_iso or None,
+        "offset": offset, "total_bars": total_bars,
+        "has_older": start_idx > 0, "has_newer": offset > 0,
+        "bars": out_bars,
+        "profile": {"levels": prof_list, "total_vol": round(total_vol, 2),
+                    "poc": poc, "vah": vah, "val": val},
+    })
+
+
 @app.route("/api/futures/quotes")
 def api_futures_quotes():
     """Last-trade prices for futures contracts pulled from the engine's
