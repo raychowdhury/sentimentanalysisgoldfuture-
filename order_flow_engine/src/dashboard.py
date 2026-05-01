@@ -784,15 +784,77 @@ def register(app: Flask) -> None:
                 outcomes = json.loads(op.read_text())
             except Exception:
                 outcomes = None
+        r7_shadow = None
+        sp = _r7_shadow_summary_path(symbol, tf)
+        if sp.exists():
+            try:
+                r7_shadow = json.loads(sp.read_text())
+                r7_shadow["production_threshold"] = of_cfg.RULE_CVD_CORR_THRESH
+                r7_shadow["recent"] = _read_jsonl_tail(
+                    _r7_shadow_jsonl_path(symbol, tf), 10)
+            except Exception:
+                r7_shadow = None
         return render_template(
             "realflow_diagnostic.html",
             symbol=symbol, tf=tf, data=data, error=error,
             json_path=str(path), button_status=button_status,
-            outcomes=outcomes,
+            outcomes=outcomes, r7_shadow=r7_shadow,
         )
 
     def _outcomes_summary_path(symbol: str, tf: str) -> Path:
         return of_cfg.OF_OUTPUT_DIR / f"realflow_outcomes_summary_{symbol}_{tf}.json"
+
+    def _r7_shadow_summary_path(symbol: str, tf: str) -> Path:
+        return of_cfg.OF_OUTPUT_DIR / f"realflow_r7_shadow_summary_{symbol}_{tf}.json"
+
+    def _r7_shadow_jsonl_path(symbol: str, tf: str) -> Path:
+        return of_cfg.OF_OUTPUT_DIR / f"realflow_r7_shadow_outcomes_{symbol}_{tf}.jsonl"
+
+    def _read_jsonl_tail(path: Path, n: int) -> list[dict]:
+        if not path.exists():
+            return []
+        rows: list[dict] = []
+        with path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except Exception:
+                    continue
+        return rows[-n:]
+
+    @app.route("/api/order-flow/r7-shadow")
+    def r7_shadow_api():  # pragma: no cover
+        """
+        Read-only R7 shadow summary + last-N settled rows.
+        Does NOT trigger shadow_pass — monitor_loop owns that.
+        """
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        try:
+            n_recent = int(request.args.get("n_recent", 10))
+        except Exception:
+            n_recent = 10
+        path = _r7_shadow_summary_path(symbol, tf)
+        if not path.exists():
+            return jsonify({
+                "error": f"no shadow summary at {path.name} — run monitor_loop or shadow_pass first",
+                "is_shadow": True,
+                "n_settled": 0, "n_pending": 0,
+                "overall": {}, "by_session": {}, "by_mode": {},
+                "vs_shadow_baseline": {},
+                "production_threshold": of_cfg.RULE_CVD_CORR_THRESH,
+                "recent": [],
+            }), 200
+        try:
+            data = json.loads(path.read_text())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        data["production_threshold"] = of_cfg.RULE_CVD_CORR_THRESH
+        data["recent"] = _read_jsonl_tail(_r7_shadow_jsonl_path(symbol, tf), n_recent)
+        return jsonify(data)
 
     @app.route("/api/order-flow/realflow-outcomes")
     def realflow_outcomes_api():  # pragma: no cover

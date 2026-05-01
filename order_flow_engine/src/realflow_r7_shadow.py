@@ -254,18 +254,20 @@ def _build_summary(settled: list[dict], pending: list[dict],
                      "vs_shadow_baseline": {}})
         return base
     df = pd.DataFrame(settled)
+    overall = rot._agg(df)
     base.update({
         "since":          str(df["fire_ts_utc"].min()),
+        "overall":        overall,
         "by_session":     {k: rot._agg(g) for k, g in df.groupby("session")},
         "by_mode":        ({k: rot._agg(g) for k, g in df.groupby("mode")}
                            if "mode" in df.columns else {}),
         "alerts_per_day": rot._alerts_per_day(df),
         "vs_shadow_baseline": {
             "baseline_test_mean_r": SHADOW_BASELINE_TEST_MEAN_R,
-            "live_mean_r":          rot._agg(df).get("mean_r"),
-            "retention_pct":        (round(rot._agg(df).get("mean_r")
+            "live_mean_r":          overall.get("mean_r"),
+            "retention_pct":        (round(overall.get("mean_r")
                                            / SHADOW_BASELINE_TEST_MEAN_R, 4)
-                                     if rot._agg(df).get("mean_r") is not None
+                                     if overall.get("mean_r") is not None
                                      and SHADOW_BASELINE_TEST_MEAN_R
                                      else None),
         },
