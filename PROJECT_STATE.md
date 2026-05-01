@@ -72,6 +72,30 @@ Rollback: set `OF_REAL_THRESHOLDS_ENABLED=0` to revert all bars to proxy thresho
 
 Both run inside tmux session `rfm`. Dashboard: `http://localhost:5001/order-flow/realflow-diagnostic?symbol=ESM6&tf=15m` via SSH tunnel.
 
+## Operational automation
+
+Hourly raw OHLCV cache refresh is active via launchd.
+
+```
+Label:           com.rfm.cache-refresh
+Script:          scripts/cache_refresh_esm6.sh
+Plist:           ~/Library/LaunchAgents/com.rfm.cache-refresh.plist
+Cadence:         StartInterval=3600 (1h), RunAtLoad=true
+Lock:            POSIX mkdir atomic at /tmp/rfm-cache-refresh.lockdir
+mtime skip:      30 min — skip if raw last_bar < 30 min old
+Log:             outputs/order_flow/cache_refresh.log
+Failure flag:    outputs/order_flow/cache_refresh_FAILED.flag (after 3 consecutive fails)
+Stop:            launchctl unload ~/Library/LaunchAgents/com.rfm.cache-refresh.plist
+```
+
+Purpose: refresh raw ESM6 15m OHLCV cache hourly so joined window stays aligned with live tail and pending outcomes can settle (joined-window cap = `raw.index ∩ real.index`; raw is the bottleneck since live SDK already streams `real` forward in real-time).
+
+Notes:
+- Uses `data_loader --symbol ESM6 --no-cache`
+- Does NOT run `realflow_history_backfill` (manual only — heavy trades fetch)
+- Does NOT change rules, thresholds, models, ml_engine, predictor, alert_engine, ingest, or trading behavior
+- Read+append only on output files
+
 ## Standing instruction
 
 - No detector behavior changes.
@@ -86,18 +110,19 @@ Both run inside tmux session `rfm`. Dashboard: `http://localhost:5001/order-flow
 
 | metric | target | current |
 |--------|--------|---------|
-| R1 live settled | ≥ 30 | 1 |
-| R2 live settled | ≥ 30 | 1 |
-| R7 shadow live settled | ≥ 30 | 0 |
+| R1 live settled | ≥ 30 | 2 |
+| R2 live settled | ≥ 30 | 2 |
+| R7 shadow live settled | ≥ 30 | 3 |
 
 When R1+R2 live ≥ 30 each, run Phase 2D verdict (keep / retune / continue).
 When R7 shadow live ≥ 30, evaluate Phase 2B Stage 2 readiness.
 
 ## Known blockers
 
-1. **Live SDK in Databento 422 error.** `data_schema_not_fully_available` on parent-symbol resolve. Upstream issue, not code. Live fires not accumulating until Databento recovers. Watch `/tmp/flask.log`.
-2. **R1 retention 0.13 in 18d historical.** Below 0.5 gate but mean_r still positive. Per recommendation logic: continue monitoring on live-only sample.
-3. **Vol_match mismatch 0.48 (gate ≤0.25).** Phase 1H showed denominator switch is no-op; gate is informational only. Not a blocker.
+1. ~~**Live SDK in Databento 422 error.**~~ **RESOLVED 2026-05-01.** `data_schema_not_fully_available` no longer observed. Live SDK subscribes raw front-month (ESM6/GCM6/CLM6/NQM6) cleanly. Tape alerts streaming. Residual `data_end_after_available_end` 422 from outcome_tracker is harmless settle-lag against historical dataset publication (~1-3min behind wall-clock).
+2. **Raw OHLCV cache stale risk.** `data/raw/ESM6_15m.parquet` does not auto-refresh in current Flask session. Joined window caps at raw `last_bar`, which blocks live fires from settling once their forward-horizon timestamps trail past it. **Workaround:** periodic `python -m order_flow_engine.src.data_loader --symbol ESM6 --no-cache` refreshes raw + downstream realflow_history. No code change. Candidate for scheduled cadence.
+3. **R1 retention 0.13 in 18d historical.** Below 0.5 gate but mean_r still positive. Per recommendation logic: continue monitoring on live-only sample.
+4. **Vol_match mismatch 0.48 (gate ≤0.25).** Phase 1H showed denominator switch is no-op; gate is informational only. Not a blocker.
 
 ## Active triggers (ping when any fires)
 
