@@ -116,6 +116,20 @@ for _d in (OF_OUTPUT_DIR, OF_RAW_DIR, OF_PROCESSED_DIR, OF_MODELS_DIR):
 RULE_DELTA_DOMINANCE   = 0.30   # retuned 2026-04-28 on ESM6/Databento 30d (was 0.25)
 RULE_ABSORPTION_DELTA  = 0.5
 RULE_TRAP_DELTA        = 0.3
+
+# ── Real-flow path thresholds (Phase 2A) ────────────────────────────────────
+# Calibrated on ESM6@15m, 553-bar joined window (Phase 2A sweep), train/test
+# 70/30. Real-flow delta_ratio std≈0.107 vs proxy std≈0.574 — proxy thresholds
+# would never fire on real bars. These apply only when bar_proxy_mode==0 in
+# the input frame (i.e. real buy_vol_real/sell_vol_real present that bar).
+# Toggle off via OF_REAL_THRESHOLDS_ENABLED=0 to revert to proxy thresholds
+# everywhere (single-env-var rollback).
+OF_REAL_THRESHOLDS_ENABLED: bool = bool(int(
+    os.getenv("OF_REAL_THRESHOLDS_ENABLED", "1")
+))
+RULE_DELTA_DOMINANCE_REAL  = 0.04
+RULE_ABSORPTION_DELTA_REAL = 0.20
+RULE_TRAP_DELTA_REAL       = 0.12
 RULE_SR_ATR_MULT       = 0.5   # "near S/R" window in ATR multiples
 RULE_ABSORPTION_RET_CAP_ATR_PCT = 0.1  # forward move must be tiny for absorption
 RULE_CVD_CORR_WINDOW   = 20

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ML Predictions</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0b1220; color: #e2e8f0; font-size: 14px; line-height: 1.5;
+      padding: 1.5rem;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1.25rem;
+    }
+    header h1 { font-size: 1.1rem; letter-spacing: .03em; }
+    header a { color: #94a3b8; text-decoration: none; font-size: .85rem; }
+    header a:hover { color: #e2e8f0; }
+    .controls { display: flex; gap: .5rem; align-items: center; margin-bottom: 1rem; }
+    .controls select, .controls button {
+      background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
+      padding: .35rem .75rem; border-radius: 4px; font-size: .85rem; cursor: pointer;
+    }
+    .controls button:hover { background: #334155; }
+    .updated { color: #64748b; font-size: .75rem; margin-left: auto; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+      padding: 1rem; display: flex; flex-direction: column; gap: .65rem;
+    }
+    .card.long  { border-left: 3px solid #22c55e; }
+    .card.short { border-left: 3px solid #ef4444; }
+    .card.none  { border-left: 3px solid #475569; opacity: .65; }
+
+    .row { display: flex; justify-content: space-between; align-items: center; }
+    .sym { font-weight: 700; font-size: 1.2rem; letter-spacing: .04em; }
+    .side {
+      padding: .15rem .5rem; border-radius: 3px; font-size: .7rem;
+      font-weight: 600; letter-spacing: .05em;
+    }
+    .side.long  { background: #14532d; color: #86efac; }
+    .side.short { background: #7f1d1d; color: #fca5a5; }
+    .side.none  { background: #334155; color: #cbd5e1; }
+
+    .conf-bar {
+      height: 6px; background: #1f2937; border-radius: 3px; overflow: hidden;
+    }
+    .conf-bar > span { display: block; height: 100%; background: #38bdf8; }
+
+    .kv { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem .75rem; }
+    .kv > div { display: flex; justify-content: space-between; font-size: .8rem; }
+    .kv label { color: #64748b; }
+    .kv val { color: #e2e8f0; font-variant-numeric: tabular-nums; }
+    .target { color: #4ade80 !important; }
+    .stop   { color: #f87171 !important; }
+    .window { color: #94a3b8; font-size: .75rem; }
+    .err { color: #f87171; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ML Predictions — futures</h1>
+    <a href="/">← Dashboard</a>
+  </header>
+
+  <div class="controls">
+    <select id="schema">
+      <option value="ohlcv-15m" selected>15m</option>
+      <option value="ohlcv-1m">1m</option>
+      <option value="ohlcv-1h">1h</option>
+    </select>
+    <button id="refresh">Refresh</button>
+    <span class="updated" id="updated"></span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <script>
+    const $ = sel => document.querySelector(sel);
+    const grid = $("#grid");
+    const updated = $("#updated");
+
+    function fmt(n, d=2) {
+      if (n === null || n === undefined || Number.isNaN(n)) return "—";
+      return Number(n).toLocaleString(undefined, {minimumFractionDigits: d, maximumFractionDigits: d});
+    }
+    function pct(n) { return (n*100).toFixed(1) + "%"; }
+    function timeStr(s) {
+      if (!s) return "—";
+      const d = new Date(s);
+      return isNaN(d) ? s : d.toLocaleString(undefined, {month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit"});
+    }
+
+    function card(p) {
+      const side = p.side || "none";
+      const sideUp = side.toUpperCase();
+      if (p.error) {
+        return `<div class="card none"><div class="row"><span class="sym">${p.symbol}</span>
+          <span class="side none">ERR</span></div><div class="err">${p.error}</div></div>`;
+      }
+      const conf = p.confidence ?? 0;
+      return `
+        <div class="card ${side}">
+          <div class="row">
+            <span class="sym">${p.symbol}</span>
+            <span class="side ${side}">${sideUp}</span>
+          </div>
+          <div>
+            <div class="row"><label>Confidence</label><val>${pct(conf)}</val></div>
+            <div class="conf-bar"><span style="width:${(conf*100).toFixed(1)}%"></span></div>
+          </div>
+          <div class="kv">
+            <div><label>Entry</label><val>${fmt(p.entry)}</val></div>
+            <div><label>Target</label><val class="target">${fmt(p.target)}</val></div>
+            <div><label>Stop</label><val class="stop">${fmt(p.stop)}</val></div>
+            <div><label>R:R</label><val>${fmt(p.rr,1)}</val></div>
+            <div><label>P(long)</label><val>${pct(p.p_long||0)}</val></div>
+            <div><label>P(short)</label><val>${pct(p.p_short||0)}</val></div>
+          </div>
+          <div class="window">
+            Window: ${timeStr(p.expected_window_start)} → ${timeStr(p.expected_window_end)}
+            (${p.horizon_minutes||0} min)
+          </div>
+        </div>`;
+    }
+
+    async function load() {
+      const schema = $("#schema").value;
+      grid.innerHTML = '<div style="color:#64748b">Loading…</div>';
+      try {
+        const r = await fetch(`/api/ml/predictions?schema=${schema}`);
+        const j = await r.json();
+        if (!j.ok) { grid.innerHTML = `<div class="err">${j.error}</div>`; return; }
+        grid.innerHTML = j.predictions.map(card).join("");
+        updated.textContent = "Updated " + new Date().toLocaleTimeString();
+      } catch (e) {
+        grid.innerHTML = `<div class="err">${e.message}</div>`;
+      }
+    }
+
+    $("#refresh").addEventListener("click", load);
+    $("#schema").addEventListener("change", load);
+    load();
+    setInterval(load, 60000);
+  </script>
+</body>
+</html>

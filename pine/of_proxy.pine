@@ -1,0 +1,82 @@
+//@version=6
+// OrderFlow Proxy · CVD + Δ histogram + Δ% labels + R1/R3/R6/R7 alerts
+// Companion to /footprint-deep canvas chart. CLV proxy for aggressor split.
+// Webhook target: POST {{message}} to https://YOUR_HOST/api/order-flow/tv-alert
+indicator("OrderFlow Proxy · CVD + Δ", "OF Proxy",
+     overlay=false, max_labels_count=500, format=format.volume)
+
+// ── Inputs ───────────────────────────────────────────────────────────
+showLabels  = input.bool(true,  "Show Δ labels")
+labelEveryN = input.int (5,     "Label every N bars", minval=1, maxval=20)
+deltaThresh = input.float(60,   "Extreme Δ% alert threshold", minval=10, maxval=100)
+
+// ── CLV proxy for aggressor split (Chaikin 1966) ─────────────────────
+clv      = high == low ? 0 : ((close - low) - (high - close)) / (high - low)
+buyVol   = volume * (1 + clv) / 2
+sellVol  = volume * (1 - clv) / 2
+delta    = buyVol - sellVol
+deltaPct = volume == 0 ? 0 : delta / volume * 100
+cvd      = ta.cum(delta)
+
+// ── Plots ────────────────────────────────────────────────────────────
+plot(cvd, "CVD", color=color.new(color.orange, 0), linewidth=2)
+hline(0, "Zero", color=color.new(color.gray, 70))
+
+bgCol = delta >= 0 ? color.new(color.green, 50) : color.new(color.red, 50)
+plot(delta, "Δ", color=bgCol, style=plot.style_columns, histbase=0, linewidth=2)
+
+// ── Per-bar Δ% labels ────────────────────────────────────────────────
+if showLabels and bar_index % labelEveryN == 0 and barstate.isconfirmed
+    txt = str.format("{0,number,+0.0;-0.0}%", deltaPct)
+    label.new(bar_index, cvd, txt,
+         style = delta >= 0 ? label.style_label_down : label.style_label_up,
+         color = color.new(color.black, 60),
+         textcolor = delta >= 0 ? color.green : color.red,
+         size  = size.tiny)
+
+// ── Detection rules (port of R1/R3/R6/R7 from Flask backend) ────────
+atr14    = ta.atr(14)
+fwdRetAtr = (close[1] - close[2]) / nz(atr14[1], 0.0001)
+
+r1 = deltaPct[1] > 30 and fwdRetAtr < -0.3
+
+recentHigh = ta.highest(high, 50)[1]
+nearHigh   = math.abs(close - recentHigh) / atr14 < 0.5
+r3 = nearHigh and deltaPct > 50 and math.abs(close - close[1]) / atr14 < 0.1
+
+recentLow = ta.lowest(low, 50)[1]
+r6 = low < recentLow and close > recentLow and deltaPct < -30
+
+ret20 = close - close[1]
+cvdZ  = (cvd - ta.sma(cvd, 50)) / nz(ta.stdev(cvd, 50), 1)
+r7    = ta.correlation(cvdZ, ret20, 20) < -0.5
+
+// ── Visual rule markers ──────────────────────────────────────────────
+plotshape(r3, "R3 Absorption ↓", style=shape.triangledown, location=location.top,
+          color=color.red,    size=size.small, text="Abs")
+plotshape(r6, "R6 Bear Trap ↑",  style=shape.triangleup,   location=location.bottom,
+          color=color.green,  size=size.small, text="Trap")
+plotshape(r1, "R1 Buyer Down",   style=shape.cross,        location=location.top,
+          color=color.yellow, size=size.tiny)
+plotshape(r7, "R7 CVD Diverg.",  style=shape.diamond,      location=location.absolute,
+          color=color.fuchsia, size=size.tiny)
+
+// ── Webhook-ready alerts ─────────────────────────────────────────────
+// Build JSON via string concat — Pine str.format chokes on JSON's { } braces.
+// Single-line concat to avoid Pine's strict line-continuation indent rules.
+mkAlert(label_, conf) =>
+    '{"source":"tv_pine","symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","label":"' + label_ + '","confidence":' + str.tostring(conf) + ',"price":' + str.tostring(close, "#.##") + ',"delta_pct":' + str.tostring(deltaPct, "#.##") + ',"cvd":' + str.tostring(cvd, "#") + '}'
+
+if r3
+    alert(mkAlert("buyer_absorption", 75), alert.freq_once_per_bar_close)
+if r6
+    alert(mkAlert("bearish_trap",     75), alert.freq_once_per_bar_close)
+if r1
+    alert(mkAlert("possible_reversal_short", 60), alert.freq_once_per_bar_close)
+if r7
+    alert(mkAlert("cvd_divergence",   65), alert.freq_once_per_bar_close)
+
+if math.abs(deltaPct) >= deltaThresh and volume > ta.sma(volume, 20) * 1.5
+    extLabel = deltaPct > 0 ? "extreme_buy" : "extreme_sell"
+    extConf  = math.min(95, int(math.abs(deltaPct)))
+    alert(mkAlert(extLabel, extConf), alert.freq_once_per_bar_close)

@@ -26,3 +26,7 @@ outputs/
 .env
 .env.*
 !.env.example
+
+# ML engine — backfilled history + trained artifacts (regenerable)
+ml_engine/data/history/
+ml_engine/artifacts/

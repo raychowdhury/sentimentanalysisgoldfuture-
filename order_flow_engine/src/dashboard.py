@@ -749,6 +749,109 @@ def register(app: Flask) -> None:
         n = outcome_tracker._settle_pending()
         return jsonify({"settled": n})
 
+    # ── Phase 1B real-flow diagnostic view ──────────────────────────────
+
+    def _diagnostic_path(symbol: str, tf: str) -> Path:
+        return of_cfg.OF_OUTPUT_DIR / f"realflow_diagnostic_{symbol}_{tf}.json"
+
+    @app.route("/order-flow/realflow-diagnostic")
+    def realflow_diagnostic_view():  # pragma: no cover
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        path = _diagnostic_path(symbol, tf)
+        data = None
+        error = None
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+            except Exception as e:
+                error = f"Failed to read {path.name}: {e}"
+        else:
+            error = (f"No diagnostic JSON yet at {path.name}. "
+                     "Click Regenerate or run "
+                     "`python -m order_flow_engine.src.realflow_compare "
+                     f"--symbol {symbol} --tf {tf} --diagnostic`.")
+        button_status = None
+        try:
+            from order_flow_engine.src import realflow_compare as rfc
+            button_status = rfc.peek_button_status(symbol, tf)
+        except Exception:
+            button_status = None
+        outcomes = None
+        op = _outcomes_summary_path(symbol, tf)
+        if op.exists():
+            try:
+                outcomes = json.loads(op.read_text())
+            except Exception:
+                outcomes = None
+        return render_template(
+            "realflow_diagnostic.html",
+            symbol=symbol, tf=tf, data=data, error=error,
+            json_path=str(path), button_status=button_status,
+            outcomes=outcomes,
+        )
+
+    def _outcomes_summary_path(symbol: str, tf: str) -> Path:
+        return of_cfg.OF_OUTPUT_DIR / f"realflow_outcomes_summary_{symbol}_{tf}.json"
+
+    @app.route("/api/order-flow/realflow-outcomes")
+    def realflow_outcomes_api():  # pragma: no cover
+        """
+        Read-only outcome summary. ?settle=1 triggers a fresh settle_pass
+        before returning. Otherwise just reads the cached summary JSON.
+        """
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        do_settle = request.args.get("settle", "0") in ("1", "true", "yes")
+        if do_settle:
+            try:
+                from order_flow_engine.src import realflow_outcome_tracker as rot
+                rot.settle_pass(symbol, tf)
+            except Exception as e:
+                return jsonify({"error": f"settle_pass failed: {e}"}), 500
+        path = _outcomes_summary_path(symbol, tf)
+        if not path.exists():
+            return jsonify({
+                "error": f"no outcomes summary at {path.name} — run settle_pass first",
+                "n_settled": 0, "n_pending": 0,
+                "sample_size_label": "cold",
+                "by_rule": {}, "by_session": {}, "vs_baseline": {},
+            }), 200
+        try:
+            return jsonify(json.loads(path.read_text()))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/order-flow/realflow-diagnostic-status")
+    def realflow_diagnostic_status():  # pragma: no cover
+        """Cheap status for the Regenerate button — no full diagnose run."""
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        try:
+            from order_flow_engine.src import realflow_compare as rfc
+            return jsonify(rfc.peek_button_status(symbol, tf))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/order-flow/realflow-diagnostic")
+    def realflow_diagnostic_api():  # pragma: no cover
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        regenerate = request.args.get("regenerate", "0") in ("1", "true", "yes")
+        if regenerate:
+            try:
+                from order_flow_engine.src import realflow_compare as rfc
+                rfc.diagnose(symbol, tf)
+            except Exception as e:
+                return jsonify({"error": f"diagnose failed: {e}"}), 500
+        path = _diagnostic_path(symbol, tf)
+        if not path.exists():
+            return jsonify({"error": f"no diagnostic at {path.name}"}), 404
+        try:
+            return jsonify(json.loads(path.read_text()))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     @app.route("/api/order-flow/notifiers/test", methods=["POST"])
     def order_flow_notifiers_test():  # pragma: no cover
         from order_flow_engine.src import notifier

@@ -27,6 +27,9 @@ OUTPUT_DIR = "outputs"
 from order_flow_engine.src.dashboard import register as register_order_flow
 register_order_flow(app)
 
+from ml_engine.dashboard import register as register_ml_engine
+register_ml_engine(app)
+
 
 # ── Jinja2 filters ────────────────────────────────────────────────────────────
 
@@ -1358,6 +1361,94 @@ def footprint_deep_view():
     return render_template("footprint_deep.html")
 
 
+# ── Pine Script library + TV webhook receiver ───────────────────────────────
+PINE_DIR = Path(__file__).resolve().parent / "pine"
+
+PINE_FILES = {
+    "of_proxy":       {"file": "of_proxy.pine",
+                       "title": "OrderFlow Proxy · CVD + Δ + R-rules",
+                       "desc": "CVD line, delta histogram, Δ% labels, R1/R3/R6/R7 detection rules + webhook alerts."},
+    "footprint_lite": {"file": "footprint_lite.pine",
+                       "title": "Footprint Lite · D-VP",
+                       "desc": "Per-bar box-grid colored by per-level delta sign (CLV proxy)."},
+    "va_profile":     {"file": "va_profile.pine",
+                       "title": "VA Profile · POC / VAH / VAL 70%",
+                       "desc": "Rolling N-bar volume profile with Value Area (70%) lines."},
+}
+
+
+@app.route("/pine")
+def pine_index():
+    return render_template("pine_library.html", files=PINE_FILES)
+
+
+@app.route("/api/pine/<name>")
+def api_pine_file(name):
+    meta = PINE_FILES.get(name)
+    if not meta:
+        return jsonify({"error": "unknown script"}), 404
+    path = PINE_DIR / meta["file"]
+    if not path.exists():
+        return jsonify({"error": "file missing"}), 500
+    return path.read_text(), 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+@app.route("/api/pine/<name>/download")
+def api_pine_download(name):
+    meta = PINE_FILES.get(name)
+    if not meta:
+        return jsonify({"error": "unknown script"}), 404
+    path = PINE_DIR / meta["file"]
+    if not path.exists():
+        return jsonify({"error": "file missing"}), 500
+    return send_file(str(path), as_attachment=True, download_name=meta["file"],
+                     mimetype="text/plain")
+
+
+@app.route("/api/order-flow/tv-alert", methods=["POST"])
+def api_tv_alert():
+    """Receive TradingView Pine Script webhook alerts.
+    Expected JSON body (matches our pine `mkAlert()` output):
+      {source, symbol, tf, label, confidence, price, delta_pct, cvd}
+    Persisted to outputs/order_flow/tv_alerts.jsonl + alerts.jsonl pipeline.
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    if not payload:
+        return jsonify({"error": "empty body"}), 400
+    payload["received_utc"] = datetime.now(timezone.utc).isoformat()
+    payload.setdefault("source", "tv_pine")
+
+    out_dir = Path("outputs/order_flow")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Append to dedicated tv_alerts.jsonl for easy filtering
+    with (out_dir / "tv_alerts.jsonl").open("a") as f:
+        f.write(json.dumps(payload) + "\n")
+    # Also fan into main alerts pipeline so dashboards see it
+    try:
+        from order_flow_engine.src import alert_engine
+        alert = alert_engine.build_alert(
+            timestamp=payload.get("received_utc"),
+            symbol=str(payload.get("symbol", "TV")),
+            timeframe=str(payload.get("tf", "1m")),
+            label=str(payload.get("label", "tv_signal")),
+            confidence=int(payload.get("confidence", 60)),
+            price=float(payload.get("price", 0) or 0),
+            atr=0.0,
+            rules_fired=[payload.get("label", "tv_pine")],
+            metrics={
+                "delta_pct": payload.get("delta_pct"),
+                "cvd":       payload.get("cvd"),
+            },
+            model_info={"version": "tv_pine"},
+            proxy_mode=True,
+            pass_type="tv",
+        )
+        alert_engine.append_jsonl(alert, output_dir=out_dir)
+    except Exception as e:
+        return jsonify({"ok": True, "fanout_error": str(e)})
+    return jsonify({"ok": True, "alert": alert})
+
+
 @app.route("/api/futures/time-footprint")
 def api_futures_time_footprint():
     """Time-based footprint bars: same shape as range-bars but bins by
@@ -1906,4 +1997,6 @@ def api_gauge():
 if __name__ == "__main__":
     if sched.is_enabled():
         sched.init_scheduler()
+    else:
+        sched.init_ml_retrain_only()
     app.run(debug=True, port=5001, use_reloader=False)

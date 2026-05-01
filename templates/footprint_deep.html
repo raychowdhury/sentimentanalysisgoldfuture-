@@ -82,8 +82,9 @@
     background:#475569; display:inline-block; }
   .pane-head .live-dot.on { background:var(--up); box-shadow:0 0 4px var(--up); }
   .pane-head .live-dot.off { background:var(--down); }
-  .pane-head .stats { display:flex; gap:.5rem; font-size:.7rem;
-    margin-left:auto; align-items:center; }
+  .pane-head .stats { display:flex; gap:.7rem; font-size:.7rem;
+    margin-left:auto; align-items:center; white-space:nowrap; }
+  .pane-head .stats > span { display:inline-flex; gap:.25rem; align-items:baseline; }
   .pane-head .stats .lbl { color:var(--muted); }
   .pane-head .stats .v { color:var(--text); font-weight:700; }
   .pane-head .stats .pos { color:var(--up); }
@@ -170,7 +171,7 @@
       bars: [],
       meta: { source:null, total:0, real_flow:false },
       layout: { w:800, h:600, dpr:1 },
-      view:  { panSlots:0, barsPerScreen:50, priceZoom:1.0, priceCenter:null },
+      view:  { panSlots:0, barsPerScreen:80, priceZoom:1.0, priceCenter:null },
       cursor:{ active:false, x:0, y:0, hoverIdx:-1 },
       mode: "OF-VP", showGrid:true, showVP:true,
       autoScroll:true,
@@ -273,6 +274,7 @@
     drawAxes(ctx, sc);
     drawLastClose(ctx, sc);
     drawAggregateVP(ctx, sc, state);
+    drawZoomHud(ctx, sc, state);
     drawCrosshair(ctx, sc, state);
   }
 
@@ -335,34 +337,85 @@
 
       switch (mode){
         case "OF-VP": {
+          // DeepChart-style: bid (red) LEFT of body, ask (green) RIGHT.
+          // Each side independently scaled to its own max for visual clarity.
+          let maxBid = 1, maxAsk = 1;
+          for (const lv of b.levels){
+            if (lv.bidVolume > maxBid) maxBid = lv.bidVolume;
+            if (lv.askVolume > maxAsk) maxAsk = lv.askVolume;
+          }
+          const sideMax = Math.max(maxBid, maxAsk);
           for (const lv of b.levels){
             const y = yFor(lv.price);
-            const total = lv.totalVolume;
-            if (total <= 0) continue;
-            const dlt    = lv.askVolume - lv.bidVolume;
-            const wDelta = (Math.abs(dlt) / maxLevel) * halfHist;
-            const wTotal = (total          / maxLevel) * halfHist;
-            const dColor = dlt >= 0 ? COLORS.ask : COLORS.bid;
-            if (wDelta > 0){
-              ctx.fillStyle = dColor; ctx.globalAlpha = 0.9;
-              ctx.fillRect(xCandleL - wDelta - 2, y - rowH/2, wDelta, rowH);
+            if (lv.totalVolume <= 0) continue;
+            const wBid = (lv.bidVolume / sideMax) * halfHist;
+            const wAsk = (lv.askVolume / sideMax) * halfHist;
+            if (wBid > 0){
+              ctx.fillStyle = COLORS.bid; ctx.globalAlpha = 0.85;
+              ctx.fillRect(xCandleL - wBid - 1.5, y - rowH/2, wBid, rowH);
             }
-            ctx.fillStyle = COLORS.accent; ctx.globalAlpha = 0.7;
-            ctx.fillRect(xCandleL + candleW + 2, y - rowH/2, wTotal, rowH);
+            if (wAsk > 0){
+              ctx.fillStyle = COLORS.ask; ctx.globalAlpha = 0.85;
+              ctx.fillRect(xCandleL + candleW + 1.5, y - rowH/2, wAsk, rowH);
+            }
+            // Numbers inside histograms when slot wide enough
+            if (slotW >= 70){
+              ctx.font = `${Math.min(10, rowH * 0.85)}px ui-monospace, monospace`;
+              ctx.textBaseline = "middle";
+              if (lv.bidVolume > 0){
+                ctx.fillStyle = "#0a0e16";
+                ctx.textAlign = "right";
+                ctx.fillText(fmtV(lv.bidVolume), xCandleL - 3, y);
+              }
+              if (lv.askVolume > 0){
+                ctx.fillStyle = "#0a0e16";
+                ctx.textAlign = "left";
+                ctx.fillText(fmtV(lv.askVolume), xCandleL + candleW + 3, y);
+              }
+            }
           }
           ctx.globalAlpha = 1;
           break;
         }
         case "OF-B/A": {
-          ctx.font = `${Math.max(8, Math.min(slotW * 0.22, 11))}px ui-monospace, monospace`;
+          // Bid x Ask numeric per level — DeepChart polish:
+          // tinted background pill per side for readability, max-side highlight,
+          // imbalance highlight when ask >> bid or bid >> ask.
+          let sideMax = 1;
+          for (const lv of b.levels){
+            const m = Math.max(lv.bidVolume, lv.askVolume);
+            if (m > sideMax) sideMax = m;
+          }
+          const fSz = Math.max(7, Math.min(slotW * 0.16, 11));
+          ctx.font = `${fSz}px ui-monospace, monospace`;
           ctx.textBaseline = "middle";
           for (const lv of b.levels){
             if (lv.totalVolume <= 0) continue;
             const y = yFor(lv.price);
-            ctx.fillStyle = COLORS.bid; ctx.textAlign = "right";
-            ctx.fillText(fmtV(lv.bidVolume), xCandleL - 4, y);
-            ctx.fillStyle = COLORS.ask; ctx.textAlign = "left";
-            ctx.fillText(fmtV(lv.askVolume), xCandleL + candleW + 4, y);
+            const bidStr = fmtV(lv.bidVolume);
+            const askStr = fmtV(lv.askVolume);
+            const bidW = ctx.measureText(bidStr).width + 6;
+            const askW = ctx.measureText(askStr).width + 6;
+            // Background tint scaled by relative size (more vol = stronger tint)
+            const bidAlpha = (lv.bidVolume / sideMax) * 0.5 + 0.05;
+            const askAlpha = (lv.askVolume / sideMax) * 0.5 + 0.05;
+            // Imbalance flag: 3x the other side highlights with brighter bg
+            const imbBuy  = lv.askVolume > lv.bidVolume * 3 && lv.askVolume > 5;
+            const imbSell = lv.bidVolume > lv.askVolume * 3 && lv.bidVolume > 5;
+            // Bid side (left)
+            ctx.fillStyle = COLORS.bid; ctx.globalAlpha = imbSell ? 0.7 : bidAlpha;
+            ctx.fillRect(xCandleL - bidW - 2, y - rowH/2 + 1, bidW, rowH - 2);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = imbSell ? "#ffffff" : "#fecaca";
+            ctx.textAlign = "right";
+            ctx.fillText(bidStr, xCandleL - 4, y);
+            // Ask side (right)
+            ctx.fillStyle = COLORS.ask; ctx.globalAlpha = imbBuy ? 0.7 : askAlpha;
+            ctx.fillRect(xCandleL + candleW + 2, y - rowH/2 + 1, askW, rowH - 2);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = imbBuy ? "#ffffff" : "#bbf7d0";
+            ctx.textAlign = "left";
+            ctx.fillText(askStr, xCandleL + candleW + 4, y);
           }
           break;
         }
@@ -607,6 +660,21 @@
     }
   }
 
+  /* Zoom HUD — shows briefly after zoom changes (TradingView style) */
+  function drawZoomHud(ctx, sc, state){
+    if (!state._zoomHudUntil || Date.now() > state._zoomHudUntil) return;
+    const txt = `${Math.round(state.view.barsPerScreen)} bars · ` +
+                `${(sc.pHi - sc.pLo).toFixed(2)} range`;
+    const x = sc.ML + sc.PW - 8, y = sc.MT + 8;
+    ctx.font = "bold 11px ui-monospace, monospace";
+    ctx.textAlign = "right"; ctx.textBaseline = "top";
+    const w = ctx.measureText(txt).width + 12;
+    ctx.fillStyle = "rgba(2,4,16,0.85)";
+    ctx.fillRect(x - w, y - 2, w, 18);
+    ctx.fillStyle = COLORS.accent;
+    ctx.fillText(txt, x - 6, y + 1);
+  }
+
   function drawCrosshair(ctx, sc, state){
     const c = state.cursor;
     if (!c.active) return;
@@ -791,49 +859,175 @@
       state.cursor.active = false; state.cursor.hoverIdx = -1;
       requestRender();
     });
+    /* Hit-test cursor zone — determines drag mode */
+    function zoneAt(canvasX, canvasY){
+      const sc = computeScale(state);
+      if (!sc) return "body";
+      if (canvasX > sc.ML + sc.PW)        return "priceAxis"; // right axis
+      if (canvasY > sc.MT + sc.PH)        return "timeAxis";  // bottom axis
+      return "body";
+    }
+
     canvas.addEventListener("mousedown", e => {
-      _drag = { startX: e.clientX, startPan: state.view.panSlots };
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      const zone = zoneAt(cx, cy);
+      const sc = computeScale(state);
+      _drag = {
+        zone, startX: e.clientX, startY: e.clientY,
+        startPan:        state.view.panSlots,
+        startBPS:        state.view.barsPerScreen,
+        startPriceZoom:  state.view.priceZoom,
+        startPriceCtr:   state.view.priceCenter ?? (sc ? (sc.pHi + sc.pLo)/2 : null),
+      };
       canvas.classList.add("dragging");
-      // Mark this pane active
+      canvas.style.cursor = zone === "priceAxis" ? "ns-resize"
+                          : zone === "timeAxis"  ? "ew-resize"
+                          : "grabbing";
       document.querySelectorAll(".pane").forEach(p => p.classList.remove("active"));
       root.classList.add("active");
     });
+
     window.addEventListener("mousemove", e => {
       if (!_drag) return;
       const sc = computeScale(state);
       if (!sc) return;
-      const shiftSlots = -Math.round((e.clientX - _drag.startX) / sc.slotW);
-      const N = state.bars.length, visN = sc.visible.length;
-      state.view.panSlots = Math.max(visN - N,
-        Math.min(0, _drag.startPan + shiftSlots));
-      state.autoScroll = (state.view.panSlots === 0);
+      const N = state.bars.length;
+      const dx = e.clientX - _drag.startX;
+      const dy = e.clientY - _drag.startY;
+
+      if (_drag.zone === "body"){
+        // Pan — drag horizontal
+        const shiftSlots = -Math.round(dx / sc.slotW);
+        const visN = sc.visible.length;
+        state.view.panSlots = Math.max(visN - N,
+          Math.min(0, _drag.startPan + shiftSlots));
+        state.autoScroll = (state.view.panSlots === 0);
+      }
+      else if (_drag.zone === "priceAxis" || _drag.zone === "timeAxis"){
+        state._zoomHudUntil = Date.now() + 900;
+      }
+      if (_drag.zone === "priceAxis"){
+        // Vertical price zoom: drag down = compress (zoom out)
+        // factor based on screen-pixel distance / pane height
+        const f = Math.exp(dy / sc.PH * 1.5);
+        state.view.priceZoom = Math.max(0.05, Math.min(20,
+          _drag.startPriceZoom / f));
+        // Pin center to anchor (start position)
+        if (_drag.startPriceCtr != null){
+          state.view.priceCenter = _drag.startPriceCtr;
+        }
+      }
+      else if (_drag.zone === "timeAxis"){
+        // Horizontal time zoom: drag right = more bars (zoom out)
+        const f = Math.exp(dx / sc.PW * 1.5);
+        state.view.barsPerScreen = Math.max(5, Math.min(N,
+          _drag.startBPS * f));
+      }
       requestRender();
     });
+
     window.addEventListener("mouseup", () => {
-      if (_drag){ _drag = null; canvas.classList.remove("dragging"); }
+      if (_drag){
+        _drag = null;
+        canvas.classList.remove("dragging");
+        canvas.style.cursor = "";
+      }
     });
+
+    /* Smart wheel handler — distinguishes:
+     *   - mouse wheel (large discrete deltaY)         → time zoom
+     *   - trackpad two-finger scroll (small deltas)   → pan (X) / vertical pan (Y)
+     *   - trackpad pinch (ctrlKey set by browser)     → zoom (both axes)
+     *   - shift+wheel                                  → price zoom
+     */
     canvas.addEventListener("wheel", e => {
       e.preventDefault();
+      state._zoomHudUntil = Date.now() + 900;
+      const sc = computeScale(state);
+      if (!sc) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
       const N = state.bars.length;
-      if (e.shiftKey){
-        const sc = computeScale(state);
-        if (sc){
-          const priceAtCursor = sc.priceForY(state.cursor.y || sc.MT + sc.PH/2);
-          const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
-          state.view.priceZoom = Math.max(0.05, Math.min(10, state.view.priceZoom * factor));
-          const centerNow = (sc.pHi + sc.pLo) / 2;
-          state.view.priceCenter = priceAtCursor - (priceAtCursor - centerNow) / factor;
-        }
+
+      // Normalize delta across deltaMode (px / line / page)
+      const lineH = 16, pageH = 100;
+      const dxPx = e.deltaX * (e.deltaMode === 1 ? lineH : e.deltaMode === 2 ? pageH : 1);
+      const dyPx = e.deltaY * (e.deltaMode === 1 ? lineH : e.deltaMode === 2 ? pageH : 1);
+
+      // Heuristic: trackpad = small per-event deltas (<50px) AND ctrlKey false.
+      // Mouse wheel = large discrete deltas (typically 100+).
+      const absDy = Math.abs(dyPx), absDx = Math.abs(dxPx);
+      const isPinch  = e.ctrlKey;                // browser sets this on trackpad pinch
+      const isMouseWheel = absDy >= 50 && absDx === 0 && !isPinch;
+      const isTrackpadScroll = !isPinch && !isMouseWheel;
+
+      if (e.shiftKey || isPinch){
+        // Price zoom anchored at cursor price (smaller factor for trackpad)
+        const sensitivity = isPinch ? 0.012 : 0.006;
+        const factor = Math.exp(dyPx * sensitivity);
+        const priceAtCursor = sc.priceForY(cy);
+        const oldZoom = state.view.priceZoom;
+        const newZoom = Math.max(0.05, Math.min(20, oldZoom / factor));
+        const ratio = newZoom / oldZoom;
+        const centerNow = state.view.priceCenter ?? (sc.pHi + sc.pLo) / 2;
+        state.view.priceZoom = newZoom;
+        state.view.priceCenter = priceAtCursor - (priceAtCursor - centerNow) * ratio;
+      } else if (isTrackpadScroll){
+        // Two-finger trackpad scroll = pan. dxPx (horizontal scroll) drives
+        // X pan, dyPx (vertical scroll) shifts price center.
+        const slotShift = (dxPx + dyPx * 0.3) / sc.slotW;
+        const visN = sc.visible.length;
+        state.view.panSlots = Math.max(visN - N,
+          Math.min(0, state.view.panSlots - slotShift));
+        state.autoScroll = (state.view.panSlots >= -0.5);
       } else {
-        const factor = e.deltaY < 0 ? 1/1.18 : 1.18;
-        state.view.barsPerScreen = Math.max(5, Math.min(N, state.view.barsPerScreen * factor));
+        // Mouse wheel = time zoom anchored at cursor bar
+        const factor = dyPx < 0 ? 1/1.12 : 1.12;
+        const oldBPS = state.view.barsPerScreen;
+        const newBPS = Math.max(5, Math.min(N, oldBPS * factor));
+        const startIdxOld = Math.max(0,
+          Math.min(N, N + state.view.panSlots) - sc.visible.length);
+        const cursorOffset = (cx - sc.ML) / sc.slotW;
+        const worldIdx = startIdxOld + cursorOffset;
+        const newSlotW = sc.PW / newBPS;
+        const newCursorOffset = (cx - sc.ML) / newSlotW;
+        const newStartIdx = worldIdx - newCursorOffset;
+        const newEndIdx = newStartIdx + newBPS;
+        state.view.barsPerScreen = newBPS;
+        state.view.panSlots = Math.max(Math.round(newBPS - N),
+          Math.min(0, Math.round(newEndIdx - N)));
+        state.autoScroll = (state.view.panSlots === 0);
       }
       requestRender();
     }, { passive: false });
-    canvas.addEventListener("dblclick", () => {
-      state.view = { panSlots:0, barsPerScreen:50, priceZoom:1.0, priceCenter:null };
-      state.autoScroll = true;
+
+    /* Per-axis dblclick reset */
+    canvas.addEventListener("dblclick", e => {
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      const zone = zoneAt(cx, cy);
+      if (zone === "priceAxis"){
+        state.view.priceZoom = 1.0; state.view.priceCenter = null;
+      } else if (zone === "timeAxis"){
+        state.view.barsPerScreen = 50; state.view.panSlots = 0;
+        state.autoScroll = true;
+      } else {
+        state.view = { panSlots:0, barsPerScreen:80, priceZoom:1.0, priceCenter:null };
+        state.autoScroll = true;
+      }
       requestRender();
+    });
+
+    /* Update cursor style based on hover zone */
+    canvas.addEventListener("mousemove", e => {
+      if (_drag) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      const z = zoneAt(cx, cy);
+      canvas.style.cursor = z === "priceAxis" ? "ns-resize"
+                          : z === "timeAxis"  ? "ew-resize"
+                          : "crosshair";
     });
 
     /* Pill / tab handlers */
@@ -861,7 +1055,7 @@
       state.cfg.tf    = sel(".cfg-tf").value;
       state.cfg.range = parseInt(sel(".cfg-range").value);
       syncRangePillVisibility();
-      state.view = { panSlots:0, barsPerScreen:50, priceZoom:1.0, priceCenter:null };
+      state.view = { panSlots:0, barsPerScreen:80, priceZoom:1.0, priceCenter:null };
       state.autoScroll = true;
       stopPolling();
       reload().then(() => { if (state.cfg.bt === 0) startPolling(); });

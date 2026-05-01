@@ -1,0 +1,69 @@
+//@version=6
+// Footprint Lite · D-VP — last N bars rendered as box-grid per price level.
+// Color = per-level delta sign (CLV proxy estimate). Top labels: Δ% / Δ / Vol.
+// Real per-tick aggressor side NOT exposed by TV — this is approximation.
+indicator("Footprint Lite · D-VP", "Footprint Lite",
+     overlay=true, max_boxes_count=500, max_labels_count=500)
+
+barsToShow   = input.int(20, "Bars to render",     minval=2,  maxval=30)
+levelsPerBar = input.int(20, "Max levels per bar", minval=5,  maxval=40)
+colorMode    = input.string("delta", "Coloring", options=["delta","total"])
+showLabels   = input.bool(true, "Show Δ% / Δ / Vol labels")
+
+// ── CLV proxy ────────────────────────────────────────────────────────
+clv      = high == low ? 0 : ((close - low) - (high - close)) / (high - low)
+buyVol   = volume * (1 + clv) / 2
+sellVol  = volume * (1 - clv) / 2
+delta    = buyVol - sellVol
+deltaPct = volume == 0 ? 0 : delta / volume * 100
+
+// ── Rolling buffers ──────────────────────────────────────────────────
+var array<box>   boxBuf = array.new<box>()
+var array<label> labBuf = array.new<label>()
+
+renderBar() =>
+    rng = high - low
+    if rng > 0 and volume > 0
+        levHt   = rng / levelsPerBar
+        bcenter = bar_index
+        for i = 0 to levelsPerBar - 1
+            levLo  = low + i * levHt
+            levHi  = levLo + levHt
+            levMid = (levLo + levHi) / 2
+            w      = 1.0 - math.abs(levMid - close) / rng
+            w      := math.max(0.05, w)
+            levBuy  = buyVol  * w / levelsPerBar
+            levSell = sellVol * w / levelsPerBar
+            levDlt  = levBuy - levSell
+            levTot  = levBuy + levSell
+            transp  = math.max(20, 80 - int(levTot / volume * levelsPerBar * 30))
+            c       = colorMode == "delta" ?
+                       (levDlt >= 0 ? color.new(color.green, transp)
+                                    : color.new(color.red,   transp)) :
+                       color.new(color.gray, transp)
+            b = box.new(bcenter, levHi, bcenter, levLo,
+                        bgcolor=c, border_color=na, xloc=xloc.bar_index)
+            array.push(boxBuf, b)
+
+if barstate.isconfirmed
+    renderBar()
+    if showLabels
+        col = delta >= 0 ? color.green : color.red
+        l1  = label.new(bar_index, high, str.format("{0,number,+0.0}%", deltaPct),
+              style=label.style_label_down, color=color.new(color.black, 70),
+              textcolor=col, size=size.tiny)
+        l2  = label.new(bar_index, high, str.format("{0,number,+#}", delta),
+              style=label.style_none, color=color.new(color.black, 100),
+              textcolor=col, size=size.tiny, yloc=yloc.abovebar)
+        l3  = label.new(bar_index, low,  str.format("{0,number,#K}", volume/1000),
+              style=label.style_label_up, color=color.new(color.black, 70),
+              textcolor=color.white, size=size.tiny)
+        array.push(labBuf, l1)
+        array.push(labBuf, l2)
+        array.push(labBuf, l3)
+
+    // Trim — keep only last N bars worth
+    while array.size(boxBuf) > barsToShow * levelsPerBar
+        box.delete(array.shift(boxBuf))
+    while array.size(labBuf) > barsToShow * 3
+        label.delete(array.shift(labBuf))

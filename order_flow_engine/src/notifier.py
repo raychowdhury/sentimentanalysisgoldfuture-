@@ -154,7 +154,15 @@ def _format(alert: dict) -> str:
 
 
 def send_telegram(alert: dict) -> bool:
-    """Send alert to every active subscriber + the env-var seed chat."""
+    """Send alert to every active subscriber + the env-var seed chat.
+
+    Telegram is restricted to ES 15m alerts only. Other symbols/timeframes
+    still flow through the dashboard, JSONL, and other notifiers.
+    """
+    sym = str(alert.get("symbol", "")).upper()
+    tf = str(alert.get("timeframe", ""))
+    if not sym.startswith("ES") or tf != "15m":
+        return False
     token = os.getenv("TG_BOT_TOKEN", "").strip()
     if not token:
         return False

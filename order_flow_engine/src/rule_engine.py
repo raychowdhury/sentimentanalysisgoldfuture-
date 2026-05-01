@@ -66,28 +66,49 @@ def apply_rules(df: pd.DataFrame) -> pd.DataFrame:
     atr_frac = (out["atr_pct"] / 100).replace(0, np.nan)
     fwd_ret_atr = (out["fwd_ret_1"] / atr_frac).fillna(0.0)
 
+    # Per-bar threshold selection. When OF_REAL_THRESHOLDS_ENABLED and the
+    # bar carries real buy/sell flow (bar_proxy_mode == 0), use the *_REAL
+    # values calibrated for real-flow's tighter delta_ratio distribution.
+    # Bars without real flow keep the proxy-tuned thresholds.
+    if (of_cfg.OF_REAL_THRESHOLDS_ENABLED
+            and "bar_proxy_mode" in out.columns):
+        is_real = (out["bar_proxy_mode"].fillna(1).astype(int) == 0).to_numpy()
+        dom_thr  = np.where(is_real,
+                            of_cfg.RULE_DELTA_DOMINANCE_REAL,
+                            of_cfg.RULE_DELTA_DOMINANCE)
+        abs_thr  = np.where(is_real,
+                            of_cfg.RULE_ABSORPTION_DELTA_REAL,
+                            of_cfg.RULE_ABSORPTION_DELTA)
+        trap_thr = np.where(is_real,
+                            of_cfg.RULE_TRAP_DELTA_REAL,
+                            of_cfg.RULE_TRAP_DELTA)
+    else:
+        dom_thr  = of_cfg.RULE_DELTA_DOMINANCE
+        abs_thr  = of_cfg.RULE_ABSORPTION_DELTA
+        trap_thr = of_cfg.RULE_TRAP_DELTA
+
     # R1/R2 — opposite directional reaction on the next bar (~0.3×ATR move).
-    out["r1_buyer_down"] = (dr >  of_cfg.RULE_DELTA_DOMINANCE) & (fwd_ret_atr < -0.3)
-    out["r2_seller_up"]  = (dr < -of_cfg.RULE_DELTA_DOMINANCE) & (fwd_ret_atr >  0.3)
+    out["r1_buyer_down"] = (dr >  dom_thr) & (fwd_ret_atr < -0.3)
+    out["r2_seller_up"]  = (dr < -dom_thr) & (fwd_ret_atr >  0.3)
 
     # R3/R4 — near S/R with heavy flow but negligible forward move.
     near_high = out["dist_to_recent_high_atr"] < of_cfg.RULE_SR_ATR_MULT
     near_low  = out["dist_to_recent_low_atr"]  < of_cfg.RULE_SR_ATR_MULT
     small_move = fwd_ret_atr.abs() < of_cfg.RULE_ABSORPTION_RET_CAP_ATR_PCT
-    out["r3_absorption_resistance"] = near_high & (dr >  of_cfg.RULE_ABSORPTION_DELTA) & small_move
-    out["r4_absorption_support"]    = near_low  & (dr < -of_cfg.RULE_ABSORPTION_DELTA) & small_move
+    out["r3_absorption_resistance"] = near_high & (dr >  abs_thr) & small_move
+    out["r4_absorption_support"]    = near_low  & (dr < -abs_thr) & small_move
 
     # R5/R6 — failed breakout / breakdown. High pokes above recent_high but
     # close comes back inside; mirror for lows.
     out["r5_bull_trap"] = (
         (out["High"]  > out["recent_high"]) &
         (close < out["recent_high"]) &
-        (dr >  of_cfg.RULE_TRAP_DELTA)
+        (dr >  trap_thr)
     ).fillna(False)
     out["r6_bear_trap"] = (
         (out["Low"]   < out["recent_low"]) &
         (close > out["recent_low"]) &
-        (dr < -of_cfg.RULE_TRAP_DELTA)
+        (dr < -trap_thr)
     ).fillna(False)
 
     # R7 — rolling correlation between CVD-z and *bar returns* (not raw price).
