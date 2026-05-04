@@ -8,6 +8,7 @@ the orchestrator treats that as "below threshold" to force a first train.
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 TARGET_COL = "y_next_dir"
 FWD_RET_COL = "y_next_ret"
+ATR_PCT_COL = "atr_pct_14"
+ATR_THRESHOLD_K = float(os.getenv("ATR_THRESHOLD_K", "0.25"))
 
 
 def _metrics(y_true: pd.Series, y_pred: np.ndarray, fwd_rets: np.ndarray) -> dict:
@@ -46,6 +49,12 @@ async def run(version: str | None = None) -> dict:
     holdout = df.iloc[-settings.holdout_days:]
     if len(holdout) < 10:
         return {"accuracy": None, "reason": "holdout too small"}
+
+    if ATR_THRESHOLD_K > 0 and ATR_PCT_COL in holdout.columns:
+        sig = holdout[FWD_RET_COL].abs() >= ATR_THRESHOLD_K * holdout[ATR_PCT_COL]
+        holdout = holdout[sig]
+        if len(holdout) < 10:
+            return {"accuracy": None, "reason": "holdout too small after ATR filter"}
 
     if version is None:
         meta = registry.production_metadata()

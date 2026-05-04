@@ -1,0 +1,69 @@
+<div class="tape-wrap">
+  <div class="tape-track" id="tape-track">
+    <div class="tape-loading">Loading tape…</div>
+  </div>
+</div>
+<style>
+  .tape-wrap {
+    background: #0f172a; border-bottom: 1px solid #1e293b;
+    overflow: hidden; height: 38px; position: relative;
+  }
+  .tape-track {
+    display: flex; gap: 1.5rem; padding: .5rem 1rem;
+    font-size: .78rem; color: #e2e8f0; white-space: nowrap;
+    animation: tape-scroll 90s linear infinite;
+  }
+  .tape-track:hover { animation-play-state: paused; }
+  @keyframes tape-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .tape-item { display: inline-flex; gap: .4rem; align-items: baseline; }
+  .tape-item .sym   { font-weight: 700; color: #f1f5f9; }
+  .tape-item .label { color: #94a3b8; font-size: .7rem; }
+  .tape-item .price { color: #f1f5f9; font-variant-numeric: tabular-nums; }
+  .tape-item .chg   { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tape-item .chg.pos { color: #22c55e; }
+  .tape-item .chg.neg { color: #ef4444; }
+  .tape-item .chg.flat { color: #94a3b8; }
+  .tape-loading { color: #64748b; font-size: .75rem; padding-left: 1rem; }
+</style>
+<script>
+  (function () {
+    var track = document.getElementById('tape-track');
+    if (!track) return;
+    function render(items) {
+      if (!items || !items.length) {
+        track.innerHTML = '<div class="tape-loading">No tape data.</div>';
+        return;
+      }
+      var html = items.map(function (it) {
+        var chgCls = it.change_pct == null ? 'flat'
+                   : it.change_pct > 0 ? 'pos'
+                   : it.change_pct < 0 ? 'neg' : 'flat';
+        var chg = it.change_pct == null ? '—'
+                : (it.change_pct > 0 ? '+' : '') + it.change_pct.toFixed(2) + '%';
+        var price = it.price == null ? '—'
+                  : it.price.toLocaleString(undefined, {maximumFractionDigits: 2});
+        return '<div class="tape-item">' +
+                 '<span class="sym">' + it.symbol + '</span>' +
+                 '<span class="label">' + (it.label || '') + '</span>' +
+                 '<span class="price">' + price + '</span>' +
+                 '<span class="chg ' + chgCls + '">' + chg + '</span>' +
+               '</div>';
+      }).join('');
+      // Duplicate for seamless scroll loop
+      track.innerHTML = html + html;
+    }
+    fetch('/api/tape', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(render)
+      .catch(function () { track.innerHTML = '<div class="tape-loading">Tape fetch failed.</div>'; });
+    setInterval(function () {
+      fetch('/api/tape', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(render)
+        .catch(function () {});
+    }, 60000); // refresh 60s
+  })();
+</script>

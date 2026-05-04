@@ -176,6 +176,38 @@
     text-align: center;
   }
 
+  /* ── Live signal card ── */
+  .signal-card { margin-bottom: 1.25rem; }
+  .signal-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 1rem; margin-bottom: .85rem;
+  }
+  .signal-head h2 { margin: 0; }
+  .signal-sub { color: var(--text-faint); font-size: .76rem; }
+  .signal-body { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .signal-badge {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 1.6rem; font-weight: 700; letter-spacing: .12em;
+    padding: .55rem 1.1rem; border-radius: 10px;
+    border: 1px solid currentColor;
+  }
+  .signal-badge.LONG  { color: var(--ok);  background: rgba(34,197,94,.08); }
+  .signal-badge.SHORT { color: var(--err); background: rgba(239,68,68,.08); }
+  .signal-meta { display: flex; flex-direction: column; gap: .2rem; font-size: .82rem; }
+  .signal-meta .row { color: var(--text-dim); }
+  .signal-meta .row b { color: var(--text); font-family: "JetBrains Mono", monospace; }
+  .signal-bar {
+    flex: 1 1 220px; min-width: 220px;
+    height: 10px; border-radius: 6px;
+    background: linear-gradient(90deg, rgba(239,68,68,.18) 0%, rgba(148,163,184,.12) 50%, rgba(34,197,94,.18) 100%);
+    position: relative;
+  }
+  .signal-bar::after {
+    content: ""; position: absolute; top: -3px; bottom: -3px;
+    width: 3px; background: var(--text); border-radius: 2px;
+    left: calc(var(--p, 50) * 1%); transform: translateX(-50%);
+  }
+
   /* ── Gate explainer ── */
   .gate-rules {
     display: flex; flex-direction: column; gap: .5rem; margin-top: .25rem;
@@ -222,9 +254,18 @@
     background: rgba(251,191,36,.18); text-decoration: none;
   }
   .btn-link:active { transform: translateY(1px); }
+  .btn-link.active {
+    background: var(--accent); color: #0f172a;
+    border-color: var(--accent);
+  }
+  .btn-link.active .btn-dot { background: #0f172a; box-shadow: none; }
   .btn-link .btn-dot {
     width: 6px; height: 6px; border-radius: 50%;
     background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  }
+  .nav-sep-inline {
+    display: inline-block; width: 1px; height: 18px;
+    background: var(--border); margin: 0 .4rem; vertical-align: middle;
   }
   .pine-feats {
     display: flex; flex-wrap: wrap; gap: .4rem;
@@ -506,8 +547,11 @@
   </div>
   <div class="headmeta">
     <span id="livepill" class="livepill"><span class="livedot"></span><span id="liveText">connecting</span></span>
-    <a class="btn-link" href="/"><span class="btn-dot"></span> Gold Bias</a>
+    <a class="btn-link active" href="/"><span class="btn-dot"></span> Gold</a>
     <a class="btn-link" href="/stocks/overview"><span class="btn-dot"></span> Stocks</a>
+    <span class="nav-sep-inline"></span>
+    <a class="btn-link" href="/"><span class="btn-dot"></span> Gold Bias</a>
+    <a class="btn-link active" href="/autoresearch"><span class="btn-dot"></span> AutoResearch</a>
     <span>polls <a href="http://localhost:8000/api/research/status" target="_blank">/api/research/status</a> · 60 s</span>
     <span id="stamp">—</span>
   </div>
@@ -536,6 +580,17 @@
     <div class="sub">meta-opt every 10</div>
   </div>
 </section>
+
+<!-- Live next-day signal from production model -->
+<div class="card signal-card" id="signalCard">
+  <div class="signal-head">
+    <h2>Next-Day Signal</h2>
+    <span class="signal-sub" id="signalSub">production model · awaiting first run</span>
+  </div>
+  <div class="signal-body" id="signalBody">
+    <div class="empty">No production model — promote a candidate to surface a live signal.</div>
+  </div>
+</div>
 
 <div class="two">
   <!-- Production + chart -->
@@ -694,39 +749,8 @@ bgcolor(gated     ? color.new(color.yellow,90) : na)
 plotshape(long_sig  and not long_sig[1],  "Flip LONG",  shape.triangleup,   location.bottom, color=color.green, size=size.tiny)
 plotshape(short_sig and not short_sig[1], "Flip SHORT", shape.triangledown, location.top,    color=color.red,   size=size.tiny)
 
-// ── Webhook payload (for TradingView alerts → Sentiment Flask) ────────
-// In "Create Alert" paste one of these as the Message. Webhook URL:
-//   http://&lt;your-host&gt;:5001/api/tv_webhook   (use ngrok to expose)
-// LONG:
-//   {"secret":"YOUR_SECRET","ticker":"{{ticker}}","signal":"LONG","price":{{close}},"bias":{{plot_0}},"time":"{{timenow}}"}
-// SHORT:
-//   {"secret":"YOUR_SECRET","ticker":"{{ticker}}","signal":"SHORT","price":{{close}},"bias":{{plot_0}},"time":"{{timenow}}"}
-
 alertcondition(long_sig  and not long_sig[1],  "Gold next-day LONG",  "Composite bias flipped long.")
 alertcondition(short_sig and not short_sig[1], "Gold next-day SHORT", "Composite bias flipped short.")</code></pre>
-</div>
-
-<!-- TradingView webhook hits -->
-<div class="card wh-card">
-  <div class="wh-head">
-    <div>
-      <h2 style="margin:0;">TradingView → Sentiment Bridge</h2>
-      <p class="pine-sub">
-        Live webhook hits from TradingView Pine alerts · cross-checked against parent sentiment cache ·
-        <a href="http://localhost:5001/api/tv_webhook/recent" target="_blank" rel="noopener">raw JSON →</a>
-      </p>
-    </div>
-    <span id="whPill" class="wh-pill"><span class="wh-dot"></span><span id="whText">waiting</span></span>
-  </div>
-  <ol id="whList" class="wh-list"><li class="empty">No webhook hits yet. Setup steps below.</li></ol>
-  <details class="wh-setup">
-    <summary>Setup (3 steps)</summary>
-    <ol>
-      <li><b>Expose Flask publicly</b> — run <code class="mono">ngrok http 5001</code>, copy the https URL.</li>
-      <li><b>Set secret</b> — add <code class="mono">TV_WEBHOOK_SECRET=your-secret</code> to parent <code class="mono">.env</code> and restart Flask.</li>
-      <li><b>Create TradingView alert</b> — Condition: <i>Gold next-day LONG</i> (or SHORT) · Webhook URL: <code class="mono">https://&lt;ngrok&gt;/api/tv_webhook</code> · Message: paste JSON template from Pine comments.</li>
-    </ol>
-  </details>
 </div>
 
 <div class="tl-head">
@@ -790,6 +814,28 @@ function renderBlockReason(cand) {
   if (f.dd === false)     fails.push(`Drawdown ${Number(cand.dd).toFixed(2)} > 0.15 limit`);
   if (!fails.length) return "";
   return `<div class="reason"><strong>Blocked:</strong> ${fails.join(" · ")}</div>`;
+}
+
+function renderSignal(s) {
+  const sub = $("signalSub");
+  const body = $("signalBody");
+  if (!s) {
+    sub.textContent = "production model · awaiting first run";
+    body.innerHTML = '<div class="empty">No live signal — promote a candidate first.</div>';
+    return;
+  }
+  const dir = s.direction === "LONG" ? "LONG" : "SHORT";
+  const pct = Math.round(s.proba_up * 100);
+  const asof = s.asof ? new Date(s.asof).toLocaleDateString() : "—";
+  sub.textContent = `production model · features as of ${esc(asof)}`;
+  body.innerHTML = `
+    <div class="signal-badge ${dir}">${dir}</div>
+    <div class="signal-meta">
+      <span class="row">P(up) <b>${pct}%</b></span>
+      <span class="row">model <b>${esc(s.model_version)}</b></span>
+    </div>
+    <div class="signal-bar" style="--p:${pct}"></div>
+  `;
 }
 
 function renderProduction(p) {
@@ -969,54 +1015,21 @@ async function tick() {
 tick();
 setInterval(tick, POLL_MS);
 
-// ── Webhook hits poller ──
-const WH_URL = "http://localhost:5001/api/tv_webhook/recent";
+// ── Live next-day signal poller (own endpoint, isolated failures) ──
+const SIGNAL_URL = "http://localhost:8000/api/research/signal";
 
-function renderWhItem(h) {
-  const sig      = esc(h.signal || "—");
-  const agree    = esc(h.agreement || "unknown");
-  const price    = h.price != null ? Number(h.price).toFixed(2) : "—";
-  const bias     = h.bias  != null ? Number(h.bias).toFixed(3)  : "—";
-  const sent     = h.sentiment || {};
-  const sentTxt  = sent.score != null
-    ? `sent ${Number(sent.score).toFixed(3)} (${esc(sent.direction)})`
-    : "no sentiment data";
-  const t = h.received_at ? new Date(h.received_at).toLocaleTimeString() : "";
-  return `
-    <li class="wh-item">
-      <span class="wh-sig ${sig}">${sig}</span>
-      <span class="wh-detail">
-        <b>${esc(h.ticker || "—")}</b> @ <b>${price}</b> · bias <b>${bias}</b> · ${esc(sentTxt)}
-      </span>
-      <span class="wh-agree ${agree}">${agree}</span>
-      <span class="wh-time">${t}</span>
-    </li>
-  `;
-}
-
-async function tickWebhook() {
-  const pill = document.getElementById("whPill");
-  const text = document.getElementById("whText");
-  const list = document.getElementById("whList");
+async function tickSignal() {
   try {
-    const r = await fetch(WH_URL, { cache: "no-store" });
+    const r = await fetch(SIGNAL_URL, { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
-    const hits = await r.json();
-    pill.className = "wh-pill ok";
-    text.textContent = hits.length ? `${hits.length} hits` : "connected · 0 hits";
-    if (!hits.length) {
-      list.innerHTML = `<li class="empty">No webhook hits yet. Setup steps below.</li>`;
-    } else {
-      list.innerHTML = hits.map(renderWhItem).join("");
-    }
-  } catch (e) {
-    pill.className = "wh-pill err";
-    text.textContent = "bridge offline";
-    list.innerHTML = `<li class="empty">Parent Flask offline or <code class="mono">/api/tv_webhook/recent</code> unreachable.</li>`;
+    const s = await r.json();
+    renderSignal(s && s.direction ? s : null);
+  } catch {
+    renderSignal(null);
   }
 }
-tickWebhook();
-setInterval(tickWebhook, 15000);
+tickSignal();
+setInterval(tickSignal, POLL_MS);
 
 // ── Pine Script copy button ──
 document.getElementById("copyPine").addEventListener("click", async (e) => {

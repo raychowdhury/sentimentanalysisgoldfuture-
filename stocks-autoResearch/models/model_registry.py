@@ -12,6 +12,7 @@ import logging
 import pickle
 import time
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,8 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 PRODUCTION_LINK = "production.pkl"
+RESIDUALS_SUBDIR = "residuals"
+RESIDUALS_MANIFEST = "residuals_manifest.json"
 
 
 @dataclass
@@ -127,6 +130,75 @@ class ModelRegistry:
     @staticmethod
     def new_version() -> str:
         return f"s{int(time.time())}"
+
+    # ── Per-ticker residual models ───────────────────────────────────────────
+
+    def _residuals_dir(self) -> Path:
+        d = self.base_dir / RESIDUALS_SUBDIR
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _manifest_path(self) -> Path:
+        return self.base_dir / RESIDUALS_MANIFEST
+
+    def _read_residuals_manifest(self) -> dict:
+        path = self._manifest_path()
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text())
+        except json.JSONDecodeError:
+            logger.warning("residuals manifest corrupt — treating as empty")
+            return {}
+
+    def _write_residuals_manifest(self, manifest: dict) -> None:
+        self._manifest_path().write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
+    def save_residual(
+        self,
+        ticker: str,
+        model: Any,
+        residual_acc: float,
+        pooled_acc: float,
+    ) -> Path:
+        pkl_path = self._residuals_dir() / f"{ticker}.pkl"
+        with open(pkl_path, "wb") as f:
+            pickle.dump(model, f)
+        manifest = self._read_residuals_manifest()
+        manifest[ticker] = {
+            "residual_acc":            round(float(residual_acc), 4),
+            "pooled_acc_at_promotion": round(float(pooled_acc), 4),
+            "updated_at":              datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        self._write_residuals_manifest(manifest)
+        return pkl_path
+
+    def load_residual(self, ticker: str) -> Any | None:
+        pkl_path = self._residuals_dir() / f"{ticker}.pkl"
+        if not pkl_path.exists():
+            return None
+        with open(pkl_path, "rb") as f:
+            return pickle.load(f)
+
+    def promote_residual(
+        self,
+        ticker: str,
+        candidate: Any,
+        residual_acc: float,
+        pooled_acc: float,
+    ) -> bool:
+        if residual_acc <= pooled_acc:
+            logger.info(
+                "residual %s blocked — residual_acc %.4f ≤ pooled_acc %.4f",
+                ticker, residual_acc, pooled_acc,
+            )
+            return False
+        self.save_residual(ticker, candidate, residual_acc, pooled_acc)
+        logger.info(
+            "residual %s promoted — acc %.4f > pooled %.4f",
+            ticker, residual_acc, pooled_acc,
+        )
+        return True
 
 
 registry = ModelRegistry()

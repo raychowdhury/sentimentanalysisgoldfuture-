@@ -1,0 +1,59 @@
+{
+  "version": "s1776898294",
+  "created_at": "2026-04-22T22:51:34+00:00",
+  "accuracy": 0.4658,
+  "sharpe": -1.7295,
+  "max_drawdown": 0.0767,
+  "features": [
+    "ret_1d",
+    "ret_5d",
+    "ret_20d",
+    "vol_20d",
+    "ema_gap",
+    "rsi_14",
+    "vol_z",
+    "ticker",
+    "sector",
+    "sector_rel_5d",
+    "spy_ret_1d",
+    "spy_ret_5d",
+    "vix",
+    "vix_ret_5d",
+    "dxy_ret_5d",
+    "real10y",
+    "real10y_chg_5d",
+    "fed",
+    "cpi_yoy"
+  ],
+  "hyperparams": {
+    "xgb": {
+      "max_depth": 6,
+      "learning_rate": 0.1,
+      "n_estimators": 500
+    },
+    "ticker_map_size": 19
+  },
+  "notes": "cycle-14",
+  "pred_up_rate": 0.6281,
+  "per_ticker_acc": {
+    "AAPL": 0.55,
+    "AMZN": 0.35,
+    "AVGO": 0.35,
+    "BRK-B": 0.4,
+    "GOOG": 0.45,
+    "GOOGL": 0.4,
+    "HD": 0.4833,
+    "JNJ": 0.4667,
+    "JPM": 0.4833,
+    "LLY": 0.5167,
+    "MA": 0.6,
+    "META": 0.3833,
+    "MSFT": 0.4333,
+    "NVDA": 0.4833,
+    "PG": 0.3833,
+    "TSLA": 0.5,
+    "UNH": 0.5333,
+    "V": 0.55,
+    "XOM": 0.5333
+  }
+}

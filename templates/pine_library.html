@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pine Script Library · Order Flow</title>
+<style>
+  :root {
+    --bg:#0a0a0a; --panel:#050b1c; --ink:#cbd5e1; --muted:#64748b;
+    --accent:#fbbf24; --border:#172132;
+    --buy:#22c55e; --sell:#ef4444;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; height:100%;
+    background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,sans-serif; font-size:13px; }
+
+  header {
+    display:flex; align-items:center; gap:.6rem; padding:.5rem .8rem;
+    background:#000; border-bottom:1px solid var(--border);
+    font-family:ui-monospace,monospace; font-size:.78rem;
+  }
+  header .ttl { font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--accent); font-size:.8rem; }
+  header a { color:var(--muted); margin-left:.6rem; }
+  header a:hover { color:var(--accent); }
+
+  main { padding:1rem 1.2rem; max-width:1200px; margin:0 auto; }
+  h1 { color:var(--accent); font-size:1.4rem; margin:.2rem 0 .8rem; }
+  p.intro { color:var(--muted); line-height:1.5; }
+  p.intro code { background:#020410; padding:.1rem .3rem; border-radius:2px;
+    color:var(--accent); font-size:.85rem; }
+
+  .card {
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:.9rem 1rem; margin-bottom:1rem;
+  }
+  .card h2 { color:var(--accent); font-size:1rem; margin:0 0 .3rem;
+    font-family:ui-monospace,monospace; font-weight:700; }
+  .card .desc { color:var(--ink); font-size:.85rem; margin-bottom:.6rem; }
+  .card .meta { color:var(--muted); font-size:.7rem;
+    font-family:ui-monospace,monospace; margin-bottom:.6rem; }
+  .card .actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .card button, .card a.btn {
+    background:#172132; color:var(--ink); border:1px solid var(--border);
+    padding:.4rem .8rem; border-radius:3px; cursor:pointer;
+    font-family:ui-monospace,monospace; font-size:.75rem; font-weight:600;
+    text-decoration:none; display:inline-block;
+  }
+  .card button:hover, .card a.btn:hover { background:#1e3a5f; color:#fff; }
+  .card button.copy.ok { background:var(--buy); color:#062818; }
+  .card .preview {
+    margin-top:.7rem; max-height:0; overflow:hidden; transition:max-height .25s;
+    background:#000; border-radius:3px;
+  }
+  .card .preview.open { max-height:520px; overflow:auto; padding:.6rem .8rem; }
+  .card pre { margin:0; color:var(--ink); font-size:.72rem; line-height:1.4;
+    white-space:pre; }
+
+  .step {
+    background:var(--panel); border-left:3px solid var(--accent);
+    padding:.6rem .8rem; margin:.5rem 0; font-size:.82rem; line-height:1.6;
+  }
+  .step b { color:var(--accent); }
+  .step code { background:#020410; padding:.05rem .3rem; border-radius:2px;
+    color:#fbbf24; font-size:.78rem; }
+  .step .url { color:var(--buy); word-break:break-all; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="ttl">Pine Script Library</span>
+  <a href="/footprint-deep">DeepChart</a>
+  <a href="/footprint">SVG footprint</a>
+  <a href="/order-flow">Alerts</a>
+  <a href="/trader-desk">Trader Desk</a>
+</header>
+
+<main>
+  <h1>TradingView Pine Script Library</h1>
+  <p class="intro">
+    These Pine v6 indicators port your <code>/footprint-deep</code> detection
+    logic to TradingView. Real per-tick aggressor side is not exposed by TV →
+    they use the same <b>CLV proxy</b> we use as fallback (Chaikin 1966 close-
+    location value). Approx 75-85% accurate on liquid futures.
+  </p>
+
+  {% for name, meta in files.items() %}
+  <div class="card" data-name="{{ name }}">
+    <h2>{{ meta.title }}</h2>
+    <div class="desc">{{ meta.desc }}</div>
+    <div class="meta">file: pine/{{ meta.file }}</div>
+    <div class="actions">
+      <button class="view"     data-name="{{ name }}">View source</button>
+      <button class="copy"     data-name="{{ name }}">📋 Copy to clipboard</button>
+      <a class="btn" href="/api/pine/{{ name }}/download">⬇ Download .pine</a>
+    </div>
+    <div class="preview" id="prev-{{ name }}"><pre id="src-{{ name }}">loading…</pre></div>
+  </div>
+  {% endfor %}
+
+  <h1 style="margin-top:1.6rem;">How to install on TradingView</h1>
+
+  <div class="step">
+    <b>1.</b> Open TradingView → any chart → click <b>Pine Editor</b> at bottom of screen.
+  </div>
+  <div class="step">
+    <b>2.</b> Click <b>📋 Copy to clipboard</b> on a script above → paste into the editor (replace any default code).
+  </div>
+  <div class="step">
+    <b>3.</b> Click <b>Save</b> → name it (e.g. "OF Proxy") → click <b>Add to chart</b>.
+  </div>
+  <div class="step">
+    <b>4.</b> Repeat for each script. <code>OF Proxy</code> goes in lower pane (separate). <code>Footprint Lite</code> + <code>VA Profile</code> overlay candles.
+  </div>
+
+  <h1 style="margin-top:1.6rem;">Wire webhook alerts to your backend</h1>
+
+  <div class="step">
+    <b>1.</b> Need a public URL pointing at this Flask server. For local dev:
+    <code>ngrok http 5001</code> → copy the <span class="url">https://xxx.ngrok.io</span> URL.
+  </div>
+  <div class="step">
+    <b>2.</b> In TV: right-click chart → <b>Add alert</b> → Condition: <code>OF Proxy → Any alert() function call</code>.
+  </div>
+  <div class="step">
+    <b>3.</b> In <b>Notifications</b> tab, check <b>Webhook URL</b>:
+    <span class="url">https://YOUR-NGROK.ngrok.io/api/order-flow/tv-alert</span>
+  </div>
+  <div class="step">
+    <b>4.</b> Message field: leave as <code>{{ '{{message}}' }}</code> (Pine already builds the JSON).
+  </div>
+  <div class="step">
+    <b>5.</b> Save alert. When OF Proxy fires R3/R6/R7 → TV POSTs JSON → Flask
+    persists to <code>outputs/order_flow/tv_alerts.jsonl</code> + main alerts pipeline →
+    appears in <a href="/order-flow" style="color:var(--accent);">/order-flow</a> dashboard.
+  </div>
+  <div class="step">
+    <b>Note:</b> Webhook alerts require <b>TradingView Pro+ plan</b> ($14.95/mo).
+    Free plan only gets popup/email/push.
+  </div>
+
+  <h1 style="margin-top:1.6rem;">Test webhook locally</h1>
+  <div class="step">
+<pre style="margin:0; font-size:.78rem;">curl -X POST http://localhost:5001/api/order-flow/tv-alert \
+  -H "Content-Type: application/json" \
+  -d '{"source":"tv_pine","symbol":"CME_MINI:ESM2026","tf":"15",
+       "label":"buyer_absorption","confidence":75,"price":7172.50,
+       "delta_pct":54.3,"cvd":12450}'</pre>
+  </div>
+</main>
+
+<script>
+async function loadSrc(name){
+  const el = document.getElementById("src-" + name);
+  if (el.dataset.loaded === "1") return el.textContent;
+  try {
+    const txt = await fetch("/api/pine/" + name).then(r => r.text());
+    el.textContent = txt;
+    el.dataset.loaded = "1";
+    return txt;
+  } catch(e){ el.textContent = "load failed: " + e; return ""; }
+}
+
+document.querySelectorAll("button.view").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const name = btn.dataset.name;
+    const prev = document.getElementById("prev-" + name);
+    if (prev.classList.contains("open")){ prev.classList.remove("open"); btn.textContent = "View source"; return; }
+    await loadSrc(name);
+    prev.classList.add("open");
+    btn.textContent = "Hide source";
+  });
+});
+
+document.querySelectorAll("button.copy").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const name = btn.dataset.name;
+    const txt = await loadSrc(name);
+    try {
+      await navigator.clipboard.writeText(txt);
+      btn.textContent = "✓ Copied!";
+      btn.classList.add("ok");
+      setTimeout(() => { btn.textContent = "📋 Copy to clipboard"; btn.classList.remove("ok"); }, 1500);
+    } catch(e){ alert("Copy failed: " + e); }
+  });
+});
+</script>
+</body>
+</html>

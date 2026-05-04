@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import logging
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -65,21 +66,34 @@ SECTOR_ETFS = {
 
 # ── Fetch helpers ────────────────────────────────────────────────────────────
 
-def _fetch_yf(symbol: str, lookback_days: int) -> pd.DataFrame:
+def _fetch_yf(symbol: str, lookback_days: int, retries: int = 2) -> pd.DataFrame:
+    """
+    yfinance sometimes returns an empty frame under rate-limit pressure —
+    retry a couple of times with a short backoff before giving up.
+    """
     if yf is None:
         raise RuntimeError("yfinance not installed")
     end = datetime.utcnow().date()
     start = end - timedelta(days=lookback_days)
-    df = yf.download(
-        symbol, start=start, end=end,
-        progress=False, auto_adjust=False, threads=False,
-    )
-    if df.empty:
-        raise RuntimeError(f"empty yfinance response for {symbol}")
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df.index = pd.to_datetime(df.index).tz_localize(None)
-    return df
+    last_err: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            df = yf.download(
+                symbol, start=start, end=end,
+                progress=False, auto_adjust=False, threads=False,
+            )
+            if df.empty:
+                raise RuntimeError(f"empty yfinance response for {symbol}")
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df.index = pd.to_datetime(df.index).tz_localize(None)
+            return df
+        except Exception as exc:
+            last_err = exc
+            if attempt < retries:
+                time.sleep(1.5 * (attempt + 1))
+                logger.info("[data] %s fetch retry %d", symbol, attempt + 1)
+    raise RuntimeError(f"yfinance fetch failed for {symbol}: {last_err}")
 
 
 def _fetch_fred(series_id: str) -> pd.Series:

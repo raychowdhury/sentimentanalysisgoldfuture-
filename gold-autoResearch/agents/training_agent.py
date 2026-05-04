@@ -25,8 +25,16 @@ logger = logging.getLogger(__name__)
 
 TARGET_COL = "y_next_dir"
 FWD_RET_COL = "y_next_ret"
+ATR_PCT_COL = "atr_pct_14"
 RANDOM_SEED = 42
 TRAIN_WINDOW = 750  # recent-regime cap; older bars exceed this window are dropped
+WF_FOLD_SIZE = 60   # walk-forward: each validation fold covers this many sessions
+WF_N_FOLDS   = 3    # walk-forward: number of contiguous validation windows
+# Drop training/validation rows whose next-day |return| is smaller than
+# k × ATR_pct — these moves are noise that bias the model toward coin-flip
+# behavior. k=0 disables the filter (backward-compatible with older caches
+# that don't have the atr_pct_14 column).
+ATR_THRESHOLD_K = float(os.getenv("ATR_THRESHOLD_K", "0.25"))
 
 try:
     from xgboost import XGBClassifier  # type: ignore
@@ -175,34 +183,24 @@ def _effective_xgb_grid() -> dict:
     return base
 
 
-async def run(experiment_note: str = "") -> tuple[GoldDirectionEnsemble, ModelMetadata]:
-    """Train a candidate model. Caller evaluates it and decides on promotion."""
-    df = load_cached_frame()
-    if df is None:
-        raise RuntimeError("no cached feature matrix — run data_agent first")
+def _significant_mask(df: pd.DataFrame, k: float) -> pd.Series:
+    """
+    True where |next-day return| is at least k × ATR_pct. Rows failing the
+    threshold are treated as noise and excluded from train + validation. If
+    the cache predates ATR features or k=0, every row qualifies.
+    """
+    if k <= 0 or ATR_PCT_COL not in df.columns:
+        return pd.Series(True, index=df.index)
+    return df[FWD_RET_COL].abs() >= k * df[ATR_PCT_COL]
 
-    features = _feature_columns(df)
-    df_recent = df.iloc[-TRAIN_WINDOW:] if len(df) > TRAIN_WINDOW else df
-    train, valid = _train_valid_split(df_recent, settings.holdout_days)
-    X_tr, y_tr = train[features], train[TARGET_COL]
-    X_va, y_va = valid[features], valid[TARGET_COL]
-    base_rate = float(y_tr.mean())
-    logger.info("[training_agent] train=%d valid=%d base_rate_up=%.3f",
-                len(X_tr), len(X_va), base_rate)
 
-    xgb_hp  = _sample_hparams(_effective_xgb_grid())
-    lstm_hp = _sample_hparams(settings.lstm_hparam_grid)
-
-    random.seed(RANDOM_SEED)
-    np.random.seed(RANDOM_SEED)
-
+def _fit_ensemble(
+    X_tr: pd.DataFrame, y_tr: pd.Series,
+    features: list[str], xgb_hp: dict, lstm_hp: dict,
+) -> "GoldDirectionEnsemble":
+    """Fit one XGBoost + LSTM ensemble on the given train slice."""
     xgb_model = None
     if _HAS_XGB:
-        # Training target up-rate is usually the majority class (~0.55–0.60).
-        # Default scale_pos_weight=1 lets the tree collapse to "always predict
-        # positive" since positive minimizes logloss under imbalance. Setting
-        # sum(neg)/sum(pos) re-weights the gradient so the down class carries
-        # equal total mass — restores discriminative learning.
         n_pos = int(y_tr.sum())
         n_neg = int(len(y_tr) - n_pos)
         spw   = (n_neg / n_pos) if n_pos > 0 else 1.0
@@ -212,39 +210,123 @@ async def run(experiment_note: str = "") -> tuple[GoldDirectionEnsemble, ModelMe
             n_jobs=2, random_state=RANDOM_SEED,
         )
         xgb_model.fit(X_tr, y_tr)
-        logger.info("[training_agent] xgb scale_pos_weight=%.3f (n_pos=%d, n_neg=%d)",
-                    spw, n_pos, n_neg)
 
     try:
         lstm_model = _train_lstm(X_tr, y_tr, lstm_hp)
     except Exception as exc:
-        # Torch native crashes (segfault on bleeding-edge Pythons, OOM, etc.)
-        # shouldn't take the whole cycle down — XGB alone still produces a
-        # valid candidate the promotion gate can evaluate.
         logger.warning("[training_agent] LSTM training failed (%s) — "
                        "falling back to XGB-only ensemble", exc)
         lstm_model = None
 
-    # Neither XGB nor torch available → fall back so the pipeline still runs.
     if xgb_model is None and lstm_model is None:
         logger.warning("[training_agent] no ML backend available — using sign baseline")
         xgb_model = _SignClassifier().fit(X_tr, y_tr)
 
-    ensemble = GoldDirectionEnsemble(xgb_model, lstm_model, features)
+    return GoldDirectionEnsemble(xgb_model, lstm_model, features)
+
+
+def _fold_metrics(
+    ensemble: "GoldDirectionEnsemble",
+    valid: pd.DataFrame, features: list[str],
+) -> dict:
+    X_va, y_va = valid[features], valid[TARGET_COL]
     y_pred = ensemble.predict(X_va)
     accuracy = float((y_pred == y_va.values).mean())
     pred_up_rate = float(y_pred.mean())
-    logger.info("[training_agent] holdout_acc=%.4f pred_up_rate=%.3f base_up_rate=%.3f",
-                accuracy, pred_up_rate, float(y_va.mean()))
-
-    # Sharpe / drawdown from next-day P&L aligned to y_next_dir prediction.
-    # Signal is +1 for long, -1 for short; P&L = signal * forward 1-day return.
-    fwd_rets = df_recent.loc[X_va.index, FWD_RET_COL].values
+    fwd_rets = valid[FWD_RET_COL].values
     signal   = np.where(y_pred == 1, 1.0, -1.0)
     pnl      = signal * fwd_rets
     sharpe   = float(pnl.mean() / (pnl.std() + 1e-9) * np.sqrt(252))
     equity   = np.cumprod(1 + pnl)
     max_dd   = float((equity / np.maximum.accumulate(equity) - 1).min() * -1)
+    return {
+        "accuracy": accuracy, "sharpe": sharpe, "max_dd": max_dd,
+        "pred_up_rate": pred_up_rate, "n": int(len(y_va)),
+    }
+
+
+def _walk_forward_eval(
+    df_recent: pd.DataFrame, features: list[str],
+    xgb_hp: dict, lstm_hp: dict,
+) -> tuple[list[dict], pd.DataFrame]:
+    """
+    Run N expanding-window walk-forward folds. Each fold fits a fresh ensemble
+    on data strictly before the fold and evaluates on a contiguous validation
+    window. Returns per-fold metrics plus the train slice of the final fold,
+    which becomes the training set for the production candidate.
+    """
+    total_holdout = WF_FOLD_SIZE * WF_N_FOLDS
+    if len(df_recent) <= total_holdout + 30:
+        # Not enough rows for walk-forward — fall back to single split so the
+        # loop can still produce candidates during the cold-start period.
+        train, valid = _train_valid_split(df_recent, settings.holdout_days)
+        train_f = train[_significant_mask(train, ATR_THRESHOLD_K)]
+        valid_f = valid[_significant_mask(valid, ATR_THRESHOLD_K)]
+        ensemble = _fit_ensemble(train_f[features], train_f[TARGET_COL],
+                                 features, xgb_hp, lstm_hp)
+        return [_fold_metrics(ensemble, valid_f, features)], train_f
+
+    folds: list[dict] = []
+    final_train: pd.DataFrame | None = None
+    for k in range(WF_N_FOLDS):
+        valid_end   = len(df_recent) - k * WF_FOLD_SIZE
+        valid_start = valid_end - WF_FOLD_SIZE
+        train = df_recent.iloc[:valid_start]
+        valid = df_recent.iloc[valid_start:valid_end]
+        # ATR-significance filter: drop noise rows to stop the classifier
+        # learning "coin flip" on sub-ATR moves. Applied symmetrically so the
+        # validation metric reflects performance on tradeable setups.
+        train = train[_significant_mask(train, ATR_THRESHOLD_K)]
+        valid = valid[_significant_mask(valid, ATR_THRESHOLD_K)]
+        if len(train) < 30 or len(valid) < 10:
+            logger.warning("[training_agent] fold %d skipped — insufficient "
+                           "rows after ATR filter (train=%d valid=%d)",
+                           k, len(train), len(valid))
+            continue
+        ensemble = _fit_ensemble(train[features], train[TARGET_COL],
+                                 features, xgb_hp, lstm_hp)
+        folds.append(_fold_metrics(ensemble, valid, features))
+        if final_train is None:
+            # First usable fold defines the production-training slice so the
+            # shipped model isn't re-trained on any validation window.
+            final_train = train
+    if not folds or final_train is None:
+        raise RuntimeError("walk-forward produced no usable folds — "
+                           "ATR filter may be too aggressive for this cache")
+    return folds, final_train
+
+
+async def run(experiment_note: str = "") -> tuple[GoldDirectionEnsemble, ModelMetadata]:
+    """Train a candidate model. Caller evaluates it and decides on promotion."""
+    df = load_cached_frame()
+    if df is None:
+        raise RuntimeError("no cached feature matrix — run data_agent first")
+
+    features = _feature_columns(df)
+    df_recent = df.iloc[-TRAIN_WINDOW:] if len(df) > TRAIN_WINDOW else df
+
+    xgb_hp  = _sample_hparams(_effective_xgb_grid())
+    lstm_hp = _sample_hparams(settings.lstm_hparam_grid)
+
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
+
+    folds, final_train = _walk_forward_eval(df_recent, features, xgb_hp, lstm_hp)
+
+    # Aggregate metrics across folds — mean reflects expected out-of-sample
+    # behavior far better than a single 90-row window.
+    accuracy     = float(np.mean([f["accuracy"]     for f in folds]))
+    sharpe       = float(np.mean([f["sharpe"]       for f in folds]))
+    max_dd       = float(np.mean([f["max_dd"]       for f in folds]))
+    pred_up_rate = float(np.mean([f["pred_up_rate"] for f in folds]))
+    logger.info("[training_agent] walk-forward folds=%d (fold_size=%d) "
+                "acc=%.4f sharpe=%.2f dd=%.2f pred_up=%.3f",
+                len(folds), WF_FOLD_SIZE, accuracy, sharpe, max_dd, pred_up_rate)
+
+    # Production candidate = fresh fit on the final-fold train slice so the
+    # shipped model was never trained on any of the walk-forward validation data.
+    ensemble = _fit_ensemble(final_train[features], final_train[TARGET_COL],
+                             features, xgb_hp, lstm_hp)
 
     meta = ModelMetadata(
         version=registry.new_version(),

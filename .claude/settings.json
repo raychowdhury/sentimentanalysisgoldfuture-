@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"/ %{http_code}\\\\n/footprint-deep %{http_code}\\\\n\" http://localhost:5001/ http://localhost:5001/footprint-deep)",
+      "Bash(curl -s \"http://localhost:5001/api/futures/range-bars?symbol=ESM6&range=20&maxbars=3\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('bars=',len\\(d.get\\('bars',[]\\)\\),'src=',d.get\\('source'\\),'real=',d.get\\('real_flow'\\)\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5001/)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:5001/)",
+      "Bash(curl -s http://localhost:5001/ml-predictions -o /dev/null -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(kill 58314)",
+      "Bash(ls .venv/bin/python*)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python -m order_flow_engine.src.monitor_loop --symbol ESM6 --tf 15m --interval 900 --max-iterations 1 --log /tmp/monitor-test.log)",
+      "Bash(.venv/bin/python -m pytest order_flow_engine/tests/ -q)"
+    ]
+  }
+}

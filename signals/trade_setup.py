@@ -30,7 +30,7 @@ def compute(signal: str, gold_ind: dict | None, tf: dict | None = None) -> dict:
     tf – optional timeframe profile from config.TIMEFRAME_PROFILES.
     """
     if gold_ind is None:
-        return _no_trade(None, "Gold market data unavailable", tf)
+        return _no_trade(None, "Gold market data unavailable", tf, None)
 
     entry = gold_ind["current"]
 
@@ -39,7 +39,7 @@ def compute(signal: str, gold_ind: dict | None, tf: dict | None = None) -> dict:
     if signal in ("STRONG_SELL", "SELL"):
         return _sell(entry, gold_ind, tf)
 
-    return _no_trade(entry, f"Signal is {signal} — no directional setup", tf)
+    return _no_trade(entry, f"Signal is {signal} — no directional setup", tf, gold_ind)
 
 
 # ── BUY setup ─────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ def _buy(entry: float, ind: dict, tf: dict | None) -> dict:
 
     risk = entry - stop
     if risk <= 0:
-        return _no_trade(entry, "Entry is at or below the invalidation level — BUY not valid", tf)
+        return _no_trade(entry, "Entry is at or below the invalidation level — BUY not valid", tf, ind)
 
     risk = max(risk, entry * config.MIN_RISK_PCT)
     stop = entry - risk
@@ -102,7 +102,7 @@ def _sell(entry: float, ind: dict, tf: dict | None) -> dict:
 
     risk = stop - entry
     if risk <= 0:
-        return _no_trade(entry, "Entry is at or above the invalidation level — SELL not valid", tf)
+        return _no_trade(entry, "Entry is at or above the invalidation level — SELL not valid", tf, ind)
 
     risk = max(risk, entry * config.MIN_RISK_PCT)
     stop = entry + risk
@@ -154,19 +154,33 @@ def _fmt(
         "tp_source":           tp_source,
         "setup_note":          note,
         # Level 2 key levels embedded in the setup for dashboard display
-        "level2": {
-            "atr":     round(ind.get("atr")     or 0, 2),
-            "atr_pct": round(ind.get("atr_pct") or 0, 3),
-            "vwap":    round(ind["vwap"], 2)    if ind.get("vwap")    else None,
-            "vol_poc": round(ind["vol_poc"], 2) if ind.get("vol_poc") else None,
-            "vah":     round(ind["vah"], 2)     if ind.get("vah")     else None,
-            "val":     round(ind["val"], 2)     if ind.get("val")     else None,
-            "tpo_poc": round(ind["tpo_poc"], 2) if ind.get("tpo_poc") else None,
-        },
+        "level2": _level2(ind),
     }
 
 
-def _no_trade(entry: float | None, reason: str, tf: dict | None) -> dict:
+def _level2(ind: dict | None) -> dict | None:
+    if not ind:
+        return None
+    def _r(k, n=2):
+        v = ind.get(k)
+        return round(v, n) if v else None
+    return {
+        "atr":             round(ind.get("atr")     or 0, 2),
+        "atr_pct":         round(ind.get("atr_pct") or 0, 3),
+        "vwap":            _r("vwap"),
+        "vol_poc":         _r("vol_poc"),
+        "vah":             _r("vah"),
+        "val":             _r("val"),
+        "tpo_poc":         _r("tpo_poc"),
+        "ema20":           _r("ema20"),
+        "ema50":           _r("ema50"),
+        "sma200":          _r("sma200"),
+        "recent_high_14d": _r("recent_high_14d"),
+        "recent_low_14d":  _r("recent_low_14d"),
+    }
+
+
+def _no_trade(entry: float | None, reason: str, tf: dict | None, ind: dict | None) -> dict:
     min_rr = tf["min_rr"] if tf else config.MIN_RR
     logger.info(f"NO_TRADE: {reason}")
     return {
@@ -181,5 +195,5 @@ def _no_trade(entry: float | None, reason: str, tf: dict | None) -> dict:
         "trade_valid":         False,
         "tp_source":           None,
         "setup_note":          reason,
-        "level2":              None,
+        "level2":              _level2(ind),
     }

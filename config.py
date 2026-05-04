@@ -1,5 +1,7 @@
 # config.py — Central configuration for NewsSentimentScanner + Gold Bias Engine
 
+import os
+
 # ── RSS / News ────────────────────────────────────────────────────────────────
 RSS_QUERIES: list[str] = [
     "gold price",
@@ -212,6 +214,21 @@ FRED_SYMBOLS: dict[str, str] = {
     "yield_10y":         "DFII10",  # 10Y TIPS real yield (replaces ^TNX)
     "nominal_yield_10y": "DGS10",   # kept for a future breakeven-inflation factor
 }
+
+# Databento futures sources. Value can be either:
+#   • a string  → legacy: GLBX.MDP3 dataset, continuous stype, e.g. "GC.c.0"
+#   • a dict    → {"symbol": ..., "dataset": ..., "stype": "continuous"
+#                  | "front_month_parent"}
+# A Databento entry sharing a name with MARKET_SYMBOLS or FRED_SYMBOLS
+# overrides those entries. Requires DATABENTO_API_KEY.
+DATABENTO_SYMBOLS: dict = {
+    "gold": "GC.c.0",   # COMEX gold front-month continuous (replaces GC=F)
+    "dxy":  {           # ICE Dollar Index front-month (replaces DX-Y.NYB)
+        "symbol":  "DX.FUT",
+        "dataset": "IFUS.IMPACT",
+        "stype":   "front_month_parent",
+    },
+}
 MARKET_LOOKBACK_DAYS: int  = 90   # fetch 90 days → ~63 trading days (enough for EMA50)
 RETURN_WINDOW_DAYS: int    = 5    # n-day return for trend detection
 EMA_SHORT: int             = 20
@@ -416,3 +433,26 @@ TIMEFRAME_PROFILES: dict[str, dict] = {
         "cot_enabled":          False,
     },
 }
+
+# ── Order Flow Engine ────────────────────────────────────────────────────────
+# Standalone intraday divergence detector. See order_flow_engine/README.md.
+# Switched to SPY (cash equity) to consume Alpaca's free IEX WS — gives real
+# trade-by-trade buy/sell flow (proxy_mode=False) versus yfinance candle
+# proxy. ES=F is more liquid but free streaming requires IBKR/Tradovate.
+ORDER_FLOW_ENABLED: bool         = True
+ORDER_FLOW_SYMBOL: str           = os.getenv("ORDER_FLOW_SYMBOL", "SPY")
+ORDER_FLOW_TIMEFRAMES: list[str] = ["5m", "15m", "1h", "1d"]
+ORDER_FLOW_LOOKBACK_DAYS: int    = 180
+# 15m anchor outperformed 5m and 1h in the param-sweep (180d, SPY yfinance
+# proxy): horizon=12, stop=1×ATR, vol gate off, delta dominance 0.25 →
+# 11 trades, +$0.84/trade with-stop expectancy, +0.81R mean. Sample is small;
+# treat as direction, not certainty. Re-sweep when live real-flow data lands.
+ORDER_FLOW_ANCHOR_TF: str        = "15m"
+# 40 was the threshold band where every label saturated the rule-only sample.
+# Above 50 the sample collapses to <5 trades. 70 was killing discovery.
+ORDER_FLOW_ALERT_MIN_CONF: int   = 40
+# Empty set = allow all 6 labels through. Previously locked to
+# {buyer_absorption, bearish_trap} which excluded the most profitable label
+# (possible_reversal). Open until we have enough live data to whitelist.
+ORDER_FLOW_ALERT_ALLOWED_LABELS: set[str] = set()
+ORDER_FLOW_OUTPUT_SUBDIR: str    = "order_flow"

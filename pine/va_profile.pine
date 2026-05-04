@@ -1,0 +1,114 @@
+//@version=6
+// VA Profile · Rolling N-bar Volume Profile with POC + VAH/VAL (70% Value Area)
+// Same expand-toward-larger-side algorithm used in /footprint-deep.
+indicator("VA Profile · POC/VAH/VAL 70%", "VA Profile",
+     overlay=true, max_lines_count=500, max_labels_count=10)
+
+windowBars = input.int(50,  "Profile window (bars)", minval=10, maxval=500)
+binCount   = input.int(50,  "Price bins",            minval=10, maxval=200)
+vaPct      = input.float(70,"Value Area %", minval=50, maxval=99) / 100.0
+histWidth  = input.int(30,  "Histogram width (bars)", minval=10, maxval=100)
+showHist   = input.bool(true, "Show profile histogram on right")
+
+// ── Rolling window arrays ────────────────────────────────────────────
+var array<float> hiArr = array.new<float>()
+var array<float> loArr = array.new<float>()
+var array<float> vlArr = array.new<float>()
+
+if barstate.isconfirmed
+    array.push(hiArr, high)
+    array.push(loArr, low)
+    array.push(vlArr, volume)
+    while array.size(hiArr) > windowBars
+        array.shift(hiArr)
+        array.shift(loArr)
+        array.shift(vlArr)
+
+// ── Persistent objects re-drawn on last bar ──────────────────────────
+var line  pocLine = na
+var line  vahLine = na
+var line  valLine = na
+var label vaLbl   = na
+var array<line> histLines = array.new<line>()
+
+deleteAll() =>
+    line.delete(pocLine)
+    line.delete(vahLine)
+    line.delete(valLine)
+    label.delete(vaLbl)
+    while array.size(histLines) > 0
+        line.delete(array.shift(histLines))
+
+if barstate.islast and array.size(hiArr) > 0
+    deleteAll()
+    winHi = array.max(hiArr)
+    winLo = array.min(loArr)
+    binSz = (winHi - winLo) / binCount
+    bins  = array.new<float>(binCount, 0.0)
+    n     = array.size(hiArr)
+    for i = 0 to n - 1
+        bh = array.get(hiArr, i)
+        bl = array.get(loArr, i)
+        bv = array.get(vlArr, i)
+        rng_ = bh - bl
+        spread = rng_ <= 0 ? 1 : math.max(1, math.round(rng_ / binSz))
+        perBin = bv / spread
+        startBin = math.floor((bl - winLo) / binSz)
+        for j = 0 to spread - 1
+            idx = startBin + j
+            if idx >= 0 and idx < binCount
+                array.set(bins, idx, array.get(bins, idx) + perBin)
+
+    // POC = max bin
+    pocV   = array.max(bins)
+    pocIdx = array.indexof(bins, pocV)
+    pocPx  = winLo + (pocIdx + 0.5) * binSz
+
+    // Value Area expand-toward-larger from POC
+    totalV = array.sum(bins)
+    target = totalV * vaPct
+    acc    = pocV
+    lo     = pocIdx
+    hi     = pocIdx
+    while acc < target and (lo > 0 or hi < binCount - 1)
+        upV = hi < binCount - 1 ? array.get(bins, hi + 1) : -1.0
+        dnV = lo > 0 ? array.get(bins, lo - 1) : -1.0
+        if upV >= dnV and hi < binCount - 1
+            hi := hi + 1
+            acc := acc + array.get(bins, hi)
+        else if lo > 0
+            lo := lo - 1
+            acc := acc + array.get(bins, lo)
+        else
+            break
+    vah = winLo + (hi + 0.5) * binSz
+    val = winLo + (lo + 0.5) * binSz
+
+    leftBar = bar_index - windowBars
+    pocLine := line.new(leftBar, pocPx, bar_index + 30, pocPx,
+                        color=color.orange, width=2, extend=extend.right)
+    vahLine := line.new(leftBar, vah, bar_index + 30, vah,
+                        color=color.new(color.yellow, 30),
+                        style=line.style_dashed, extend=extend.right)
+    valLine := line.new(leftBar, val, bar_index + 30, val,
+                        color=color.new(color.yellow, 30),
+                        style=line.style_dashed, extend=extend.right)
+    vaLbl   := label.new(bar_index + 5, pocPx,
+                         str.format("POC {0,number,#.##}\nVAH {1,number,#.##}\nVAL {2,number,#.##}\nΣV {3,number,#K}",
+                                    pocPx, vah, val, totalV/1000),
+                         style=label.style_label_left,
+                         color=color.new(color.black, 70),
+                         textcolor=color.orange, size=size.small)
+
+    if showHist
+        maxBin = pocV
+        for k = 0 to binCount - 1
+            v = array.get(bins, k)
+            if v > 0
+                w = math.round(v / maxBin * histWidth)
+                if w > 0
+                    yp = winLo + (k + 0.5) * binSz
+                    inVA = k >= lo and k <= hi
+                    c = inVA ? color.new(color.yellow, 50) : color.new(color.gray, 70)
+                    l = line.new(bar_index, yp, bar_index + w, yp, color=c, width=2)
+                    array.push(histLines, l)

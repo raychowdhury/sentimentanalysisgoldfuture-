@@ -1,0 +1,1190 @@
+"""
+Flask integration for the Order Flow engine.
+
+`register(app)` wires:
+  GET  /order-flow                  — HTML dashboard
+  GET  /api/order-flow/alerts       — recent alerts JSON
+  GET  /api/order-flow/latest       — most recent alert or null
+  POST /api/order-flow/ingest       — push a single bar (TradingView/IBKR/...)
+  GET  /api/order-flow/stream       — Server-Sent Events stream of new alerts
+  POST /api/order-flow/poll/start   — start the yfinance polling worker
+  POST /api/order-flow/poll/stop    — stop the polling worker
+  GET  /api/order-flow/poll/status  — polling worker status
+
+Reads artefacts written by predictor / alert_engine from
+`outputs/order_flow/alerts.json`. The ingest path streams alerts in real time
+via SSE so the dashboard never has to poll the JSON file.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import queue as _queue
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+
+from order_flow_engine.src import alert_store, config as of_cfg, ingest
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
+
+
+def _load_alerts(limit: int = 1000) -> list[dict]:
+    """Prefer sqlite history; fall back to alerts.json if the DB is empty."""
+    try:
+        rows = alert_store.query(limit=limit)
+        if rows:
+            return rows
+    except Exception:
+        pass
+    p = of_cfg.OF_OUTPUT_DIR / "alerts.json"
+    if not p.exists():
+        return []
+    try:
+        with p.open() as f:
+            data = json.load(f)
+        if isinstance(data, dict) and "alerts" in data:
+            return list(data["alerts"])
+        if isinstance(data, list):
+            return data
+    except Exception:
+        return []
+    return []
+
+
+def _proxy_mode_flag(alerts: list[dict]) -> bool:
+    if not alerts:
+        return True
+    latest = alerts[-1]
+    return bool(latest.get("data_quality", {}).get("proxy_mode", True))
+
+
+def _source_status() -> dict:
+    """Inspect which real-time adapters are running so the banner can be honest."""
+    out = {"poll_running": False,
+           "databento_running": False, "databento_symbol": None,
+           "databento_bars": 0, "databento_last_ts": None,
+           "databento_feeds": []}
+    try:
+        from order_flow_engine.src import realtime_databento as rd
+        s = rd.status()
+        out["databento_running"]  = bool(s.get("running"))
+        out["databento_symbol"]   = s.get("symbol")
+        out["databento_bars"]     = int(s.get("bars_ingested") or 0)
+        last_ts = s.get("last_ts")
+        out["databento_last_ts"]  = str(last_ts) if last_ts is not None else None
+        out["databento_feeds"]    = list(s.get("feeds") or [])
+    except Exception:
+        pass
+    try:
+        out["poll_running"] = bool(ingest.poll_status().get("running"))
+    except Exception:
+        pass
+    return out
+
+
+def register(app: Flask) -> None:
+    """Attach routes to the given Flask app. Idempotent."""
+    # Auto-start Telegram bot poller if token configured.
+    try:
+        from order_flow_engine.src import tg_bot
+        tg_bot.start_thread()
+    except Exception:
+        pass
+
+    # Auto-start the alert outcome tracker so the stats panel has data.
+    # Idempotent — safe to call on every register().
+    try:
+        from order_flow_engine.src import outcome_tracker
+        outcome_tracker.start_thread()
+    except Exception:
+        pass
+
+    # Auto-start Databento intraday adapter if enabled — feeds CME futures
+    # bars into the engine. Live SDK (OF_DATABENTO_LIVE=1) streams trades
+    # tick-by-tick; otherwise Historical poll runs at 60s/900s cadence.
+    if of_cfg.OF_DATABENTO_ENABLED:
+        try:
+            if int(os.getenv("OF_DATABENTO_LIVE", "0")):
+                from order_flow_engine.src import realtime_databento_live as rdl
+                ok = rdl.start(list(of_cfg.OF_DATABENTO_SYMBOLS))
+                logger.info(f"Databento Live SDK auto-start: {'ok' if ok else 'noop'}")
+            else:
+                from order_flow_engine.src import realtime_databento as rd
+                specs = [(s, tf)
+                         for s in of_cfg.OF_DATABENTO_SYMBOLS
+                         for tf in of_cfg.OF_DATABENTO_TFS]
+                n = rd.start_many(specs)
+                logger.info(f"Databento auto-start: {n}/{len(specs)} feeds running")
+        except Exception as e:
+            logger.warning(f"Databento auto-start failed: {e}")
+
+    @app.route("/order-flow")
+    def order_flow_view():  # pragma: no cover — exercised end-to-end
+        from order_flow_engine.src import backtester as _bt
+        alerts = _load_alerts()
+        alerts_desc = list(reversed(alerts))[:50]
+        latest = alerts_desc[0] if alerts_desc else None
+        latest_bar = None
+        if latest:
+            try:
+                latest_bar = ingest.get_latest_bar(
+                    latest.get("symbol"), latest.get("timeframe"))
+            except Exception:
+                latest_bar = None
+        if latest_bar is None:
+            for _sym in ("GCM6", "ESM6", "NQM6", "CLM6"):
+                for _tf in ("1m", "15m"):
+                    try:
+                        b = ingest.get_latest_bar(_sym, _tf)
+                    except Exception:
+                        b = None
+                    if b:
+                        latest_bar = b
+                        latest_bar["_symbol"] = _sym
+                        latest_bar["_tf"] = _tf
+                        break
+                if latest_bar:
+                    break
+        engine_config = {
+            "symbol":           of_cfg.OF_SYMBOL,
+            "anchor_tf":        of_cfg.OF_ANCHOR_TF,
+            "min_conf":         of_cfg.OF_ALERT_MIN_CONF,
+            "allowed_labels":   sorted(of_cfg.OF_ALERT_ALLOWED_LABELS) or ["all"],
+            "allowed_tfs":      sorted(of_cfg.OF_ALERT_ALLOWED_TFS) or ["all"],
+            "horizon_bars":     of_cfg.OF_FORWARD_BARS.get(of_cfg.OF_ANCHOR_TF, 1),
+            "stop_atr_mult":    _bt.BACKTEST_STOP_ATR_MULT,
+            "volume_gate_pctl": of_cfg.VOLUME_GATE_PCTL,
+            "cooldown_bars":    of_cfg.ALERT_COOLDOWN_BARS,
+            "rule_delta_dominance": of_cfg.RULE_DELTA_DOMINANCE,
+            "rule_absorption_delta": of_cfg.RULE_ABSORPTION_DELTA,
+            "rule_trap_delta":  of_cfg.RULE_TRAP_DELTA,
+        }
+        return render_template(
+            "order_flow.html",
+            symbol=of_cfg.OF_SYMBOL,
+            anchor_tf=of_cfg.OF_ANCHOR_TF,
+            alert_min_conf=of_cfg.OF_ALERT_MIN_CONF,
+            alerts=alerts_desc,
+            latest=latest,
+            latest_bar=latest_bar,
+            proxy_mode=_proxy_mode_flag(alerts),
+            source=_source_status(),
+            engine_config=engine_config,
+        )
+
+    @app.route("/api/order-flow/alerts")
+    def order_flow_alerts():  # pragma: no cover
+        return jsonify(_load_alerts())
+
+    @app.route("/api/order-flow/latest")
+    def order_flow_latest():  # pragma: no cover
+        alerts = _load_alerts()
+        return jsonify(alerts[-1] if alerts else None)
+
+    @app.route("/api/order-flow/ingest", methods=["POST"])
+    def order_flow_ingest():  # pragma: no cover
+        """
+        Push a single closed bar. Body JSON:
+          {symbol, timeframe, timestamp, open, high, low, close, volume?}
+
+        TradingView alert format works directly — set the alert message to:
+          {"symbol":"{{ticker}}","timeframe":"{{interval}}",
+           "timestamp":"{{time}}","open":{{open}},"high":{{high}},
+           "low":{{low}},"close":{{close}},"volume":{{volume}}}
+        """
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            alert = ingest.ingest_bar(
+                symbol=str(payload.get("symbol", of_cfg.OF_SYMBOL)),
+                timeframe=str(payload.get("timeframe", of_cfg.OF_ANCHOR_TF)),
+                timestamp=payload["timestamp"],
+                open_=float(payload["open"]),
+                high=float(payload["high"]),
+                low=float(payload["low"]),
+                close=float(payload["close"]),
+                volume=float(payload.get("volume", 0) or 0),
+            )
+        except KeyError as e:
+            return jsonify({"error": f"missing field: {e}"}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+        return jsonify({"ok": True, "alert": alert})
+
+    @app.route("/api/order-flow/backtest/trades")
+    def order_flow_backtest_trades():  # pragma: no cover
+        """
+        Run filtered backtest and return trade list. Query params:
+          symbol, tf, lookback (days), min_conf, labels (comma-separated).
+        """
+        from order_flow_engine.src import backtester
+        try:
+            symbol = request.args.get("symbol", of_cfg.OF_SYMBOL)
+            tf = request.args.get("tf", of_cfg.OF_ANCHOR_TF)
+            lookback = int(request.args.get("lookback", of_cfg.OF_LOOKBACK_DAYS))
+            min_conf = request.args.get("min_conf", type=int)
+            labels_arg = request.args.get("labels", "").strip()
+            labels = {s.strip() for s in labels_arg.split(",") if s.strip()} or None
+            result = backtester.build_trades(
+                symbol=symbol, timeframe=tf, lookback_days=lookback,
+                min_conf=min_conf, allowed_labels=labels,
+            )
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/order-flow/stream")
+    def order_flow_stream():  # pragma: no cover
+        """SSE stream of live alerts. Long-polling — keep one open per dashboard tab."""
+        def gen():
+            q = ingest.subscribe()
+            try:
+                # Emit a hello so the client can detect "connected" immediately.
+                yield f"event: hello\ndata: {json.dumps({'ok': True})}\n\n"
+                while True:
+                    try:
+                        evt = q.get(timeout=15)
+                        yield f"event: {evt.get('type','message')}\ndata: {json.dumps(evt, default=str)}\n\n"
+                    except _queue.Empty:
+                        # Comment line as keep-alive (per SSE spec).
+                        yield ": keep-alive\n\n"
+            finally:
+                ingest.unsubscribe(q)
+
+        return Response(
+            stream_with_context(gen()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.route("/api/order-flow/poll/start", methods=["POST"])
+    def order_flow_poll_start():  # pragma: no cover
+        body = request.get_json(force=True, silent=True) or {}
+        started = ingest.start_polling(
+            symbol=body.get("symbol"),
+            timeframe=body.get("timeframe"),
+            interval_s=int(body.get("interval_s", 60)),
+        )
+        return jsonify({"started": started, **ingest.poll_status()})
+
+    @app.route("/api/order-flow/poll/stop", methods=["POST"])
+    def order_flow_poll_stop():  # pragma: no cover
+        ingest.stop_polling()
+        return jsonify({"stopped": True})
+
+    @app.route("/api/order-flow/poll/status")
+    def order_flow_poll_status():  # pragma: no cover
+        return jsonify(ingest.poll_status())
+
+    @app.route("/api/order-flow/notifiers")
+    def order_flow_notifiers():  # pragma: no cover
+        from order_flow_engine.src import notifier
+        return jsonify(notifier.configured())
+
+    @app.route("/api/order-flow/telegram/status")
+    def order_flow_tg_status():  # pragma: no cover
+        from order_flow_engine.src import tg_bot
+        return jsonify(tg_bot.status())
+
+    @app.route("/api/order-flow/outcomes/stats")
+    def order_flow_outcome_stats():  # pragma: no cover
+        """Rolling win-rate / expectancy stats over a window in days."""
+        from order_flow_engine.src import outcome_tracker
+        try:
+            window = int(request.args.get("days", 7))
+        except Exception:
+            window = 7
+        return jsonify({
+            "rolling_7d":  outcome_tracker.rolling_stats(7),
+            "rolling_30d": outcome_tracker.rolling_stats(30),
+            "selected":    outcome_tracker.rolling_stats(window),
+            "tracker":     outcome_tracker.status(),
+        })
+
+    @app.route("/api/order-flow/outcomes/by-label")
+    def order_flow_outcomes_by_label():  # pragma: no cover
+        from order_flow_engine.src import outcome_tracker
+        try:
+            window = int(request.args.get("days", 30))
+        except Exception:
+            window = 30
+        return jsonify(outcome_tracker.stats_by_label(window))
+
+    @app.route("/trader-desk")
+    def trader_desk_view():  # pragma: no cover
+        return render_template("trader_desk.html")
+
+    PAPER_ORDERS_PATH    = of_cfg.OF_OUTPUT_DIR / "paper_orders.jsonl"
+    PAPER_POSITIONS_PATH = of_cfg.OF_OUTPUT_DIR / "paper_positions.json"
+    PAPER_RISK_PATH      = of_cfg.OF_OUTPUT_DIR / "paper_risk.json"
+
+    # Contract multipliers for PnL ($ per point)
+    _CONTRACT_MULT = {"ESM6": 50, "NQM6": 20, "GCM6": 100, "CLM6": 1000}
+
+    def _load_paper_orders() -> list[dict]:
+        if not PAPER_ORDERS_PATH.exists():
+            return []
+        rows = []
+        with PAPER_ORDERS_PATH.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try: rows.append(json.loads(line))
+                except Exception: continue
+        return rows
+
+    def _load_positions() -> dict:
+        if not PAPER_POSITIONS_PATH.exists():
+            return {"positions": {}, "realized_pnl": 0.0, "trades_today": 0}
+        try:
+            return json.loads(PAPER_POSITIONS_PATH.read_text())
+        except Exception:
+            return {"positions": {}, "realized_pnl": 0.0, "trades_today": 0}
+
+    def _save_positions(state: dict) -> None:
+        PAPER_POSITIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PAPER_POSITIONS_PATH.write_text(json.dumps(state, indent=2))
+
+    def _load_risk() -> dict:
+        defaults = {"max_qty": 10, "daily_loss_limit": 1000.0, "trading_enabled": True}
+        if not PAPER_RISK_PATH.exists():
+            return defaults
+        try:
+            saved = json.loads(PAPER_RISK_PATH.read_text())
+            return {**defaults, **saved}
+        except Exception:
+            return defaults
+
+    def _save_risk(risk: dict) -> None:
+        PAPER_RISK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PAPER_RISK_PATH.write_text(json.dumps(risk, indent=2))
+
+    def _apply_fill(state: dict, symbol: str, side: str, qty: int,
+                    fill_price: float) -> dict:
+        """Update positions on a fill. Returns realized pnl from this fill (if any)."""
+        mult = _CONTRACT_MULT.get(symbol, 1)
+        positions = state.setdefault("positions", {})
+        pos = positions.get(symbol) or {"qty": 0, "avg": 0.0}
+        signed = qty if side == "buy" else -qty
+        old_qty = pos["qty"]
+        new_qty = old_qty + signed
+        realized = 0.0
+        if old_qty == 0 or (old_qty > 0 and signed > 0) or (old_qty < 0 and signed < 0):
+            # Opening or adding — weighted avg
+            total = pos["avg"] * abs(old_qty) + fill_price * abs(signed)
+            pos["avg"] = total / max(1, abs(old_qty) + abs(signed))
+            pos["qty"] = new_qty
+        else:
+            # Closing or reversing
+            closing_qty = min(abs(old_qty), abs(signed))
+            sign = 1 if old_qty > 0 else -1
+            realized = (fill_price - pos["avg"]) * closing_qty * sign * mult
+            state["realized_pnl"] = round(state.get("realized_pnl", 0.0) + realized, 2)
+            pos["qty"] = new_qty
+            if new_qty == 0:
+                pos["avg"] = 0.0
+            elif (old_qty > 0 and new_qty < 0) or (old_qty < 0 and new_qty > 0):
+                # Reversed — new avg = fill_price
+                pos["avg"] = fill_price
+        if pos["qty"] == 0:
+            positions.pop(symbol, None)
+        else:
+            pos["qty"] = int(pos["qty"])
+            positions[symbol] = pos
+        state["trades_today"] = int(state.get("trades_today", 0)) + 1
+        return realized
+
+    @app.route("/api/paper-orders", methods=["GET", "POST"])
+    def paper_orders():  # pragma: no cover
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            symbol = (body.get("symbol") or "").strip().upper()
+            side   = (body.get("side")   or "").strip().lower()
+            qty    = int(body.get("qty")  or 1)
+            otype  = (body.get("type")   or "MKT").upper()
+            limit  = body.get("limit_price")
+            stop   = body.get("stop_price")
+            target = body.get("target_price")
+            risk = _load_risk()
+            if not risk.get("trading_enabled", True):
+                return jsonify({"error": "trading disabled — daily loss limit reached"}), 400
+            if symbol not in _CONTRACT_MULT:
+                return jsonify({"error": "invalid symbol"}), 400
+            if side not in {"buy", "sell"}:
+                return jsonify({"error": "invalid side"}), 400
+            max_q = int(risk.get("max_qty", 10))
+            qty = max(1, min(qty, max_q))
+            last_bar = ingest.get_latest_bar(symbol, "1m")
+            fill_price = float((last_bar or {}).get("Close") or 0)
+            if otype == "LMT" and limit is not None:
+                fill_price = float(limit)
+            now = datetime.now(timezone.utc).isoformat()
+            state = _load_positions()
+            realized = _apply_fill(state, symbol, side, qty, fill_price)
+            # Loss-limit check (after fill)
+            if state.get("realized_pnl", 0.0) <= -float(risk.get("daily_loss_limit", 1000.0)):
+                risk["trading_enabled"] = False
+                _save_risk(risk)
+            _save_positions(state)
+            order = {
+                "id": f"po_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                "ts": now, "symbol": symbol, "side": side, "qty": qty,
+                "type": otype, "fill_price": round(fill_price, 4),
+                "stop_price":   float(stop) if stop is not None else None,
+                "target_price": float(target) if target is not None else None,
+                "realized_pnl": round(realized, 2),
+                "status": "filled",
+            }
+            PAPER_ORDERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with PAPER_ORDERS_PATH.open("a") as f:
+                f.write(json.dumps(order) + "\n")
+            try:
+                ingest._broadcast({"type": "paper_order", "order": order})
+            except Exception:
+                pass
+            return jsonify(order)
+        try: limit = int(request.args.get("limit", 50))
+        except Exception: limit = 50
+        rows = _load_paper_orders()[-limit:]
+        return jsonify(rows)
+
+    @app.route("/api/paper-positions", methods=["GET"])
+    def paper_positions():  # pragma: no cover
+        """Open positions + unrealized PnL (mark to last close) + account summary."""
+        state = _load_positions()
+        positions = state.get("positions", {})
+        unrealized = 0.0
+        out_pos = []
+        for sym, p in positions.items():
+            mult = _CONTRACT_MULT.get(sym, 1)
+            last_bar = ingest.get_latest_bar(sym, "1m")
+            last = float((last_bar or {}).get("Close") or p["avg"])
+            pnl = (last - p["avg"]) * p["qty"] * mult
+            unrealized += pnl
+            out_pos.append({
+                "symbol": sym, "qty": p["qty"], "avg": round(p["avg"], 4),
+                "last": round(last, 4),
+                "unrealized": round(pnl, 2),
+                "side": "long" if p["qty"] > 0 else "short",
+            })
+        risk = _load_risk()
+        return jsonify({
+            "positions": out_pos,
+            "realized_pnl":   round(state.get("realized_pnl", 0.0), 2),
+            "unrealized_pnl": round(unrealized, 2),
+            "total_pnl":      round(state.get("realized_pnl", 0.0) + unrealized, 2),
+            "trades_today":   state.get("trades_today", 0),
+            "open_count":     len(out_pos),
+            "risk":           risk,
+        })
+
+    @app.route("/api/paper-flatten", methods=["POST"])
+    def paper_flatten():  # pragma: no cover
+        """Close all open positions at current last price."""
+        state = _load_positions()
+        positions = dict(state.get("positions", {}))
+        closed = []
+        now = datetime.now(timezone.utc).isoformat()
+        for sym, p in positions.items():
+            if p["qty"] == 0:
+                continue
+            last_bar = ingest.get_latest_bar(sym, "1m")
+            fill_price = float((last_bar or {}).get("Close") or p["avg"])
+            close_side = "sell" if p["qty"] > 0 else "buy"
+            close_qty  = abs(p["qty"])
+            realized = _apply_fill(state, sym, close_side, close_qty, fill_price)
+            order = {
+                "id": f"po_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                "ts": now, "symbol": sym, "side": close_side, "qty": close_qty,
+                "type": "MKT", "fill_price": round(fill_price, 4),
+                "realized_pnl": round(realized, 2),
+                "status": "filled (flatten)",
+            }
+            PAPER_ORDERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with PAPER_ORDERS_PATH.open("a") as f:
+                f.write(json.dumps(order) + "\n")
+            closed.append(order)
+            try: ingest._broadcast({"type": "paper_order", "order": order})
+            except Exception: pass
+        _save_positions(state)
+        return jsonify({"closed": closed, "count": len(closed)})
+
+    @app.route("/api/paper-risk", methods=["GET", "POST"])
+    def paper_risk():  # pragma: no cover
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            risk = _load_risk()
+            if "max_qty" in body:
+                risk["max_qty"] = max(1, min(int(body["max_qty"]), 100))
+            if "daily_loss_limit" in body:
+                risk["daily_loss_limit"] = max(0.0, float(body["daily_loss_limit"]))
+            if "trading_enabled" in body:
+                risk["trading_enabled"] = bool(body["trading_enabled"])
+            _save_risk(risk)
+            return jsonify(risk)
+        return jsonify(_load_risk())
+
+    @app.route("/api/paper-reset", methods=["POST"])
+    def paper_reset():  # pragma: no cover
+        """Reset positions + realized PnL (keeps order history)."""
+        _save_positions({"positions": {}, "realized_pnl": 0.0, "trades_today": 0})
+        risk = _load_risk(); risk["trading_enabled"] = True
+        _save_risk(risk)
+        return jsonify({"ok": True})
+
+    AUTOTRADE_PATH = of_cfg.OF_OUTPUT_DIR / "autotrade_config.json"
+    JOURNAL_PATH   = of_cfg.OF_OUTPUT_DIR / "trade_journal.jsonl"
+
+    def _load_autotrade() -> dict:
+        defaults = {"enabled": False, "qty": 1, "atr_stop": 1.0, "atr_target": 1.0,
+                    "labels": {}}  # labels[label] = bool
+        if not AUTOTRADE_PATH.exists():
+            return defaults
+        try:
+            saved = json.loads(AUTOTRADE_PATH.read_text())
+            return {**defaults, **saved, "labels": {**defaults["labels"], **saved.get("labels", {})}}
+        except Exception:
+            return defaults
+
+    def _save_autotrade(cfg: dict) -> None:
+        AUTOTRADE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        AUTOTRADE_PATH.write_text(json.dumps(cfg, indent=2))
+
+    @app.route("/api/auto-trade", methods=["GET", "POST"])
+    def auto_trade_config():  # pragma: no cover
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            cfg = _load_autotrade()
+            for k in ("enabled",):
+                if k in body: cfg[k] = bool(body[k])
+            for k in ("qty",):
+                if k in body: cfg[k] = max(1, min(int(body[k]), 50))
+            for k in ("atr_stop", "atr_target"):
+                if k in body: cfg[k] = max(0.1, min(float(body[k]), 5.0))
+            if "labels" in body and isinstance(body["labels"], dict):
+                cfg["labels"] = {str(k): bool(v) for k, v in body["labels"].items()}
+            _save_autotrade(cfg)
+            return jsonify(cfg)
+        return jsonify(_load_autotrade())
+
+    @app.route("/api/trade-journal", methods=["GET", "POST"])
+    def trade_journal():  # pragma: no cover
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            entry = {
+                "ts":     datetime.now(timezone.utc).isoformat(),
+                "symbol": (body.get("symbol") or "").upper(),
+                "tags":   list(body.get("tags") or []),
+                "note":   str(body.get("note") or "")[:2000],
+                "ref":    body.get("ref"),  # order id / alert id
+            }
+            if not entry["note"].strip():
+                return jsonify({"error": "empty note"}), 400
+            JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with JOURNAL_PATH.open("a") as f:
+                f.write(json.dumps(entry) + "\n")
+            return jsonify(entry)
+        # GET — return recent
+        try: limit = int(request.args.get("limit", 50))
+        except Exception: limit = 50
+        if not JOURNAL_PATH.exists():
+            return jsonify([])
+        rows = []
+        with JOURNAL_PATH.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line: continue
+                try: rows.append(json.loads(line))
+                except Exception: continue
+        return jsonify(rows[-limit:])
+
+    # Background SSE listener — auto-trade on tape alerts when enabled.
+    def _autotrade_listener():
+        q = ingest.subscribe()
+        logger.info("autotrade listener started")
+        try:
+            while True:
+                try:
+                    evt = q.get(timeout=30)
+                except _queue.Empty:
+                    continue
+                if evt.get("type") != "alert":
+                    continue
+                a = evt.get("alert") or {}
+                cfg = _load_autotrade()
+                if not cfg.get("enabled"):
+                    continue
+                label = a.get("label", "")
+                if not cfg.get("labels", {}).get(label):
+                    continue
+                side = "buy" if label.endswith("_buy") else "sell" if label.endswith("_sell") else None
+                if not side:
+                    continue
+                symbol = a.get("symbol", "")
+                if symbol not in _CONTRACT_MULT:
+                    continue
+                price = float(a.get("price") or 0)
+                atr   = float(a.get("atr") or 0)
+                qty   = int(cfg.get("qty", 1))
+                stop  = price - (atr * cfg["atr_stop"]   * (+1 if side == "buy" else -1))
+                tgt   = price + (atr * cfg["atr_target"] * (+1 if side == "buy" else -1))
+                state = _load_positions()
+                _apply_fill(state, symbol, side, qty, price)
+                _save_positions(state)
+                order = {
+                    "id": f"po_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "symbol": symbol, "side": side, "qty": qty, "type": "MKT",
+                    "fill_price": round(price, 4),
+                    "stop_price": round(stop, 4) if atr > 0 else None,
+                    "target_price": round(tgt, 4) if atr > 0 else None,
+                    "realized_pnl": 0.0,
+                    "status": f"filled (auto · {label})",
+                }
+                with PAPER_ORDERS_PATH.open("a") as f:
+                    f.write(json.dumps(order) + "\n")
+                try: ingest._broadcast({"type": "paper_order", "order": order})
+                except Exception: pass
+                logger.info(f"AUTO-TRADE: {label} {symbol} {side} {qty}@{price}")
+        finally:
+            ingest.unsubscribe(q)
+
+    import threading as _threading
+    _threading.Thread(target=_autotrade_listener, daemon=True,
+                      name="autotrade-listener").start()
+
+    @app.route("/api/order-flow/backtest/list")
+    def order_flow_backtest_list():  # pragma: no cover
+        """List available tape-backtest reports."""
+        out_dir = of_cfg.OF_OUTPUT_DIR
+        reports = sorted(out_dir.glob("tape_backtest_*.json"),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+        return jsonify([
+            {"name": p.name, "mtime": p.stat().st_mtime, "size": p.stat().st_size}
+            for p in reports
+        ])
+
+    @app.route("/api/order-flow/backtest/load")
+    def order_flow_backtest_load():  # pragma: no cover
+        """Load a specific report or the latest one."""
+        out_dir = of_cfg.OF_OUTPUT_DIR
+        name = request.args.get("name", "").strip()
+        if name:
+            p = out_dir / name
+            if not p.exists() or not p.name.startswith("tape_backtest_"):
+                return jsonify({"error": "not found"}), 404
+        else:
+            files = sorted(out_dir.glob("tape_backtest_*.json"),
+                           key=lambda x: x.stat().st_mtime, reverse=True)
+            if not files:
+                return jsonify({"error": "no reports"}), 404
+            p = files[0]
+        try:
+            data = json.loads(p.read_text())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        # Compute top winners / losers across all symbols, then trim fire lists
+        all_fires = []
+        if "per_symbol" in data:
+            for sym, rep in data["per_symbol"].items():
+                fires = rep.get("fires") or []
+                for f in fires:
+                    if f.get("outcome") in ("win", "loss") and "r" in f:
+                        all_fires.append({**f, "symbol": sym})
+                if len(fires) > 100:
+                    rep["fires_total"] = len(fires)
+                    rep["fires_sample"] = fires[:100]
+                    del rep["fires"]
+        all_fires.sort(key=lambda x: float(x.get("r") or 0))
+        data["top_losses"]  = all_fires[:10]
+        data["top_winners"] = list(reversed(all_fires[-10:]))
+        return jsonify({"name": p.name, "mtime": p.stat().st_mtime, "report": data})
+
+    @app.route("/api/order-flow/backtest/run", methods=["POST"])
+    def order_flow_backtest_run():  # pragma: no cover
+        """Trigger a backtest run in the background. Returns immediately."""
+        import subprocess
+        import sys as _sys
+        symbol = (request.json or {}).get("symbol", "ALL")
+        days   = int((request.json or {}).get("days", 1))
+        if symbol.upper() != "ALL" and not symbol.replace("_", "").isalnum():
+            return jsonify({"error": "invalid symbol"}), 400
+        days = max(1, min(days, 14))
+        script = Path(__file__).resolve().parent.parent.parent / "scripts" / "backtest_tape_detectors.py"
+        cmd = [_sys.executable, str(script), "--symbol", symbol, "--days", str(days)]
+        # Fire-and-forget; the script writes the JSON file when done.
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         close_fds=True)
+        return jsonify({"started": True, "symbol": symbol, "days": days})
+
+    @app.route("/api/order-flow/outcomes/equity")
+    def order_flow_outcomes_equity():  # pragma: no cover
+        from order_flow_engine.src import outcome_tracker
+        try:
+            window = int(request.args.get("days", 30))
+        except Exception:
+            window = 30
+        return jsonify(outcome_tracker.equity_curve(window))
+
+    @app.route("/api/order-flow/outcomes/recent")
+    def order_flow_outcomes_recent():  # pragma: no cover
+        """Latest N settled outcomes for inspection in the dashboard."""
+        from order_flow_engine.src import outcome_tracker
+        try:
+            limit = int(request.args.get("limit", 25))
+        except Exception:
+            limit = 25
+        rows = outcome_tracker._load_jsonl(outcome_tracker.OUTCOMES_PATH)
+        return jsonify(rows[-limit:])
+
+    @app.route("/api/order-flow/outcomes/settle", methods=["POST"])
+    def order_flow_outcomes_settle():  # pragma: no cover
+        """Force a synchronous settle pass — useful from the dashboard."""
+        from order_flow_engine.src import outcome_tracker
+        n = outcome_tracker._settle_pending()
+        return jsonify({"settled": n})
+
+    # ── Phase 1B real-flow diagnostic view ──────────────────────────────
+
+    def _diagnostic_path(symbol: str, tf: str) -> Path:
+        return of_cfg.OF_OUTPUT_DIR / f"realflow_diagnostic_{symbol}_{tf}.json"
+
+    def _live_signal_details(symbol: str, tf: str) -> list[dict]:
+        """Read-only: derive entry/stop/target/MFE/MAE prices for live-only
+        R1/R2 + R7 shadow signals from existing outcome JSONLs/pending JSONs.
+        Does NOT mutate any engine state. Stop = 1*ATR opposite to direction;
+        target = 1*ATR with direction. MFE/MAE prices use fwd_high/fwd_low
+        depending on direction."""
+
+        out_path     = of_cfg.OF_OUTPUT_DIR / f"realflow_outcomes_{symbol}_{tf}.jsonl"
+        pend_path    = of_cfg.OF_OUTPUT_DIR / f"realflow_outcomes_pending_{symbol}_{tf}.json"
+        sh_path      = of_cfg.OF_OUTPUT_DIR / f"realflow_r7_shadow_outcomes_{symbol}_{tf}.jsonl"
+        sh_pend_path = of_cfg.OF_OUTPUT_DIR / f"realflow_r7_shadow_pending_{symbol}_{tf}.json"
+
+        def derive(r: dict, status: str) -> dict | None:
+            e = r.get("entry_close")
+            d = r.get("direction") or 0
+            atr = r.get("atr") or 0.0
+            if e is None or atr <= 0:
+                return None
+            stop   = e - d * atr
+            target = e + d * atr
+            mfe_price = mae_price = None
+            if status == "settled":
+                hi = r.get("fwd_high_at_horizon")
+                lo = r.get("fwd_low_at_horizon")
+                if d > 0:
+                    mfe_price, mae_price = hi, lo
+                else:
+                    mfe_price, mae_price = lo, hi
+            return {
+                "rule":       r.get("rule"),
+                "fire_ts_ny": r.get("fire_ts_ny"),
+                "session":    r.get("session"),
+                "direction":  "long" if d > 0 else ("short" if d < 0 else "?"),
+                "entry":      round(float(e), 4),
+                "stop":       round(float(stop), 4),
+                "target":     round(float(target), 4),
+                "mfe_price":  round(float(mfe_price), 4) if mfe_price is not None else None,
+                "mae_price":  round(float(mae_price), 4) if mae_price is not None else None,
+                "final_r":    round(float(r.get("fwd_r_signed")), 3)
+                              if status == "settled" and r.get("fwd_r_signed") is not None else None,
+                "outcome":    r.get("outcome", "PENDING") if status == "settled" else "PENDING",
+                "status":     status,
+            }
+
+        def load_jsonl(p: Path) -> list[dict]:
+            if not p.exists():
+                return []
+            items: list[dict] = []
+            with p.open() as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        items.append(json.loads(line))
+                    except Exception:
+                        continue
+            return items
+
+        def load_json(p: Path) -> list[dict]:
+            if not p.exists():
+                return []
+            try:
+                data = json.loads(p.read_text())
+                return data if isinstance(data, list) else []
+            except Exception:
+                return []
+
+        rows: list[dict] = []
+        for r in load_jsonl(out_path):
+            if r.get("mode") == "live":
+                row = derive(r, "settled")
+                if row:
+                    rows.append(row)
+        for r in load_json(pend_path):
+            if r.get("mode") == "live":
+                row = derive(r, "pending")
+                if row:
+                    rows.append(row)
+        for r in load_jsonl(sh_path):
+            if r.get("mode") == "live":
+                row = derive(r, "settled")
+                if row:
+                    rows.append(row)
+        for r in load_json(sh_pend_path):
+            if r.get("mode") == "live":
+                row = derive(r, "pending")
+                if row:
+                    rows.append(row)
+        rows.sort(key=lambda x: x.get("fire_ts_ny") or "")
+        return rows
+
+    def _trader_summary(symbol: str, tf: str,
+                        outcomes: dict | None,
+                        r7_shadow: dict | None) -> dict:
+        """Compute Trader View Layer-1 summary fields. Read-only — no
+        mutation. Inputs: existing health-monitor state, outcomes summary,
+        r7_shadow summary, raw outcomes JSONL for per-rule live stats."""
+        import pandas as pd  # noqa: F401
+        from datetime import datetime, timezone
+
+        health_state_path = of_cfg.OF_OUTPUT_DIR / ".health_state.json"
+        health: dict = {}
+        if health_state_path.exists():
+            try:
+                health = json.loads(health_state_path.read_text())
+            except Exception:
+                health = {}
+
+        def is_unhealthy(name: str) -> bool:
+            return health.get(name) == "unhealthy"
+
+        now = datetime.now(timezone.utc)
+        wd, hr = now.weekday(), now.hour
+        market_closed = (wd == 5) or (wd == 6 and hr < 22) or (wd == 4 and hr >= 22)
+
+        critical_down = (is_unhealthy("s1_flask_proc")
+                         or is_unhealthy("s6_raw_freshness")
+                         or is_unhealthy("s7_monitor_loop_proc"))
+        unhealthy_n = sum(1 for v in health.values() if v == "unhealthy")
+        if critical_down or unhealthy_n >= 3:
+            system = "Broken"
+        elif unhealthy_n > 0:
+            system = "Warning"
+        else:
+            system = "Healthy"
+
+        if market_closed:
+            live_data = "Closed"
+        else:
+            s3_ok = not is_unhealthy("s3_live_sdk_stream")
+            s4_ok = not is_unhealthy("s4_live_1m_freshness")
+            if s3_ok and s4_ok:
+                live_data = "Connected"
+            elif s3_ok or s4_ok:
+                live_data = "Slow"
+            else:
+                live_data = "Stale"
+
+        out_path = of_cfg.OF_OUTPUT_DIR / f"realflow_outcomes_{symbol}_{tf}.jsonl"
+        r1_live = {"n": 0, "wins": 0, "rs": []}
+        r2_live = {"n": 0, "wins": 0, "rs": []}
+        if out_path.exists():
+            try:
+                with out_path.open() as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            r = json.loads(line)
+                        except Exception:
+                            continue
+                        if r.get("mode") != "live":
+                            continue
+                        if r.get("rule") == "r1_buyer_down":
+                            bucket = r1_live
+                        elif r.get("rule") == "r2_seller_up":
+                            bucket = r2_live
+                        else:
+                            continue
+                        bucket["n"] += 1
+                        if r.get("outcome") == "win":
+                            bucket["wins"] += 1
+                        fr = r.get("fwd_r_signed")
+                        if fr is not None:
+                            bucket["rs"].append(fr)
+            except Exception:
+                pass
+
+        BL = {"r1_buyer_down": 1.18, "r2_seller_up": 0.75}
+
+        def classify(stats: dict, baseline: float) -> str:
+            n = stats["n"]
+            if n == 0:
+                return "Watching"
+            mean_r = sum(stats["rs"]) / len(stats["rs"]) if stats["rs"] else 0.0
+            retention = (mean_r / baseline) if baseline else 0.0
+            hit_rate = stats["wins"] / n
+            if n >= 30 and retention >= 0.8 and hit_rate >= 0.55:
+                return "Strong"
+            if n >= 10 and (retention < 0.5 or mean_r <= 0):
+                return "Weak"
+            return "Watching"
+
+        r1_status = classify(r1_live, BL["r1_buyer_down"])
+        r2_status = classify(r2_live, BL["r2_seller_up"])
+
+        r7_live_n = 0
+        if r7_shadow:
+            bm = r7_shadow.get("by_mode", {}) or {}
+            live_block = bm.get("live", {}) or {}
+            r7_live_n = live_block.get("n", 0) or 0
+        r7_status = "Research" if r7_live_n >= 30 else "Shadow only"
+
+        pending_n = 0
+        for p in (
+            of_cfg.OF_OUTPUT_DIR / f"realflow_outcomes_pending_{symbol}_{tf}.json",
+            of_cfg.OF_OUTPUT_DIR / f"realflow_r7_shadow_pending_{symbol}_{tf}.json",
+        ):
+            if p.exists():
+                try:
+                    d = json.loads(p.read_text())
+                    if isinstance(d, list):
+                        pending_n += len(d)
+                except Exception:
+                    pass
+
+        if system == "Broken" or live_data == "Stale":
+            action = "Stop using signal"
+        elif r1_status == "Weak" or r2_status == "Weak" or pending_n > 30:
+            action = "Investigate"
+        else:
+            action = "Keep monitoring"
+
+        live_1m = of_cfg.OF_PROCESSED_DIR / f"{symbol}_1m_live.parquet"
+        freshness_label = "—"
+        if live_1m.exists():
+            try:
+                df = pd.read_parquet(live_1m)
+                df.index = pd.to_datetime(df.index)
+                if df.index.tz is None:
+                    df.index = df.index.tz_localize("UTC")
+                age_min = (now - df.index.max().to_pydatetime()).total_seconds() / 60
+                freshness_label = f"{age_min:.1f} min"
+            except Exception:
+                pass
+
+        live_trades_n = r1_live["n"] + r2_live["n"]
+
+        needed = max(0, 30 - min(r1_live["n"], r2_live["n"]))
+        if needed == 0:
+            eta_label = "GATE 8 CLEARED"
+        else:
+            days = needed / 3.3
+            eta_label = f"~{days:.1f}d (need {needed})"
+
+        return {
+            "system":        system,
+            "live_data":     live_data,
+            "r1":            r1_status,
+            "r2":            r2_status,
+            "r7":            r7_status,
+            "action":        action,
+            "freshness":     freshness_label,
+            "live_trades_n": live_trades_n,
+            "eta_to_gate":   eta_label,
+            "r1_live_n":     r1_live["n"],
+            "r2_live_n":     r2_live["n"],
+            "r7_live_n":     r7_live_n,
+            "pending_n":     pending_n,
+        }
+
+    @app.route("/order-flow/realflow-diagnostic")
+    def realflow_diagnostic_view():  # pragma: no cover
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        path = _diagnostic_path(symbol, tf)
+        data = None
+        error = None
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+            except Exception as e:
+                error = f"Failed to read {path.name}: {e}"
+        else:
+            error = (f"No diagnostic JSON yet at {path.name}. "
+                     "Click Regenerate or run "
+                     "`python -m order_flow_engine.src.realflow_compare "
+                     f"--symbol {symbol} --tf {tf} --diagnostic`.")
+        button_status = None
+        try:
+            from order_flow_engine.src import realflow_compare as rfc
+            button_status = rfc.peek_button_status(symbol, tf)
+        except Exception:
+            button_status = None
+        outcomes = None
+        op = _outcomes_summary_path(symbol, tf)
+        if op.exists():
+            try:
+                outcomes = json.loads(op.read_text())
+            except Exception:
+                outcomes = None
+        r7_shadow = None
+        sp = _r7_shadow_summary_path(symbol, tf)
+        if sp.exists():
+            try:
+                r7_shadow = json.loads(sp.read_text())
+                r7_shadow["production_threshold"] = of_cfg.RULE_CVD_CORR_THRESH
+                r7_shadow["recent"] = _read_jsonl_tail(
+                    _r7_shadow_jsonl_path(symbol, tf), 10)
+            except Exception:
+                r7_shadow = None
+        try:
+            live_signals = _live_signal_details(symbol, tf)
+        except Exception:
+            live_signals = []
+        try:
+            trader = _trader_summary(symbol, tf, outcomes, r7_shadow)
+        except Exception:
+            trader = None
+        return render_template(
+            "realflow_diagnostic.html",
+            symbol=symbol, tf=tf, data=data, error=error,
+            json_path=str(path), button_status=button_status,
+            outcomes=outcomes, r7_shadow=r7_shadow,
+            live_signals=live_signals, trader=trader,
+        )
+
+    def _outcomes_summary_path(symbol: str, tf: str) -> Path:
+        return of_cfg.OF_OUTPUT_DIR / f"realflow_outcomes_summary_{symbol}_{tf}.json"
+
+    def _r7_shadow_summary_path(symbol: str, tf: str) -> Path:
+        return of_cfg.OF_OUTPUT_DIR / f"realflow_r7_shadow_summary_{symbol}_{tf}.json"
+
+    def _r7_shadow_jsonl_path(symbol: str, tf: str) -> Path:
+        return of_cfg.OF_OUTPUT_DIR / f"realflow_r7_shadow_outcomes_{symbol}_{tf}.jsonl"
+
+    def _read_jsonl_tail(path: Path, n: int) -> list[dict]:
+        if not path.exists():
+            return []
+        rows: list[dict] = []
+        with path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except Exception:
+                    continue
+        return rows[-n:]
+
+    @app.route("/api/order-flow/r7-shadow")
+    def r7_shadow_api():  # pragma: no cover
+        """
+        Read-only R7 shadow summary + last-N settled rows.
+        Does NOT trigger shadow_pass — monitor_loop owns that.
+        """
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        try:
+            n_recent = int(request.args.get("n_recent", 10))
+        except Exception:
+            n_recent = 10
+        path = _r7_shadow_summary_path(symbol, tf)
+        if not path.exists():
+            return jsonify({
+                "error": f"no shadow summary at {path.name} — run monitor_loop or shadow_pass first",
+                "is_shadow": True,
+                "n_settled": 0, "n_pending": 0,
+                "overall": {}, "by_session": {}, "by_mode": {},
+                "vs_shadow_baseline": {},
+                "production_threshold": of_cfg.RULE_CVD_CORR_THRESH,
+                "recent": [],
+            }), 200
+        try:
+            data = json.loads(path.read_text())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        data["production_threshold"] = of_cfg.RULE_CVD_CORR_THRESH
+        data["recent"] = _read_jsonl_tail(_r7_shadow_jsonl_path(symbol, tf), n_recent)
+        return jsonify(data)
+
+    @app.route("/api/order-flow/realflow-outcomes")
+    def realflow_outcomes_api():  # pragma: no cover
+        """
+        Read-only outcome summary. ?settle=1 triggers a fresh settle_pass
+        before returning. Otherwise just reads the cached summary JSON.
+        """
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        do_settle = request.args.get("settle", "0") in ("1", "true", "yes")
+        if do_settle:
+            try:
+                from order_flow_engine.src import realflow_outcome_tracker as rot
+                rot.settle_pass(symbol, tf)
+            except Exception as e:
+                return jsonify({"error": f"settle_pass failed: {e}"}), 500
+        path = _outcomes_summary_path(symbol, tf)
+        if not path.exists():
+            return jsonify({
+                "error": f"no outcomes summary at {path.name} — run settle_pass first",
+                "n_settled": 0, "n_pending": 0,
+                "sample_size_label": "cold",
+                "by_rule": {}, "by_session": {}, "vs_baseline": {},
+            }), 200
+        try:
+            return jsonify(json.loads(path.read_text()))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/order-flow/realflow-diagnostic-status")
+    def realflow_diagnostic_status():  # pragma: no cover
+        """Cheap status for the Regenerate button — no full diagnose run."""
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        try:
+            from order_flow_engine.src import realflow_compare as rfc
+            return jsonify(rfc.peek_button_status(symbol, tf))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/order-flow/realflow-diagnostic")
+    def realflow_diagnostic_api():  # pragma: no cover
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        regenerate = request.args.get("regenerate", "0") in ("1", "true", "yes")
+        if regenerate:
+            try:
+                from order_flow_engine.src import realflow_compare as rfc
+                rfc.diagnose(symbol, tf)
+            except Exception as e:
+                return jsonify({"error": f"diagnose failed: {e}"}), 500
+        path = _diagnostic_path(symbol, tf)
+        if not path.exists():
+            return jsonify({"error": f"no diagnostic at {path.name}"}), 404
+        try:
+            return jsonify(json.loads(path.read_text()))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/order-flow/notifiers/test", methods=["POST"])
+    def order_flow_notifiers_test():  # pragma: no cover
+        from order_flow_engine.src import notifier
+        sample = {
+            "id": "test_notify", "timestamp_utc": "2026-04-24T03:30:00Z",
+            "symbol": "ES=F", "timeframe": "5m", "label": "possible_reversal",
+            "confidence": 99, "price": 7150.0, "atr": 3.0,
+            "rules_fired": ["test_rule"], "reason_codes": ["Test alert from dashboard"],
+            "metrics": {"delta_ratio": -0.5, "cvd_z": 1.2},
+            "model": {}, "data_quality": {"proxy_mode": True},
+        }
+        return jsonify(notifier.fanout(sample))

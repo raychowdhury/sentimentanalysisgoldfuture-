@@ -1,0 +1,302 @@
+"""Health monitor — probes 12 signals, logs JSON, notifies on transitions.
+
+Phase 1: probes + logging + local notification only. No self-healing.
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import time
+import urllib.error
+import urllib.request
+import zoneinfo
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pandas as pd
+
+PROJECT   = Path("/Users/ray/Dev/Sentiment analysis projtect")
+LOG       = PROJECT / "outputs/order_flow/health_monitor.log"
+STATE     = PROJECT / "outputs/order_flow/.health_state.json"
+FLAG_DIR  = PROJECT / "outputs/order_flow"
+FLASK_LOG = Path("/tmp/flask.log")
+NY_TZ     = zoneinfo.ZoneInfo("America/New_York")
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def log_record(record: dict) -> None:
+    record["ts"] = now_utc().isoformat()
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as f:
+        f.write(json.dumps(record, default=str) + "\n")
+
+
+def notify(signal: str, status: str, msg: str) -> None:
+    title = f"RFM Health: {signal} {status}"
+    body  = msg.replace('"', "'")[:200]
+    cmd = ["osascript", "-e",
+           f'display notification "{body}" with title "{title}"']
+    try:
+        subprocess.run(cmd, check=False, timeout=5,
+                       capture_output=True)
+    except Exception:
+        pass
+
+
+def market_open() -> bool:
+    """CME Globex approximation: closed Fri 22:00Z → Sun 22:00Z."""
+    n = now_utc()
+    wd, hr = n.weekday(), n.hour
+    if wd == 5:                 # Saturday
+        return False
+    if wd == 6 and hr < 22:     # Sunday before 22:00 UTC
+        return False
+    if wd == 4 and hr >= 22:    # Friday after 22:00 UTC
+        return False
+    return True
+
+
+def probe_s1_flask_proc():
+    out = subprocess.run(["pgrep", "-f", r"python.*app\.py"],
+                         capture_output=True, text=True)
+    pids = [p for p in out.stdout.strip().split("\n") if p]
+    if pids:
+        return "healthy", {"pids": pids}
+    return "unhealthy", {"reason": "no python app.py process"}
+
+
+def probe_s2_flask_http():
+    try:
+        with urllib.request.urlopen("http://localhost:5001/", timeout=3) as r:
+            code = r.getcode()
+        if code == 200:
+            return "healthy", {"http": code}
+        return "unhealthy", {"http": code}
+    except Exception as e:
+        return "unhealthy", {"error": str(e)[:120]}
+
+
+def _latest_tape_alert_utc() -> datetime | None:
+    if not FLASK_LOG.exists():
+        return None
+    try:
+        with FLASK_LOG.open("rb") as f:
+            size = f.seek(0, 2)
+            chunk = min(size, 200_000)
+            f.seek(-chunk, 2)
+            data = f.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+    last = None
+    for line in data.splitlines():
+        if "TAPE ALERT" not in line:
+            continue
+        if not (line.startswith("[") and len(line) > 21):
+            continue
+        try:
+            ts = datetime.strptime(line[1:20], "%Y-%m-%d %H:%M:%S")
+            last = ts.replace(tzinfo=NY_TZ).astimezone(timezone.utc)
+        except Exception:
+            continue
+    return last
+
+
+def probe_s3_live_sdk_stream():
+    if not market_open():
+        return "skipped", {"reason": "market closed"}
+    last = _latest_tape_alert_utc()
+    if last is None:
+        return "unhealthy", {"reason": "no TAPE ALERT in /tmp/flask.log tail"}
+    age = (now_utc() - last).total_seconds() / 60
+    if age < 15:
+        return "healthy", {"latest_alert_age_min": round(age, 1)}
+    return "unhealthy", {"latest_alert_age_min": round(age, 1)}
+
+
+def _last_bar_age_min(parquet_path: Path) -> float | None:
+    if not parquet_path.exists():
+        return None
+    try:
+        df = pd.read_parquet(parquet_path)
+    except Exception:
+        return None
+    if len(df) == 0:
+        return None
+    idx = pd.to_datetime(df.index)
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    return (now_utc() - idx.max().to_pydatetime()).total_seconds() / 60
+
+
+def probe_s4_live_1m_freshness():
+    """1m parquet persists every 25 bars via _LIVE_PERSIST_EVERY=25, so
+    last_bar can legitimately trail wall-clock by up to ~25 min. Use 30 min
+    threshold (25 + 5 buffer) to avoid false positives between persist
+    snapshots."""
+    if not market_open():
+        return "skipped", {"reason": "market closed"}
+    p = PROJECT / "order_flow_engine/data/processed/ESM6_1m_live.parquet"
+    age = _last_bar_age_min(p)
+    if age is None:
+        return "unhealthy", {"reason": "ESM6_1m_live.parquet missing or unreadable"}
+    if age < 30:
+        return "healthy", {"last_bar_age_min": round(age, 1)}
+    return "unhealthy", {"last_bar_age_min": round(age, 1)}
+
+
+def probe_s5_15m_parquet_absent():
+    p = PROJECT / "order_flow_engine/data/processed/ESM6_15m_live.parquet"
+    if p.exists():
+        return "unhealthy", {
+            "reason": "ESM6_15m_live.parquet present — rename workaround needed",
+        }
+    return "healthy", {}
+
+
+def probe_s6_raw_freshness():
+    p = PROJECT / "order_flow_engine/data/raw/ESM6_15m.parquet"
+    age = _last_bar_age_min(p)
+    if age is None:
+        return "unhealthy", {"reason": "raw ESM6_15m.parquet missing or unreadable"}
+    if age < 90:
+        return "healthy", {"last_bar_age_min": round(age, 1)}
+    return "unhealthy", {"last_bar_age_min": round(age, 1)}
+
+
+def probe_s7_monitor_loop_proc():
+    out = subprocess.run(["pgrep", "-f", "order_flow_engine.src.monitor_loop"],
+                         capture_output=True, text=True)
+    pids = [p for p in out.stdout.strip().split("\n") if p]
+    if pids:
+        return "healthy", {"pids": pids}
+    return "unhealthy", {"reason": "no monitor_loop process"}
+
+
+def probe_s8_launchd_cache_refresh():
+    out = subprocess.run(["launchctl", "list"],
+                         capture_output=True, text=True)
+    if "com.rfm.cache-refresh" in out.stdout:
+        return "healthy", {}
+    return "unhealthy", {"reason": "com.rfm.cache-refresh not loaded"}
+
+
+def probe_s9_cache_refresh_log():
+    p = PROJECT / "outputs/order_flow/cache_refresh.log"
+    if not p.exists():
+        return "unhealthy", {"reason": "cache_refresh.log missing"}
+    age_min = (time.time() - p.stat().st_mtime) / 60
+    if age_min < 90:
+        return "healthy", {"log_mtime_age_min": round(age_min, 1)}
+    return "unhealthy", {"log_mtime_age_min": round(age_min, 1)}
+
+
+def probe_s10_failed_flag():
+    p = PROJECT / "outputs/order_flow/cache_refresh_FAILED.flag"
+    if p.exists():
+        return "unhealthy", {"reason": "cache_refresh_FAILED.flag present"}
+    return "healthy", {}
+
+
+def probe_s11_disk():
+    usage = shutil.disk_usage(PROJECT)
+    pct = usage.used / usage.total * 100
+    if pct < 90:
+        return "healthy", {"disk_used_pct": round(pct, 1)}
+    return "unhealthy", {"disk_used_pct": round(pct, 1)}
+
+
+def probe_s12_pending_backlog():
+    paths = [
+        PROJECT / "outputs/order_flow/realflow_outcomes_pending_ESM6_15m.json",
+        PROJECT / "outputs/order_flow/realflow_r7_shadow_pending_ESM6_15m.json",
+    ]
+    total = 0
+    for p in paths:
+        if not p.exists():
+            continue
+        try:
+            data = json.loads(p.read_text())
+            if isinstance(data, list):
+                total += len(data)
+        except Exception:
+            pass
+    if total < 50:
+        return "healthy", {"pending_count": total}
+    return "unhealthy", {"pending_count": total}
+
+
+PROBES = [
+    ("s1_flask_proc",          probe_s1_flask_proc),
+    ("s2_flask_http",          probe_s2_flask_http),
+    ("s3_live_sdk_stream",     probe_s3_live_sdk_stream),
+    ("s4_live_1m_freshness",   probe_s4_live_1m_freshness),
+    ("s5_15m_parquet_absent",  probe_s5_15m_parquet_absent),
+    ("s6_raw_freshness",       probe_s6_raw_freshness),
+    ("s7_monitor_loop_proc",   probe_s7_monitor_loop_proc),
+    ("s8_launchd_cache",       probe_s8_launchd_cache_refresh),
+    ("s9_cache_refresh_log",   probe_s9_cache_refresh_log),
+    ("s10_failed_flag",        probe_s10_failed_flag),
+    ("s11_disk",               probe_s11_disk),
+    ("s12_pending_backlog",    probe_s12_pending_backlog),
+]
+
+
+def load_state() -> dict:
+    if STATE.exists():
+        try:
+            return json.loads(STATE.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def save_state(state: dict) -> None:
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state, indent=2))
+
+
+def main() -> int:
+    state = load_state()
+    new_state: dict[str, str] = {}
+    summary: list[str] = []
+
+    for name, fn in PROBES:
+        try:
+            status, details = fn()
+        except Exception as e:
+            status, details = "unhealthy", {"error": f"probe crashed: {e}"[:200]}
+
+        new_state[name] = status
+        prev = state.get(name)
+
+        log_record({"signal": name, "status": status, "details": details})
+
+        flag = FLAG_DIR / f"HEALTH_{name}.flag"
+        if status == "unhealthy":
+            if prev != "unhealthy":
+                notify(name, "DOWN", json.dumps(details))
+                flag.write_text(json.dumps(
+                    {"ts": now_utc().isoformat(), "signal": name,
+                     "status": status, "details": details},
+                    default=str, indent=2,
+                ))
+        elif status == "healthy":
+            if prev == "unhealthy":
+                notify(name, "RECOVERED", "ok")
+                if flag.exists():
+                    flag.unlink()
+
+        summary.append(f"{name}={status}")
+
+    save_state(new_state)
+    log_record({"signal": "_summary", "status": "ok",
+                "details": " ".join(summary)})
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

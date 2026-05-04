@@ -1,0 +1,1748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trader Desk — S&P 500 Next Session</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:           #f8fafc;
+      --bg-alt:       #eef2f7;
+      --surface:      #ffffff;
+      --border:       #e2e8f0;
+      --border-soft:  #edf2f7;
+      --text:         #0f172a;
+      --text-dim:     #475569;
+      --text-faint:   #94a3b8;
+      --accent:       #d97706;
+      --accent-soft:  #fef3c7;
+      --pos:          #15803d;
+      --pos-bg:       #dcfce7;
+      --neg:          #b91c1c;
+      --neg-bg:       #fee2e2;
+      --neu:          #475569;
+      --neu-bg:       #e2e8f0;
+      --shadow-sm:    0 1px 2px rgba(15,23,42,.04);
+      --shadow-md:    0 4px 14px rgba(15,23,42,.06);
+      --radius:       10px;
+      --mono:         'SF Mono', ui-monospace, Menlo, monospace;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5;
+      font-variant-numeric: tabular-nums;
+    }
+    /* Section label above card groups */
+    .section-label {
+      font-size: .65rem; font-weight: 700; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: .12em;
+      margin: 1.25rem 0 .4rem; display: flex; align-items: center; gap: .6rem;
+    }
+    .section-label::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+    .section-label:first-child { margin-top: 0; }
+    /* Collapsible research block */
+    details.research {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-sm);
+      margin-bottom: 1rem; overflow: hidden;
+    }
+    details.research > summary {
+      padding: .9rem 1.25rem; cursor: pointer; list-style: none;
+      display: flex; align-items: center; justify-content: space-between;
+      user-select: none; font-weight: 600; color: var(--text);
+      font-size: .85rem; text-transform: uppercase; letter-spacing: .05em;
+    }
+    details.research > summary::-webkit-details-marker { display: none; }
+    details.research > summary::after {
+      content: '▼'; font-size: .65rem; color: var(--text-faint);
+      transition: transform .15s;
+    }
+    details.research[open] > summary::after { transform: rotate(180deg); }
+    details.research > summary:hover { background: var(--bg-alt); }
+    details.research > .research-body { padding: 0 1.25rem 1rem; }
+    details.research > .research-body > .card { box-shadow: none; border: 1px solid var(--border-soft); margin-bottom: .75rem; }
+    details.research > .research-body > .card:last-child { margin-bottom: 0; }
+    /* Hero status ribbon — replaces the old refresh card */
+    .status-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; padding: .75rem 1rem; margin-bottom: 1rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-sm);
+      flex-wrap: wrap;
+    }
+    .status-bar .meta {
+      font-size: .72rem; color: var(--text-dim); display: flex;
+      gap: .75rem; flex-wrap: wrap; align-items: center;
+    }
+    .status-bar .meta .chip {
+      background: var(--bg-alt); padding: .2rem .55rem; border-radius: 999px;
+      font-size: .65rem; color: var(--text-dim); border: 1px solid var(--border-soft);
+    }
+    .status-bar .meta .chip strong { color: var(--text); }
+    .status-bar .actions { display: flex; align-items: center; gap: .6rem; }
+    header {
+      background: #0f172a; color: #fff; padding: 0 1.5rem; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 200;
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+    }
+    .logo { font-size: 1rem; font-weight: 700; }
+    .logo-gold { color: #fbbf24; }
+    .logo-sub  { font-size: .75rem; color: #94a3b8; margin-left: .5rem; font-weight: 400; }
+    .main-nav { display: flex; gap: .25rem; align-items: center; }
+    .nav-tab {
+      color: #cbd5e1; text-decoration: none; padding: .35rem .75rem;
+      border-radius: 6px; font-size: .85rem;
+    }
+    .nav-tab:hover { background: #1e293b; color: #fff; }
+    .nav-tab.active { background: #fbbf24; color: #0f172a; font-weight: 600; }
+    .nav-sep { width: 1px; height: 20px; background: #334155; margin: 0 .5rem; }
+    .wrap { max-width: 1500px; margin: 0 auto; padding: 1.25rem 1.5rem 2rem; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1rem 1.25rem;
+      margin-bottom: 1rem; box-shadow: var(--shadow-sm);
+    }
+    h2 {
+      font-size: .78rem; margin-bottom: .85rem; color: var(--text);
+      text-transform: uppercase; letter-spacing: .08em; font-weight: 700;
+    }
+    /* Lean banner */
+    .banner-row { display: grid; grid-template-columns: auto 1fr; gap: 1.5rem; align-items: center; }
+    .lean-pill { font-size: 2.2rem; font-weight: 800; padding: .4rem 1.5rem;
+                 border-radius: 12px; letter-spacing: .05em; text-align: center; }
+    .lean-LONG    { background: #dcfce7; color: #166534; }
+    .lean-SHORT   { background: #fee2e2; color: #991b1b; }
+    .lean-NEUTRAL { background: #e2e8f0; color: #334155; }
+    /* Composite score */
+    .composite-card { display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; }
+    .composite-pill { text-align: center; padding: 1rem; border-radius: 10px; }
+    .composite-pill .score-num { font-size: 3rem; font-weight: 900; line-height: 1; }
+    .composite-pill .bias { font-size: 1.1rem; font-weight: 700; letter-spacing: .05em;
+                            margin-top: .35rem; text-transform: uppercase; }
+    .composite-pill .conf-tier { display: inline-block; margin-top: .5rem;
+                                 padding: .2rem .7rem; border-radius: 999px;
+                                 font-size: .7rem; font-weight: 700; letter-spacing: .05em; }
+    .composite-pill.bias-STRONG-LONG  { background: #bbf7d0; color: #14532d; }
+    .composite-pill.bias-LONG         { background: #dcfce7; color: #166534; }
+    .composite-pill.bias-NEUTRAL      { background: #e2e8f0; color: #334155; }
+    .composite-pill.bias-SHORT        { background: #fee2e2; color: #991b1b; }
+    .composite-pill.bias-STRONG-SHORT { background: #fecaca; color: #7f1d1d; }
+    .conf-HIGH   { background: #fbbf24; color: #0f172a; }
+    .conf-MEDIUM { background: #fde68a; color: #78350f; }
+    .conf-LOW    { background: #fef2f2; color: #7f1d1d; border: 1px solid #fca5a5; }
+    .components { display: flex; flex-direction: column; gap: .35rem; }
+    .comp-row { display: grid; grid-template-columns: 130px 1fr 80px 50px; gap: .5rem;
+                align-items: center; font-size: .8rem; }
+    .comp-row .lbl { color: #475569; font-weight: 600; text-transform: uppercase;
+                     letter-spacing: .04em; font-size: .7rem; }
+    .comp-row .bar-track { background: #f1f5f9; height: 12px; border-radius: 6px;
+                           position: relative; overflow: hidden; }
+    .comp-row .bar-track::after { content:''; position:absolute; left:50%; top:0; bottom:0;
+                                  width:1px; background:#94a3b8; }
+    .comp-row .bar-fill { position: absolute; top:0; bottom:0; }
+    .comp-row .bar-fill.pos { background: #16a34a; left: 50%; }
+    .comp-row .bar-fill.neg { background: #dc2626; right: 50%; }
+    .comp-row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .comp-row .val.pos { color: #15803d; }
+    .comp-row .val.neg { color: #b91c1c; }
+    .components-group { margin-bottom: .75rem; }
+    .components-group-label {
+      font-size: .65rem; text-transform: uppercase; letter-spacing: .08em;
+      color: #64748b; font-weight: 700; margin-bottom: .25rem;
+    }
+    .components-diag .components-group-label { color: #94a3b8; }
+    .diag-help {
+      display: inline-block; width: 14px; height: 14px; line-height: 14px;
+      text-align: center; border-radius: 50%; background: #e2e8f0;
+      color: #475569; font-weight: 700; cursor: help; margin-left: .35rem;
+      text-transform: none; font-size: .6rem;
+    }
+    .comp-row.diag .lbl { color: #94a3b8; font-style: italic; }
+    .comp-row .wt { text-align: right; color: #64748b; font-size: .7rem; }
+    .comp-notes { font-size: .75rem; color: #b91c1c; margin-top: .5rem; font-style: italic; }
+    .macro-strip { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .75rem;
+                   font-size: .75rem; color: #475569; }
+    .macro-strip span { background: #f1f5f9; padding: .2rem .6rem; border-radius: 4px; }
+    .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: .75rem; }
+    .stat { background: #f8fafc; padding: .55rem .75rem; border-radius: 6px; }
+    .stat-label { font-size: .65rem; color: #64748b; text-transform: uppercase;
+                  letter-spacing: .05em; }
+    .stat-value { font-size: 1.15rem; font-weight: 700; color: #0f172a; }
+    .meta { font-size: .75rem; color: #64748b; margin-top: .5rem; }
+    code { background: #f1f5f9; padding: .15rem .4rem; border-radius: 4px;
+           font-family: 'SF Mono', Menlo, monospace; font-size: .75rem; }
+    /* Risk allocator */
+    .risk-row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+    .risk-row label { font-size: .75rem; color: #475569; text-transform: uppercase;
+                      letter-spacing: .05em; font-weight: 600; }
+    .risk-row input[type=number] { width: 110px; padding: .35rem .5rem;
+                  border: 1px solid #cbd5e1; border-radius: 6px; font-size: .9rem; }
+    .risk-row .hint { font-size: .75rem; color: #64748b; }
+    /* Trade plan tables */
+    .desk { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+    table.trade { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    table.trade th { text-align: left; padding: .35rem .5rem; background: #f1f5f9;
+         color: #475569; font-weight: 600; font-size: .65rem;
+         text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #e2e8f0; }
+    table.trade th.num, table.trade td.num { text-align: right; }
+    table.trade td { padding: .4rem .5rem; border-top: 1px solid #f1f5f9; vertical-align: middle; }
+    table.trade tr:hover td { background: #f8fafc; }
+    .ticker-cell a { color: #1e40af; text-decoration: none; font-weight: 700; font-size: .9rem; }
+    .ticker-cell a:hover { text-decoration: underline; }
+    .ticker-cell .co { display: block; font-size: .65rem; color: #64748b;
+                       max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { font-size: .6rem; padding: .1rem .35rem; border-radius: 3px;
+             text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+    .b-pooled   { background: #e0e7ff; color: #3730a3; }
+    .b-residual { background: #fef3c7; color: #854d0e; }
+    .b-pos { background: #dcfce7; color: #166534; }
+    .b-neg { background: #fee2e2; color: #991b1b; }
+    .b-neu { background: #e2e8f0; color: #475569; }
+    .sig-STRONG_BUY  { color: #15803d; font-weight: 700; }
+    .sig-BUY         { color: #16a34a; font-weight: 600; }
+    .sig-HOLD        { color: #64748b; }
+    .sig-SELL        { color: #dc2626; font-weight: 600; }
+    .sig-STRONG_SELL { color: #991b1b; font-weight: 700; }
+    .num.up   { color: #15803d; font-weight: 600; }
+    .num.down { color: #b91c1c; font-weight: 600; }
+    .conflict { background: #fef2f2; color: #991b1b; font-size: .65rem;
+                padding: .1rem .35rem; border-radius: 3px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: .04em; }
+    .price-key { font-weight: 700; color: #0f172a; }
+    .stop  { color: #dc2626; }
+    .tp    { color: #15803d; }
+    /* Sector panel */
+    .sector-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .5rem; }
+    .sec-card { background: #f8fafc; padding: .5rem .75rem; border-radius: 6px;
+                border-left: 4px solid #cbd5e1; }
+    .sec-card.long  { border-left-color: #16a34a; }
+    .sec-card.short { border-left-color: #dc2626; }
+    .sec-name { font-size: .75rem; font-weight: 700; color: #0f172a; }
+    .sec-stats { font-size: .7rem; color: #64748b; margin-top: .15rem; }
+    .sec-bar { height: 4px; background: #e2e8f0; border-radius: 2px; margin-top: .3rem;
+               overflow: hidden; display: flex; }
+    .sec-bar .up   { background: #16a34a; }
+    .sec-bar .down { background: #dc2626; }
+    .empty { padding: 2rem; text-align: center; color: #64748b; }
+    .legend { font-size: .7rem; color: #64748b; margin-top: .5rem; }
+    /* Stale + warning banners */
+    .stale-banner, .warning-banner {
+      padding: .6rem 1rem; border-radius: 6px; font-size: .8rem;
+      margin-bottom: 1rem; display: flex; align-items: center; gap: .5rem;
+    }
+    .stale-banner.fresh   { background: #dcfce7; color: #166534; }
+    .stale-banner.stale   { background: #fee2e2; color: #991b1b; }
+    .stale-banner.warn    { background: #fef3c7; color: #854d0e; }
+    .warning-banner       { background: #fef3c7; color: #854d0e; }
+    /* Refresh */
+    .refresh-btn {
+      background: var(--text); color: #fff; border: 0; padding: .4rem .85rem;
+      border-radius: 6px; font-weight: 600; font-size: .72rem; cursor: pointer;
+      letter-spacing: .04em; text-transform: uppercase;
+      transition: background .15s;
+    }
+    .refresh-btn:hover { background: #1e293b; }
+    .refresh-btn:disabled { opacity: .55; cursor: wait; }
+    .refresh-status { font-size: .7rem; color: var(--text-faint); margin-left: .5rem; }
+    /* Action badges + HTB */
+    .act-TAKE     { background: #dcfce7; color: #166534; }
+    .act-DOWNSIZE { background: #fef3c7; color: #854d0e; }
+    .act-SKIP     { background: #fee2e2; color: #991b1b; }
+    .htb-flag {
+      background: #fee2e2; color: #991b1b; padding: .1rem .35rem;
+      border-radius: 3px; font-size: .65rem; font-weight: 700;
+      letter-spacing: .04em; margin-left: .25rem;
+    }
+    /* Live price ticks */
+    .live-price { transition: background-color .5s ease-out; }
+    .live-price.flash-up   { background: #bbf7d0; }
+    .live-price.flash-down { background: #fecaca; }
+    .live-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #94a3b8; margin-right: .35rem; vertical-align: middle;
+    }
+    .live-dot.on { background: #16a34a; box-shadow: 0 0 6px #16a34a; animation: pulse 1.8s infinite; }
+    .live-dot.off { background: #94a3b8; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+    .live-status { font-size: .7rem; color: #64748b; margin-left: .75rem; }
+    /* Portfolio risk cap */
+    .risk-summary {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem;
+      margin-top: .75rem;
+    }
+    .risk-summary .stat { background: #f1f5f9; padding: .5rem .75rem; border-radius: 6px; }
+    .risk-summary .stat.warn { background: #fef3c7; }
+    .risk-summary .stat.danger { background: #fee2e2; color: #991b1b; }
+    /* Sector cluster panel */
+    .cluster-warn { font-size: .75rem; color: #b45309; margin-top: .35rem; }
+    /* Verdict banner — macro vs tactical reconciliation */
+    .verdict-banner {
+      border-radius: 10px; padding: .85rem 1.1rem; margin: .5rem 0 1rem;
+      border: 2px solid transparent;
+    }
+    .verdict-banner .vhead {
+      font-size: 1.05rem; font-weight: 800; letter-spacing: .04em;
+    }
+    .verdict-banner .vbody {
+      margin-top: .25rem; font-size: .8rem; color: #334155;
+      display: flex; gap: .4rem; flex-wrap: wrap; align-items: center;
+    }
+    .verdict-banner .vbody .sep { color: #94a3b8; }
+    .verdict-banner .vbody .note { font-style: italic; color: #475569; }
+    .verdict-agree-long  { background: #dcfce7; border-color: #16a34a; }
+    .verdict-agree-long  .vhead { color: #166534; }
+    .verdict-agree-short { background: #fee2e2; border-color: #dc2626; }
+    .verdict-agree-short .vhead { color: #991b1b; }
+    .verdict-conflict    { background: #fef3c7; border-color: #d97706; }
+    .verdict-conflict    .vhead { color: #92400e; }
+    .verdict-mixed       { background: #f1f5f9; border-color: #94a3b8; }
+    .verdict-mixed       .vhead { color: #334155; }
+    /* Card subtitle */
+    .card h2 .card-sub {
+      display: block; font-size: .72rem; font-weight: 500;
+      color: #64748b; margin-top: .2rem; letter-spacing: 0; text-transform: none;
+    }
+    .empty-row { text-align: center; color: #94a3b8; font-style: italic; padding: 1rem; }
+    /* SPY detail card — mirrors explorer styles */
+    .spy-detail h3 {
+      font-size: .7rem; text-transform: uppercase; letter-spacing: .1em;
+      color: #64748b; font-weight: 700; margin: 1rem 0 .6rem;
+    }
+    .spy-detail .section { margin-top: .75rem; }
+    .spy-detail .factor-grid {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: .5rem;
+    }
+    @media (max-width: 700px) { .spy-detail .factor-grid { grid-template-columns: repeat(2, 1fr); } }
+    .spy-detail .factor {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: .55rem .7rem;
+    }
+    .spy-detail .factor .flabel { font-size: .6rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .spy-detail .factor .fval   { font-size: 1.1rem; font-weight: 800; margin-top: .15rem; }
+    .spy-detail .factor .fval.pos { color: #16a34a; }
+    .spy-detail .factor .fval.neg { color: #dc2626; }
+    .spy-detail .factor .fval.neu { color: #64748b; }
+    .spy-detail .factor .frange { font-size: .58rem; color: #94a3b8; margin-top: .1rem; }
+    .spy-detail .price-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }
+    @media (max-width: 700px) { .spy-detail .price-grid { grid-template-columns: repeat(2, 1fr); } }
+    .spy-detail .pcell {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: .55rem .7rem;
+    }
+    .spy-detail .pcell .plabel { font-size: .55rem; color: #64748b; text-transform: uppercase; letter-spacing: .06em; }
+    .spy-detail .pcell .pval   { font-size: .95rem; font-weight: 700; color: #0f172a; margin-top: .15rem; }
+    .spy-detail .plan-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }
+    @media (max-width: 700px) { .spy-detail .plan-grid { grid-template-columns: repeat(2, 1fr); } }
+    .spy-detail .pcell.entry { background: #eff6ff; border-color: #bfdbfe; }
+    .spy-detail .pcell.sl    { background: #fef2f2; border-color: #fecaca; }
+    .spy-detail .pcell.tp    { background: #ecfdf5; border-color: #bbf7d0; }
+    .spy-detail .pcell .pval.entry { color: #1e40af; }
+    .spy-detail .pcell .pval.sl    { color: #991b1b; }
+    .spy-detail .pcell .pval.tp    { color: #047857; }
+    .spy-detail .pcell .psub { font-size: .6rem; color: #64748b; margin-top: .1rem; }
+    .spy-detail .plan-note { margin-top: .5rem; font-size: .7rem; color: #64748b; font-style: italic; }
+    .spy-detail .tv-wrap {
+      border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;
+      background: #fff; height: 500px;
+    }
+    .spy-detail .tv-wrap > div { height: 100%; width: 100%; }
+    .spy-detail .lwc-wrap {
+      border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;
+      background: #fff; height: 500px; position: relative;
+    }
+    .spy-detail .lwc-wrap > div { height: 100%; width: 100%; }
+    /* Custom gauge */
+    .gauge-wrap {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem;
+    }
+    .gauge-loading { color: #64748b; font-size: .85rem; font-style: italic; }
+    .gauge-top {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; margin-bottom: 1rem;
+    }
+    @media (max-width: 700px) { .gauge-top { grid-template-columns: 1fr; } }
+    .gauge-card {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: .8rem;
+      text-align: center;
+    }
+    .gauge-card .gtitle { font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; color: #64748b; font-weight: 700; }
+    .gauge-card .gverdict {
+      font-size: 1.3rem; font-weight: 800; margin: .35rem 0;
+    }
+    .gauge-card .gmeter {
+      display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+      background: #f1f5f9; margin: .4rem 0;
+    }
+    .gauge-card .gmeter .m-buy  { background: #16a34a; }
+    .gauge-card .gmeter .m-neu  { background: #94a3b8; }
+    .gauge-card .gmeter .m-sell { background: #dc2626; }
+    .gauge-card .gtally { font-size: .7rem; color: #475569; }
+    .gauge-card.v-STRONG_BUY  .gverdict { color: #166534; }
+    .gauge-card.v-BUY         .gverdict { color: #16a34a; }
+    .gauge-card.v-NEUTRAL     .gverdict { color: #475569; }
+    .gauge-card.v-SELL        .gverdict { color: #dc2626; }
+    .gauge-card.v-STRONG_SELL .gverdict { color: #991b1b; }
+    .gauge-detail-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+    }
+    @media (max-width: 700px) { .gauge-detail-grid { grid-template-columns: 1fr; } }
+    .gauge-detail h4 {
+      font-size: .65rem; text-transform: uppercase; letter-spacing: .06em;
+      color: #64748b; font-weight: 700; margin: 0 0 .4rem;
+    }
+    .gauge-detail table {
+      width: 100%; border-collapse: collapse; font-size: .78rem;
+    }
+    .gauge-detail td {
+      padding: .3rem .5rem; border-bottom: 1px solid #f1f5f9;
+    }
+    .gauge-detail td.name { color: #475569; }
+    .gauge-detail td.val  { text-align: right; font-variant-numeric: tabular-nums; color: #0f172a; }
+    .gauge-detail td.sig  { text-align: right; font-weight: 700; font-size: .68rem; }
+    .gauge-detail td.sig.BUY     { color: #16a34a; }
+    .gauge-detail td.sig.SELL    { color: #dc2626; }
+    .gauge-detail td.sig.NEUTRAL { color: #94a3b8; }
+    .spy-detail .spy-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .35rem; }
+    .spy-detail .spy-head .tkr { font-size: 1.35rem; font-weight: 800; color: #0f172a; }
+    .spy-detail .spy-head .name { color: #475569; font-size: .85rem; }
+    .spy-detail .spy-head .sig-pill { padding: .25rem .6rem; border-radius: 999px; font-size: .7rem; font-weight: 800; letter-spacing: .05em; }
+    .spy-detail .sig-pill.buy         { background: #dcfce7; color: #166534; }
+    .spy-detail .sig-pill.strong-buy  { background: #16a34a; color: #fff; }
+    .spy-detail .sig-pill.sell        { background: #fee2e2; color: #991b1b; }
+    .spy-detail .sig-pill.strong-sell { background: #dc2626; color: #fff; }
+    .spy-detail .sig-pill.hold        { background: #e2e8f0; color: #334155; }
+    .spy-detail .detail-meta { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: .8rem; margin-top: .25rem; }
+    .spy-detail .detail-meta .label { color: #64748b; text-transform: uppercase; font-size: .6rem; letter-spacing: .06em; margin-right: .35rem; }
+    .spy-detail .detail-meta .val.pos { color: #16a34a; font-weight: 700; }
+    .spy-detail .detail-meta .val.neg { color: #dc2626; font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    Stock<span class="logo-gold">Sentiment</span>Engine
+    <span class="logo-sub">Trader Desk · Next Session</span>
+  </div>
+  <nav class="main-nav">
+    <a class="nav-tab" href="/">Gold</a>
+    <a class="nav-tab active" href="/stocks/overview">Stocks</a>
+    <a class="nav-tab" href="/order-flow">Order Flow</a>
+    <span class="nav-sep"></span>
+    <a class="nav-tab" href="/stocks/overview">Overview</a>
+    <a class="nav-tab active" href="/stocks/aggregate">Trader Desk</a>
+    <a class="nav-tab" href="/stocks/explorer">Explorer</a>
+  </nav>
+  <div></div>
+</header>
+{% include '_ticker_tape.html' %}
+
+<div class="wrap">
+
+  {% if not aggregate %}
+    <div class="card empty">
+      No aggregate snapshot yet. Click <strong>Refresh Now</strong> below or run:
+      <br><br>
+      <code>cd stocks-autoResearch && python predict_next_session.py</code>
+      <br><br>
+      <button class="refresh-btn" id="refresh-btn">Refresh Now</button>
+      <span class="refresh-status" id="refresh-status"></span>
+    </div>
+  {% else %}
+
+    <!-- ── Staleness + market-hours banners ── -->
+    <div id="stale-banner" class="stale-banner"
+         data-asof="{{ aggregate.asof_close }}">
+      Computing freshness…
+    </div>
+    {% if aggregate.market_warning %}
+    <div class="warning-banner">⚠ {{ aggregate.market_warning }}</div>
+    {% endif %}
+
+    <!-- ── Status ribbon ── -->
+    <div class="status-bar">
+      <div class="meta">
+        <span class="chip">Generated <strong>{{ aggregate.generated_at }}</strong></span>
+        <span class="chip">Model <strong>{{ aggregate.model_version }}</strong></span>
+        <span class="chip">Residuals <strong>{{ aggregate.residuals_active or 0 }}</strong>/{{ aggregate.residuals_rejected or 0 }}</span>
+        <span class="chip">Universe <strong>{{ aggregate.n_tickers }}</strong></span>
+      </div>
+      <div class="actions">
+        <span class="live-status" id="live-status">
+          <span class="live-dot off" id="live-dot"></span><span id="live-label">Live: checking…</span>
+        </span>
+        <button class="refresh-btn" id="refresh-btn">Refresh</button>
+        <span class="refresh-status" id="refresh-status"></span>
+      </div>
+    </div>
+
+    <div class="section-label">Signal · SPX Next Session</div>
+
+    {# ── Verdict banner: reconcile macro + tactical ── #}
+    {% if aggregate.composite and spy_detail %}
+      {% set macro_score = aggregate.composite.score or 0 %}
+      {% set tac_sig = spy_detail.signal or 'HOLD' %}
+      {% set macro_long = macro_score >= 10 %}
+      {% set macro_short = macro_score <= -10 %}
+      {% set tac_long  = tac_sig in ['BUY','STRONG_BUY'] %}
+      {% set tac_short = tac_sig in ['SELL','STRONG_SELL'] %}
+      {% if macro_long and tac_long %}
+        {% set verdict, vcls, vnote = 'AGREE · LONG', 'agree-long', 'Macro model and tape both bullish — take size.' %}
+      {% elif macro_short and tac_short %}
+        {% set verdict, vcls, vnote = 'AGREE · SHORT', 'agree-short', 'Macro model and tape both bearish — take size.' %}
+      {% elif (macro_long and tac_short) or (macro_short and tac_long) %}
+        {% set verdict, vcls, vnote = 'CONFLICT · HOLD', 'conflict', 'Macro model and tape disagree — stand aside or half size.' %}
+      {% else %}
+        {% set verdict, vcls, vnote = 'MIXED · REDUCED', 'mixed', 'Only one lens has conviction — size down.' %}
+      {% endif %}
+      <div class="verdict-banner verdict-{{ vcls }}">
+        <div class="vhead">{{ verdict }}</div>
+        <div class="vbody">
+          <span><strong>Macro Model</strong> ({{ '%+.0f'|format(macro_score) }}): {{ aggregate.composite.bias }}</span>
+          <span class="sep">·</span>
+          <span><strong>Tactical Tape</strong>: {{ tac_sig }}</span>
+          <span class="sep">·</span>
+          <span class="note">{{ vnote }}</span>
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- ── Futures last trades (Databento) ── -->
+    <div class="card" id="futures-quotes-card">
+      <h2>CME Futures — Last Trade
+        <span class="card-sub">Databento Historical · ~5-7 min lag · live engine feed</span>
+      </h2>
+      <div id="futures-quotes-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:.75rem;">
+        <div class="empty-row" style="grid-column:1/-1;">Loading…</div>
+      </div>
+    </div>
+
+    <!-- ── Composite SPX score ── -->
+    {% if aggregate.composite %}
+    {% set c = aggregate.composite %}
+    <div class="card">
+      <h2>SPX — Macro Model <span class="card-sub">next 1–5 sessions · yields · breadth · VIX term · credit · trend</span></h2>
+      <div class="composite-card">
+        <div class="composite-pill bias-{{ c.bias | replace(' ', '-') }}">
+          <div class="score-num">{{ '%+.0f' | format(c.score) }}</div>
+          <div style="font-size:.65rem;color:rgba(0,0,0,.5);">scale −100…+100</div>
+          <div class="bias">{{ c.bias }}</div>
+          {% if c.p_up is not none %}
+            <div style="font-size:.75rem;font-weight:700;margin-top:.35rem;color:rgba(0,0,0,.65);">
+              P(up) = {{ '%.3f' | format(c.p_up) }}
+            </div>
+            {% if c.calib_bin %}
+              <div style="font-size:.6rem;color:rgba(0,0,0,.55);margin-top:.15rem;">
+                bin {{ '%.1f' | format(c.calib_bin.p_lo) }}-{{ '%.1f' | format(c.calib_bin.p_hi) }}
+                · n={{ c.calib_bin.n }}
+                · gap {{ '%+.2f' | format(c.calib_bin.gap) }}
+              </div>
+            {% endif %}
+          {% endif %}
+          <div class="conf-tier conf-{{ c.confidence }}">{{ c.confidence }} CONFIDENCE</div>
+        </div>
+        <div>
+          {% set scored_keys = [] %}
+          {% set diag_keys = [] %}
+          {% for k in c.components.keys() %}
+            {% set _ = (scored_keys if (c.weights.get(k, 0) or 0) > 0 else diag_keys).append(k) %}
+          {% endfor %}
+          <div class="components-group">
+            <div class="components-group-label">Scored ({{ scored_keys|length }}/{{ c.components|length }}) — weighted in final score</div>
+            <div class="components">
+              {% for k in scored_keys %}
+                {% set v = c.components[k] %}
+                {% set pct = (v if v >= 0 else -v) %}
+                <div class="comp-row">
+                  <div class="lbl">{{ k | replace('_', ' ') }}</div>
+                  <div class="bar-track">
+                    {% if v >= 0 %}
+                      <div class="bar-fill pos" style="width: {{ pct/2 }}%;"></div>
+                    {% else %}
+                      <div class="bar-fill neg" style="width: {{ pct/2 }}%;"></div>
+                    {% endif %}
+                  </div>
+                  <div class="val {{ 'pos' if v >= 0 else 'neg' }}">{{ '%+.1f' | format(v) }}</div>
+                  <div class="wt">×{{ '%.2f' | format(c.weights.get(k, 0)) }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% if diag_keys %}
+            <div class="components-group components-diag">
+              <div class="components-group-label">
+                Diagnostic ({{ diag_keys|length }}) — computed, not in fit
+                <span class="diag-help" title="These features failed walk-forward LOO ablation (delta_ll &lt; 0) and were pruned from training. Values shown for macro context only — they do not affect the score.">?</span>
+              </div>
+              <div class="components">
+                {% for k in diag_keys %}
+                  {% set v = c.components[k] %}
+                  {% set pct = (v if v >= 0 else -v) %}
+                  <div class="comp-row diag">
+                    <div class="lbl">{{ k | replace('_', ' ') }}</div>
+                    <div class="bar-track">
+                      {% if v >= 0 %}
+                        <div class="bar-fill pos" style="width: {{ pct/2 }}%; opacity:.35;"></div>
+                      {% else %}
+                        <div class="bar-fill neg" style="width: {{ pct/2 }}%; opacity:.35;"></div>
+                      {% endif %}
+                    </div>
+                    <div class="val {{ 'pos' if v >= 0 else 'neg' }}" style="opacity:.55;">{{ '%+.1f' | format(v) }}</div>
+                    <div class="wt" style="opacity:.4;">×0.00</div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+          <div class="macro-strip">
+            {% if aggregate.sentiment %}
+              <span>Sent (gold swing): {{ '%+.3f' | format(aggregate.sentiment.avg_score) }}
+                · n={{ aggregate.sentiment.n_articles }}
+                · {{ aggregate.sentiment.date }}</span>
+            {% endif %}
+            {% if aggregate.real10y %}
+              <span>Real 10Y: {{ '%.2f%%' | format(aggregate.real10y.current) }}
+                · 5d Δ {{ '%+.3f' | format(aggregate.real10y.chg_5d) }} pp
+                · 20d Δ {{ '%+.3f' | format(aggregate.real10y.chg_20d) }} pp</span>
+            {% endif %}
+            {% if c.trend_snap %}
+              <span>SPY trend: 20d {{ '%+.2f%%' | format((c.trend_snap.ret_20d or 0) * 100) }}
+                · z {{ '%+.2f' | format(c.trend_snap.trend_z) }}</span>
+            {% endif %}
+            {% if c.credit_snap %}
+              <span>HYG/IEF z: {{ '%+.2f' | format(c.credit_snap.credit_z) }}</span>
+            {% endif %}
+            {% if c.vix_slope_snap %}
+              <span>VIX/VIX3M: {{ '%.2f' | format(c.vix_slope_snap.ratio) }}
+                · z {{ '%+.2f' | format(c.vix_slope_snap.slope_z) }}</span>
+            {% endif %}
+            {% if c.regime and c.regime != 'default' and c.regime != 'flat' %}
+              {% set wf = c.walk_forward or {} %}
+              <span>Regime: <strong>{{ c.regime }}</strong>
+                {% if c.target %}· tgt {{ c.target }}{% endif %}
+                {% if wf.get('mean_ll') is not none %}
+                  · WF LL {{ '%.3f' | format(wf.get('mean_ll')) }}
+                  vs base {{ '%.3f' | format(wf.get('baseline_ll') or 0) }}
+                  (hit {{ '%.0f%%' | format((wf.get('mean_hit') or 0) * 100) }})
+                {% elif wf.get('n_folds') == 0 %}
+                  · WF folds: 0 (regime too thin)
+                {% endif %}
+              </span>
+            {% endif %}
+            {% if aggregate.event %}
+              <span>Event gate: {{ 'BLOCKED' if aggregate.event.blocked else 'clear' }}
+                {% if aggregate.event.next_event %}
+                  · next {{ aggregate.event.next_event.kind }} in
+                  {{ aggregate.event.next_event.days_away }}d
+                  ({{ aggregate.event.next_event.date }})
+                {% endif %}</span>
+            {% endif %}
+            <span>Signals agree: {{ c.agree_count }}/{{ c.n_components }}</span>
+          </div>
+          {% if c.reasons %}
+            <div class="comp-notes">⚠ {{ c.reasons | join(' · ') }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── SPY detail card (mirrors explorer per-ticker panel) ── #}
+    {% if spy_detail %}
+      {% set d = spy_detail %}
+      {% set sig = d.signal or 'HOLD' %}
+      {% set pill_cls = {'BUY':'buy','STRONG_BUY':'strong-buy','SELL':'sell','STRONG_SELL':'strong-sell'}.get(sig, 'hold') %}
+      <div class="card spy-detail">
+        <h2>SPX — Tactical Tape <span class="card-sub">today · news sentiment · price technicals · ATR plan</span></h2>
+        <div class="spy-head">
+          <span class="tkr">SPX</span>
+          <span class="name">S&amp;P 500 Index (^GSPC)</span>
+          <span class="sig-pill {{ pill_cls }}">{{ sig }}</span>
+          <span class="sig-pill hold">{{ d.confidence or 'LOW' }}</span>
+        </div>
+        <div class="detail-meta">
+          <div><span class="label">Sentiment</span>
+            <span class="val {% if d.sentiment_score and d.sentiment_score > 0.05 %}pos{% elif d.sentiment_score and d.sentiment_score < -0.05 %}neg{% endif %}">
+              {{ d.sentiment_label or 'neutral' }}
+              {% if d.sentiment_score is not none %} ({{ '%+.3f'|format(d.sentiment_score) }}){% endif %}
+            </span>
+          </div>
+          <div><span class="label">Articles</span><span class="val">{{ d.article_count or 0 }}</span></div>
+          <div><span class="label">Total Score</span>
+            <span class="val {% if d.factor_scores and d.factor_scores.total > 0 %}pos{% elif d.factor_scores and d.factor_scores.total < 0 %}neg{% endif %}">
+              {{ d.factor_scores.total if d.factor_scores else '—' }}
+            </span>
+          </div>
+          {% if d.ml %}
+            <div><span class="label">ML Prob(Up)</span>
+              <span class="val {% if d.ml.prob_up >= 0.55 %}pos{% elif d.ml.prob_up <= 0.45 %}neg{% endif %}">
+                {{ '%.1f'|format(d.ml.prob_up * 100) }}%
+              </span>
+            </div>
+          {% endif %}
+          <div><span class="label">Run</span><span class="val" style="font-size:.7rem;">{{ d.run_timestamp }}</span></div>
+        </div>
+
+        {% if d.ml %}
+          <div class="section">
+            <h3>AutoResearch — Next-Day Direction Model</h3>
+            <div class="price-grid">
+              <div class="pcell"><div class="plabel">Prob(Up)</div><div class="pval">{{ '%.1f'|format(d.ml.prob_up * 100) }}%</div></div>
+              <div class="pcell"><div class="plabel">Pooled Prob</div><div class="pval">{{ '%.1f'|format(d.ml.pooled_prob * 100) }}%</div></div>
+              <div class="pcell"><div class="plabel">Source</div><div class="pval">{{ d.ml.source }}</div></div>
+              <div class="pcell"><div class="plabel">As Of</div><div class="pval">{{ d.ml.asof_date }}</div></div>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if d.factor_scores %}
+          <div class="section">
+            <h3>Factor Breakdown</h3>
+            <div class="factor-grid">
+              {% set f = d.factor_scores %}
+              {% for key, label, rng in [
+                ('news_sentiment',    'News Sent.', '-2..+2'),
+                ('stock_trend',       'Stock Trend','-3..+3'),
+                ('relative_strength', 'Rel vs SPY','-2..+2'),
+                ('market_regime',     'Regime',    '-2..+2'),
+                ('volume_momentum',   'Vol Mom.',  '-1..+1'),
+              ] %}
+                {% set v = f.get(key, 0) %}
+                {% set cls = 'pos' if v > 0 else 'neg' if v < 0 else 'neu' %}
+                <div class="factor">
+                  <div class="flabel">{{ label }}</div>
+                  <div class="fval {{ cls }}">{{ '%+d'|format(v) }}</div>
+                  <div class="frange">{{ rng }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+
+        {% set p = d.price_summary %}
+        {% set long = sig in ['BUY', 'STRONG_BUY'] %}
+        {% set short = sig in ['SELL', 'STRONG_SELL'] %}
+        {% if p and p.current and p.atr_pct and (long or short) %}
+          {% set atr_abs = p.current * p.atr_pct / 100 %}
+          {% set dir_mult = 1 if long else -1 %}
+          {% set entry = p.current %}
+          {% set sl    = p.current - dir_mult * 1.5 * atr_abs %}
+          {% set tp1   = p.current + dir_mult * 2.0 * atr_abs %}
+          {% set tp2   = p.current + dir_mult * 3.0 * atr_abs %}
+          {% set sl_pct  = (sl  - p.current) / p.current * 100 %}
+          {% set tp1_pct = (tp1 - p.current) / p.current * 100 %}
+          {% set tp2_pct = (tp2 - p.current) / p.current * 100 %}
+          <div class="section">
+            <h3>Trade Plan — {{ 'Long' if long else 'Short' }} (ATR-based)</h3>
+            <div class="plan-grid">
+              <div class="pcell entry"><div class="plabel">Entry</div><div class="pval entry">${{ '%.2f'|format(entry) }}</div><div class="psub">market</div></div>
+              <div class="pcell sl"><div class="plabel">Stop Loss · 1.5 ATR</div><div class="pval sl">${{ '%.2f'|format(sl) }}</div><div class="psub">{{ '%+.2f'|format(sl_pct) }}%</div></div>
+              <div class="pcell tp"><div class="plabel">TP1 · 2.0 ATR · R 1.33</div><div class="pval tp">${{ '%.2f'|format(tp1) }}</div><div class="psub">{{ '%+.2f'|format(tp1_pct) }}%</div></div>
+              <div class="pcell tp"><div class="plabel">TP2 · 3.0 ATR · R 2.0</div><div class="pval tp">${{ '%.2f'|format(tp2) }}</div><div class="psub">{{ '%+.2f'|format(tp2_pct) }}%</div></div>
+            </div>
+            <div class="plan-note">
+              ATR {{ '%.2f'|format(p.atr_pct) }}% (≈ ${{ '%.2f'|format(atr_abs) }}). Heuristic levels — not backtested. Position sizing left to user.
+            </div>
+          </div>
+        {% endif %}
+
+        {% if d.price_summary %}
+          {% set p = d.price_summary %}
+          <div class="section">
+            <h3>Price / Trend</h3>
+            <div class="price-grid">
+              <div class="pcell"><div class="plabel">Price</div><div class="pval">{% if p.current %}${{ '%.2f'|format(p.current) }}{% else %}—{% endif %}</div></div>
+              <div class="pcell"><div class="plabel">EMA20 / 50</div><div class="pval">{% if p.ema20 %}{{ '%.2f'|format(p.ema20) }}{% else %}—{% endif %} / {% if p.ema50 %}{{ '%.2f'|format(p.ema50) }}{% else %}—{% endif %}</div></div>
+              <div class="pcell"><div class="plabel">Return 5d</div><div class="pval">{% if p.return_5d_pct is not none %}{{ '%+.2f'|format(p.return_5d_pct) }}%{% else %}—{% endif %}</div></div>
+              <div class="pcell"><div class="plabel">Vol Ratio</div><div class="pval">{% if p.volume_ratio %}×{{ '%.2f'|format(p.volume_ratio) }}{% else %}—{% endif %}</div></div>
+            </div>
+          </div>
+        {% endif %}
+
+        <div class="section">
+          <h3>SPX Chart — yfinance (^GSPC)
+            <span class="card-sub">Lightweight Charts · our data · EMA20/50 overlay</span>
+          </h3>
+          <div class="lwc-wrap"><div id="lwc_spx_chart"></div></div>
+        </div>
+
+        <div class="section">
+          <h3>Technical Gauge — Custom
+            <span class="card-sub">5 oscillators + 5 moving averages on daily ^GSPC · our compute, no TV feed</span>
+          </h3>
+          <div id="gauge_spx" class="gauge-wrap">
+            <div class="gauge-loading">Loading gauge…</div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- ── Lean banner ── -->
+    <div class="card">
+      <div class="banner-row">
+        <div class="lean-pill lean-{{ aggregate.lean }}">{{ aggregate.lean }}</div>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">Mean P(up)</div>
+            <div class="stat-value">{{ '%.3f' | format(aggregate.mean_prob_up) }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Breadth</div>
+            <div class="stat-value">{{ '%.0f%%' | format(aggregate.breadth_up * 100) }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Up / Down</div>
+            <div class="stat-value">{{ aggregate.n_up }} / {{ aggregate.n_down }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">After Close</div>
+            <div class="stat-value">{{ aggregate.asof_close }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Holdout Acc</div>
+            <div class="stat-value">{{ '%.3f' | format(aggregate.model_holdout_acc) }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        Model <code>{{ aggregate.model_version }}</code>
+        · Sharpe {{ '%.2f' | format(aggregate.model_sharpe) }}
+        · generated {{ aggregate.generated_at }}
+        · universe {{ aggregate.n_tickers }} tickers
+      </div>
+    </div>
+
+    <div class="section-label">Execution</div>
+
+    <!-- ── Risk allocator ── -->
+    <div class="card">
+      <h2>Position Sizer</h2>
+      <div class="risk-row">
+        <label for="risk-input">Risk per trade ($):</label>
+        <input id="risk-input" type="number" value="100" min="1" step="10">
+        <label for="equity-input" style="margin-left:1rem;">Account equity ($):</label>
+        <input id="equity-input" type="number" value="50000" min="1" step="1000">
+        <label for="cap-input" style="margin-left:1rem;">Portfolio risk cap (%):</label>
+        <input id="cap-input" type="number" value="2.0" min="0.1" step="0.1">
+        <label for="sector-cap" style="margin-left:1rem;">Sector cap (positions):</label>
+        <input id="sector-cap" type="number" value="3" min="1" step="1">
+      </div>
+      <div class="risk-summary" id="risk-summary">
+        <div class="stat"><div class="stat-label">Σ Risk Long</div><div class="stat-value" id="sum-risk-long">–</div></div>
+        <div class="stat"><div class="stat-label">Σ Risk Short</div><div class="stat-value" id="sum-risk-short">–</div></div>
+        <div class="stat"><div class="stat-label">Σ Risk Total</div><div class="stat-value" id="sum-risk-total">–</div></div>
+        <div class="stat"><div class="stat-label">vs Equity Cap</div><div class="stat-value" id="vs-cap">–</div></div>
+      </div>
+      <div class="cluster-warn" id="cluster-warn"></div>
+      <div class="legend">
+        Risk = entry − stop. Sector cap caps positions per GICS sector.
+        Conflict <strong>SKIP</strong> rows excluded from sums; <strong>DOWNSIZE</strong> rows half-sized.
+        VIX size_mult ({{ aggregate.vix_regime.size_mult if aggregate.vix_regime else 1 }})
+        scales every ticker.
+      </div>
+    </div>
+
+    <!-- ── Sector breakdown ── -->
+    <div class="card">
+      <h2>Sector Bias (rotation signal)</h2>
+      <div class="sector-grid">
+        {% for s in aggregate.sectors %}
+          {% set up_pct = (s.breadth_up * 100) | round(0) %}
+          {% set tone = 'long' if s.mean_proba >= 0.5 else 'short' %}
+          <div class="sec-card {{ tone }}">
+            <div class="sec-name">{{ s.sector }}</div>
+            <div class="sec-stats">
+              μP {{ '%.3f' | format(s.mean_proba) }}
+              · {{ s.n_up }}/{{ s.n }} up ({{ up_pct }}%)
+            </div>
+            <div class="sec-bar">
+              <div class="up"   style="width: {{ up_pct }}%;"></div>
+              <div class="down" style="width: {{ 100 - up_pct }}%;"></div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="section-label">Trade Plan</div>
+
+    <!-- ── LONG trade plan ── -->
+    <div class="card">
+      <h2 style="color:#15803d;">▲ Long Setups (top {{ aggregate.top_long | length }})</h2>
+      <table class="trade">
+        <thead><tr>
+          <th>Ticker</th>
+          <th class="num">P(up)</th>
+          <th class="num">Price</th>
+          <th class="num">Entry</th>
+          <th class="num">Stop</th>
+          <th class="num">TP1 / R</th>
+          <th class="num">TP2 / R</th>
+          <th class="num">Risk %</th>
+          <th class="num">5d %</th>
+          <th>Sig</th>
+          <th>Sent</th>
+          <th class="num">Shares</th>
+          <th class="num">$ Size</th>
+          <th>Notes</th>
+        </tr></thead>
+        <tbody>
+        {% for r in aggregate.top_long %}
+          {% set tp = r.trade_plan or {} %}
+          <tr data-side="LONG"
+              data-ticker="{{ r.ticker }}"
+              data-entry="{{ tp.entry or 0 }}"
+              data-stop="{{ tp.stop or 0 }}"
+              data-sector="{{ r.sector or 'Unknown' }}"
+              data-action="{{ r.conflict_action or 'TAKE' }}">
+            <td class="ticker-cell">
+              <a href="/stocks/explorer?ticker={{ r.ticker }}">{{ r.ticker }}</a>
+              {% if r.htb %}<span class="htb-flag" title="Hard to borrow">HTB</span>{% endif %}
+              <span class="co">{{ r.company or '' }} · {{ r.sector or '' }}</span>
+            </td>
+            <td class="num"><strong>{{ '%.3f' | format(r.proba) }}</strong>
+              <span class="badge b-{{ r.model_used }}">{{ r.model_used }}</span></td>
+            <td class="num live-price" data-static="{{ r.price or '' }}">{{ '$%.2f' | format(r.price) if r.price else '–' }}</td>
+            <td class="num price-key">{{ '$%.2f' | format(tp.entry) if tp.entry else '–' }}</td>
+            <td class="num stop">{{ '$%.2f' | format(tp.stop) if tp.stop else '–' }}</td>
+            <td class="num tp">
+              {{ '$%.2f' | format(tp.tp1) if tp.tp1 else '–' }}
+              {% if tp.rr_tp1 %}<span style="color:#64748b;font-weight:400;">· {{ tp.rr_tp1 }}R</span>{% endif %}
+            </td>
+            <td class="num tp">
+              {{ '$%.2f' | format(tp.tp2) if tp.tp2 else '–' }}
+              {% if tp.rr_tp2 %}<span style="color:#64748b;font-weight:400;">· {{ tp.rr_tp2 }}R</span>{% endif %}
+            </td>
+            <td class="num">{{ '%.2f%%' | format(tp.risk_pct) if tp.risk_pct else '–' }}</td>
+            <td class="num {{ 'up' if (r.return_5d_pct or 0) > 0 else 'down' }}">
+              {{ '%+.2f%%' | format(r.return_5d_pct) if r.return_5d_pct is not none else '–' }}
+            </td>
+            <td><span class="sig-{{ r.signal or 'HOLD' }}">{{ r.signal or '–' }}</span></td>
+            <td>
+              {% if r.sent_label %}
+                <span class="badge b-{{ {'positive':'pos','negative':'neg','neutral':'neu'}.get(r.sent_label,'neu') }}">
+                  {{ '%+.2f' | format(r.sent_score) if r.sent_score is not none else r.sent_label }}
+                </span>
+              {% endif %}
+            </td>
+            <td class="num shares-cell">–</td>
+            <td class="num size-cell">–</td>
+            <td>
+              <span class="badge act-{{ r.conflict_action or 'TAKE' }}">{{ r.conflict_action or 'TAKE' }}</span>
+              {% if r.conflict %}<div class="conflict" style="margin-top:.2rem;">{{ r.conflict }}</div>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="legend">R = risk multiple (entry−stop). 1.5 ATR stop / 2x / 3x ATR targets.
+        Action: TAKE = full size · DOWNSIZE = half · SKIP = excluded.</div>
+    </div>
+
+    <!-- ── SHORT trade plan ── -->
+    <div class="card">
+      <h2 style="color:#b91c1c;">▼ Short Setups (top {{ aggregate.top_short | length }})</h2>
+      <table class="trade">
+        <thead><tr>
+          <th>Ticker</th>
+          <th class="num">P(up)</th>
+          <th class="num">Price</th>
+          <th class="num">Entry</th>
+          <th class="num">Stop</th>
+          <th class="num">TP1 / R</th>
+          <th class="num">TP2 / R</th>
+          <th class="num">Risk %</th>
+          <th class="num">5d %</th>
+          <th>Sig</th>
+          <th>Sent</th>
+          <th class="num">Shares</th>
+          <th class="num">$ Size</th>
+          <th>Notes</th>
+        </tr></thead>
+        <tbody>
+        {% for r in aggregate.top_short %}
+          {% set tp = r.trade_plan or {} %}
+          <tr data-side="SHORT"
+              data-ticker="{{ r.ticker }}"
+              data-entry="{{ tp.entry or 0 }}"
+              data-stop="{{ tp.stop or 0 }}"
+              data-sector="{{ r.sector or 'Unknown' }}"
+              data-action="{{ r.conflict_action or 'TAKE' }}">
+            <td class="ticker-cell">
+              <a href="/stocks/explorer?ticker={{ r.ticker }}">{{ r.ticker }}</a>
+              {% if r.htb %}<span class="htb-flag" title="Hard to borrow — short execution risk">HTB</span>{% endif %}
+              <span class="co">{{ r.company or '' }} · {{ r.sector or '' }}</span>
+            </td>
+            <td class="num"><strong>{{ '%.3f' | format(r.proba) }}</strong>
+              <span class="badge b-{{ r.model_used }}">{{ r.model_used }}</span></td>
+            <td class="num live-price" data-static="{{ r.price or '' }}">{{ '$%.2f' | format(r.price) if r.price else '–' }}</td>
+            <td class="num price-key">{{ '$%.2f' | format(tp.entry) if tp.entry else '–' }}</td>
+            <td class="num stop">{{ '$%.2f' | format(tp.stop) if tp.stop else '–' }}</td>
+            <td class="num tp">
+              {{ '$%.2f' | format(tp.tp1) if tp.tp1 else '–' }}
+              {% if tp.rr_tp1 %}<span style="color:#64748b;font-weight:400;">· {{ tp.rr_tp1 }}R</span>{% endif %}
+            </td>
+            <td class="num tp">
+              {{ '$%.2f' | format(tp.tp2) if tp.tp2 else '–' }}
+              {% if tp.rr_tp2 %}<span style="color:#64748b;font-weight:400;">· {{ tp.rr_tp2 }}R</span>{% endif %}
+            </td>
+            <td class="num">{{ '%.2f%%' | format(tp.risk_pct) if tp.risk_pct else '–' }}</td>
+            <td class="num {{ 'up' if (r.return_5d_pct or 0) > 0 else 'down' }}">
+              {{ '%+.2f%%' | format(r.return_5d_pct) if r.return_5d_pct is not none else '–' }}
+            </td>
+            <td><span class="sig-{{ r.signal or 'HOLD' }}">{{ r.signal or '–' }}</span></td>
+            <td>
+              {% if r.sent_label %}
+                <span class="badge b-{{ {'positive':'pos','negative':'neg','neutral':'neu'}.get(r.sent_label,'neu') }}">
+                  {{ '%+.2f' | format(r.sent_score) if r.sent_score is not none else r.sent_label }}
+                </span>
+              {% endif %}
+            </td>
+            <td class="num shares-cell">–</td>
+            <td class="num size-cell">–</td>
+            <td>
+              <span class="badge act-{{ r.conflict_action or 'TAKE' }}">{{ r.conflict_action or 'TAKE' }}</span>
+              {% if r.conflict %}<div class="conflict" style="margin-top:.2rem;">{{ r.conflict }}</div>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="legend">Short setups invert. HTB flag = borrow may be expensive/unavailable.</div>
+    </div>
+
+    <div class="section-label">Research &amp; Diagnostics</div>
+
+    <details class="research">
+      <summary>Model calibration · regime · ablation · backtest · refresh</summary>
+      <div class="research-body">
+
+        {% set c = aggregate.composite %}
+        {% if c and c.regime and weights_meta %}
+        <!-- ── Active Regime card ── -->
+        <div class="card">
+          <h2>Active Regime · VIX split</h2>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;font-size:.78rem;margin-bottom:.75rem;">
+            <div class="stat"><div class="stat-label">Current VIX</div>
+              <div class="stat-value">{{ '%.2f' | format(aggregate.vix_regime.vix) if aggregate.vix_regime and aggregate.vix_regime.vix is not none else '—' }}</div></div>
+            <div class="stat"><div class="stat-label">Threshold</div>
+              <div class="stat-value">{{ weights_meta.vix_threshold }}</div></div>
+            <div class="stat"><div class="stat-label">Regime</div>
+              <div class="stat-value" style="color:{{ '#b91c1c' if c.regime=='high_vix' else '#15803d' }};">{{ c.regime }}</div></div>
+            <div class="stat"><div class="stat-label">Target</div>
+              <div class="stat-value" style="font-size:.8rem;">{{ c.target or '—' }}</div></div>
+          </div>
+          <table class="trade">
+            <thead><tr>
+              <th>Regime</th><th class="num">n_train</th><th class="num">up_rate</th>
+              <th class="num">WF folds</th><th class="num">WF LL</th>
+              <th class="num">Baseline LL</th><th class="num">Edge</th><th class="num">Hit</th>
+            </tr></thead>
+            <tbody>
+            {% for name, r in weights_meta.regimes.items() %}
+              {% set wf = r.wf or {} %}
+              <tr style="{% if name == c.regime %}background:var(--accent-soft);{% endif %}">
+                <td><strong>{{ name }}</strong>{% if name == c.regime %} <span class="badge b-pos" style="font-size:.55rem;">ACTIVE</span>{% endif %}</td>
+                <td class="num">{{ r.n_train_rows }}</td>
+                <td class="num">{{ '%.3f' | format(r.up_rate) if r.up_rate is not none else '—' }}</td>
+                <td class="num">{{ wf.get('n_folds', 0) }}</td>
+                <td class="num">{% if wf.get('mean_ll') is not none %}{{ '%.4f' | format(wf.get('mean_ll')) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if wf.get('baseline_ll') is not none %}{{ '%.4f' | format(wf.get('baseline_ll')) }}{% else %}—{% endif %}</td>
+                <td class="num {{ 'up' if (wf.get('edge_vs_baseline') or 0) > 0 else 'down' }}">
+                  {% if wf.get('edge_vs_baseline') is not none %}{{ '%+.4f' | format(wf.get('edge_vs_baseline')) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if wf.get('mean_hit') is not none %}{{ '%.1f%%' | format(wf.get('mean_hit') * 100) }}{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="legend">Active regime picked by current VIX relative to threshold. Uses per-regime fitted XGBoost model.</div>
+        </div>
+
+        <!-- ── Feature gain per regime ── -->
+        <div class="card">
+          <h2>Feature Gain · Regime Comparison</h2>
+          <table class="trade">
+            <thead><tr>
+              <th>Feature</th>
+              {% for name in weights_meta.regimes.keys() %}
+                <th class="num">{{ name }}</th>
+              {% endfor %}
+            </tr></thead>
+            <tbody>
+            {% for feat in weights_meta.components_used %}
+              <tr>
+                <td><code>{{ feat }}</code></td>
+                {% for name, r in weights_meta.regimes.items() %}
+                  {% set gain = (r.feature_gain or {}).get(feat, 0) %}
+                  <td class="num"><span style="color:var(--text);">{{ '%.3f' | format(gain) }}</span></td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="legend">XGBoost feature gain per regime. Sums to 1.0 per column. Shows which features each regime's model relied on.</div>
+        </div>
+        {% endif %}
+
+        {% if c and (c.reasons or c.dampers) %}
+        <!-- ── Confidence Trail card ── -->
+        <div class="card">
+          <h2>Confidence Trail · Why this tier</h2>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;">
+            <div>
+              <div class="conf-tier conf-{{ c.confidence }}">{{ c.confidence }}</div>
+            </div>
+            <div style="font-size:.78rem;">
+              {% if c.reasons %}
+                <div style="color:var(--text-dim);margin-bottom:.25rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:.65rem;">Demotions ({{ c.reasons|length }})</div>
+                <div style="display:flex;gap:.35rem;flex-wrap:wrap;">
+                  {% for r in c.reasons %}
+                    <span class="badge" style="background:#fef2f2;color:#991b1b;font-size:.68rem;padding:.2rem .5rem;">{{ r }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              {% if c.dampers %}
+                <div style="color:var(--text-dim);margin:.5rem 0 .25rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:.65rem;">Score Dampers</div>
+                <div style="display:flex;gap:.35rem;flex-wrap:wrap;">
+                  {% for d in c.dampers %}
+                    <span class="badge" style="background:var(--accent-soft);color:#92400e;font-size:.68rem;padding:.2rem .5rem;">{{ d }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              <div style="margin-top:.6rem;color:var(--text-faint);font-size:.7rem;">
+                Signals agree: <strong style="color:var(--text);">{{ c.agree_count }}/{{ c.n_components }}</strong>
+                · Weights source: <code>{{ c.weights_source }}</code>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+
+        {% if reliability %}
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">
+            <h2 style="margin-bottom:0;">Walk-Forward Reliability · n={{ reliability.n_oos }}</h2>
+            <div>
+              <button class="refresh-btn" id="reliab-refresh-btn">Refresh (backtest+fit+reliability)</button>
+              <span class="refresh-status" id="reliab-status"></span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;font-size:.8rem;">
+            <div style="color:var(--text-dim);">
+              <div>Brier <strong style="color:var(--text);">{{ '%.3f' | format(reliability.brier) }}</strong></div>
+              <div>ECE <strong style="color:var(--text);">{{ '%.3f' | format(reliability.ece) }}</strong></div>
+              <div style="font-size:.65rem;color:var(--text-faint);margin-top:.25rem;">
+                Brier: lower = better (0.25 = random).<br>
+                ECE: mean |predicted − actual|.
+              </div>
+              <div style="font-size:.65rem;color:var(--text-dim);margin-top:.5rem;" id="last-refresh-stamp">
+                generated {{ reliability.generated_at }}
+              </div>
+            </div>
+            <table class="trade">
+              <thead><tr>
+                <th>P(up) bin</th><th class="num">n</th>
+                <th class="num">predicted</th><th class="num">actual</th><th class="num">gap</th>
+              </tr></thead>
+              <tbody>
+              {% for b in reliability.bins %}
+                {% if b.n > 0 %}
+                  {% set gap = b.actual - b.predicted %}
+                  <tr>
+                    <td>{{ '%.1f' | format(b.p_lo) }}–{{ '%.1f' | format(b.p_hi) }}</td>
+                    <td class="num">{{ b.n }}</td>
+                    <td class="num">{{ '%.3f' | format(b.predicted) }}</td>
+                    <td class="num">{{ '%.3f' | format(b.actual) }}</td>
+                    <td class="num {{ 'up' if gap >= 0 else 'down' }}">{{ '%+.3f' | format(gap) }}</td>
+                  </tr>
+                {% endif %}
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if weights_meta and weights_meta.loo_ablation %}
+        <div class="card">
+          <h2>Feature Contribution · LOO Walk-Forward</h2>
+          <table class="trade">
+            <thead><tr>
+              <th>Feature</th>
+              <th class="num">Δ LL</th>
+              <th class="num">LL without</th>
+              <th>Verdict</th>
+            </tr></thead>
+            <tbody>
+            {% for r in weights_meta.loo_ablation %}
+              <tr>
+                <td><code>{{ r.feature }}</code></td>
+                <td class="num {{ 'up' if r.delta_ll >= 0 else 'down' }}">{{ '%+.4f' | format(r.delta_ll) }}</td>
+                <td class="num">{{ '%.4f' | format(r.ll_minus) }}</td>
+                <td>{% if r.delta_ll > 0 %}<span class="badge b-pos">HELPS</span>{% elif r.delta_ll < -0.001 %}<span class="badge b-neg">HURTS</span>{% else %}<span class="badge b-neu">neutral</span>{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="legend">
+            Δ LL &gt; 0 ⇒ removing feature hurt OOS walk-forward. Δ LL &lt; 0 ⇒ removing helped — prune candidate.
+            {% if weights_meta.walk_forward and weights_meta.walk_forward.mean_ll %}
+              · Global WF LL {{ '%.4f' | format(weights_meta.walk_forward.mean_ll) }}
+              vs baseline {{ '%.4f' | format(weights_meta.walk_forward.baseline_ll) }}
+              (edge {{ '%+.4f' | format(weights_meta.walk_forward.edge_vs_baseline) }})
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if backtest and backtest.summary_buckets %}
+        <!-- ── Backtest Bucket Summary ── -->
+        <div class="card">
+          <h2>In-Sample Bucket Monotonicity · Composite Score → SPY Next-Day</h2>
+          <table class="trade">
+            <thead><tr>
+              <th>Score bucket</th><th class="num">n</th>
+              <th class="num">hit rate</th><th class="num">mean ret</th><th class="num">median ret</th>
+            </tr></thead>
+            <tbody>
+            {% for b in backtest.summary_buckets %}
+              <tr>
+                <td><code>{{ b.bucket }}</code></td>
+                <td class="num">{{ b.n }}</td>
+                <td class="num">{{ '%.1f%%' | format(b.hit_rate * 100) }}</td>
+                <td class="num {{ 'up' if b.mean_ret >= 0 else 'down' }}">{{ '%+.3f%%' | format(b.mean_ret * 100) }}</td>
+                <td class="num {{ 'up' if b.median_ret >= 0 else 'down' }}">{{ '%+.3f%%' | format(b.median_ret * 100) }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="legend">
+            Composite score buckets vs realised SPY t+1 return, in-sample over {{ backtest.overall.n_days }} days.
+            Long signals (score ≥ 10): <strong>{{ '%.1f%%' | format(backtest.overall.long_hit_rate * 100) }}</strong> hit,
+            mean ret <strong>{{ '%+.3f%%' | format(backtest.overall.long_mean_ret * 100) }}</strong>.
+            Short signals (score ≤ -10): <strong>{{ '%.1f%%' | format(backtest.overall.short_hit_rate * 100) }}</strong> hit,
+            mean ret <strong>{{ '%+.3f%%' | format(backtest.overall.short_mean_ret * 100) }}</strong>.
+          </div>
+        </div>
+        {% endif %}
+
+        {% if last_refresh %}
+        <!-- ── Last Refresh card ── -->
+        <div class="card">
+          <h2>Last Monthly Refresh</h2>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;font-size:.78rem;">
+            <div>
+              <div style="color:var(--text-dim);">Started <strong style="color:var(--text);">{{ last_refresh.started }}</strong></div>
+              <div style="color:var(--text-dim);">Finished <strong style="color:var(--text);">{{ last_refresh.finished }}</strong></div>
+              <div style="margin-top:.35rem;">
+                Status: {% if last_refresh.ok %}<span class="badge b-pos">OK</span>{% else %}<span class="badge b-neg">FAILED</span>{% endif %}
+              </div>
+            </div>
+            <table class="trade">
+              <thead><tr><th>Step</th><th class="num">rc</th><th class="num">sec</th></tr></thead>
+              <tbody>
+              {% for s in last_refresh.steps %}
+                <tr>
+                  <td><code>{{ s.module }}</code></td>
+                  <td class="num {{ 'up' if s.rc == 0 else 'down' }}">{{ s.rc }}</td>
+                  <td class="num">{{ s.seconds }}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if not last_refresh.ok %}
+            {% for s in last_refresh.steps if s.rc != 0 %}
+              <div class="legend" style="color:var(--neg);">
+                <strong>{{ s.module }}</strong> failed (rc={{ s.rc }}). Stderr tail:
+                <pre style="background:var(--bg-alt);padding:.5rem;border-radius:6px;margin-top:.25rem;font-size:.7rem;white-space:pre-wrap;">{{ s.stderr_tail }}</pre>
+              </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+        {% endif %}
+
+      </div>
+    </details>
+
+  {% endif %}
+
+</div>
+
+<script>
+  const VIX_MULT = parseFloat({{ aggregate.vix_regime.size_mult if aggregate and aggregate.vix_regime and aggregate.vix_regime.size_mult is not none else 1 }});
+  const fmtMoney = v => '$' + Math.round(v).toLocaleString();
+
+  function recalcSizing() {
+    const risk      = parseFloat(document.getElementById('risk-input').value || 0);
+    const equity    = parseFloat(document.getElementById('equity-input').value || 0);
+    const capPct    = parseFloat(document.getElementById('cap-input').value || 0);
+    const sectorCap = parseInt(document.getElementById('sector-cap').value || 0, 10);
+    const sectorCount = {};   // per-sector positions taken so far (long+short combined)
+    let sumLong = 0, sumShort = 0;
+
+    document.querySelectorAll('table.trade tbody tr[data-side]').forEach(tr => {
+      const entry  = parseFloat(tr.dataset.entry || 0);
+      const stop   = parseFloat(tr.dataset.stop  || 0);
+      const side   = tr.dataset.side;
+      const sector = tr.dataset.sector || 'Unknown';
+      const action = tr.dataset.action || 'TAKE';
+      const sharesCell = tr.querySelector('.shares-cell');
+      const sizeCell   = tr.querySelector('.size-cell');
+      if (!sharesCell || !sizeCell) return;
+
+      if (!entry || !stop || !risk) {
+        sharesCell.textContent = '–'; sizeCell.textContent = '–'; return;
+      }
+
+      // Conflict policy: SKIP excluded, DOWNSIZE half-sized.
+      let mult = 1.0;
+      if (action === 'SKIP')     mult = 0.0;
+      if (action === 'DOWNSIZE') mult = 0.5;
+
+      // VIX regime damper.
+      mult *= VIX_MULT;
+
+      // Sector cluster cap: skip beyond N positions per sector.
+      if (mult > 0) {
+        sectorCount[sector] = (sectorCount[sector] || 0) + 1;
+        if (sectorCount[sector] > sectorCap) {
+          mult = 0.0;
+          tr.classList.add('cluster-skipped');
+        } else {
+          tr.classList.remove('cluster-skipped');
+        }
+      }
+
+      const adjustedRisk = risk * mult;
+      if (adjustedRisk <= 0) {
+        sharesCell.textContent = '0';
+        sizeCell.textContent   = '$0';
+        tr.style.opacity = '0.55';
+        return;
+      }
+      tr.style.opacity = '1';
+      const perShareRisk = Math.abs(entry - stop);
+      const shares = Math.floor(adjustedRisk / perShareRisk);
+      const size   = shares * entry;
+      sharesCell.textContent = shares.toLocaleString();
+      sizeCell.textContent   = fmtMoney(size);
+
+      const realisedRisk = shares * perShareRisk;
+      if (side === 'LONG') sumLong += realisedRisk;
+      else                 sumShort += realisedRisk;
+    });
+
+    const total  = sumLong + sumShort;
+    const capUsd = equity * capPct / 100;
+    const utilPct = capUsd > 0 ? (total / capUsd * 100) : 0;
+
+    document.getElementById('sum-risk-long').textContent  = fmtMoney(sumLong);
+    document.getElementById('sum-risk-short').textContent = fmtMoney(sumShort);
+    document.getElementById('sum-risk-total').textContent = fmtMoney(total);
+    document.getElementById('vs-cap').textContent =
+      capUsd > 0 ? `${utilPct.toFixed(0)}% of ${fmtMoney(capUsd)}` : '–';
+
+    // Cap utilization badge color
+    const vsBox = document.getElementById('vs-cap').parentElement;
+    vsBox.className = 'stat';
+    if (utilPct > 100) vsBox.classList.add('danger');
+    else if (utilPct > 80) vsBox.classList.add('warn');
+
+    // Cluster warning text
+    const overflows = Object.entries(sectorCount).filter(([_, n]) => n > sectorCap);
+    const warn = document.getElementById('cluster-warn');
+    if (overflows.length) {
+      warn.textContent = '⚠ Sector cap reached: ' + overflows.map(
+        ([s, n]) => `${s} (${n} candidates, ${sectorCap} taken)`
+      ).join(' · ') + '. Excess positions zeroed.';
+    } else {
+      warn.textContent = '';
+    }
+  }
+
+  function updateStaleness() {
+    const el = document.getElementById('stale-banner');
+    if (!el) return;
+    const asof = el.dataset.asof;
+    if (!asof) return;
+    const now  = new Date();
+    const ay   = new Date(asof + 'T00:00:00Z');
+    const days = Math.floor((now - ay) / (1000 * 60 * 60 * 24));
+    let cls, msg;
+    // Account for weekends — Mon should not flag if asof is Fri.
+    const weekday = now.getUTCDay();
+    const tradingDaysOld = days - (weekday === 1 ? 2 : weekday === 0 ? 1 : 0);
+    if (tradingDaysOld <= 0) { cls = 'fresh'; msg = `Snapshot is current (close ${asof}).`; }
+    else if (tradingDaysOld === 1) { cls = 'warn'; msg = `Snapshot is 1 trading day stale (close ${asof}). Refresh recommended.`; }
+    else { cls = 'stale'; msg = `Snapshot is ${tradingDaysOld} trading days stale (close ${asof}). REFRESH NOW.`; }
+    el.className = 'stale-banner ' + cls;
+    el.textContent = msg;
+  }
+
+  async function refreshNow() {
+    const btn = document.getElementById('refresh-btn');
+    const status = document.getElementById('refresh-status');
+    if (!btn) return;
+    btn.disabled = true;
+    status.textContent = 'starting…';
+    try {
+      const r = await fetch('/api/stocks/aggregate/refresh', { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (j.started) {
+        status.textContent = 'job started · this takes ~90s · page will reload when done';
+        pollDone();
+      } else if (j.error) {
+        status.textContent = 'error: ' + j.error;
+        btn.disabled = false;
+      }
+    } catch (e) {
+      status.textContent = 'request failed: ' + e.message;
+      btn.disabled = false;
+    }
+  }
+
+  function pollDone() {
+    const status = document.getElementById('refresh-status');
+    const start = Date.now();
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch('/api/stocks/aggregate/status');
+        const j = await r.json();
+        if (!j.running) {
+          clearInterval(t);
+          status.textContent = 'done · reloading…';
+          setTimeout(() => location.reload(), 700);
+        } else {
+          const elapsed = Math.round((Date.now() - start) / 1000);
+          status.textContent = `running… (${elapsed}s)`;
+        }
+      } catch {}
+    }, 2500);
+  }
+
+  async function reliabRefresh() {
+    const btn = document.getElementById('reliab-refresh-btn');
+    const status = document.getElementById('reliab-status');
+    if (!btn) return;
+    btn.disabled = true;
+    status.textContent = 'starting…';
+    try {
+      const r = await fetch('/api/stocks/reliability/refresh', { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (j.started) {
+        status.textContent = 'running · 3-step pipeline · ~2-3 min';
+        reliabPollDone();
+      } else {
+        status.textContent = 'error: ' + (j.error || 'unknown');
+        btn.disabled = false;
+      }
+    } catch (e) {
+      status.textContent = 'request failed: ' + e.message;
+      btn.disabled = false;
+    }
+  }
+
+  function reliabPollDone() {
+    const status = document.getElementById('reliab-status');
+    const start = Date.now();
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch('/api/stocks/reliability/status');
+        const j = await r.json();
+        if (!j.running) {
+          clearInterval(t);
+          const ok = j.last && j.last.ok;
+          status.textContent = ok ? 'done · reloading…' : 'failed — check log';
+          if (ok) setTimeout(() => location.reload(), 700);
+        } else {
+          const elapsed = Math.round((Date.now() - start) / 1000);
+          status.textContent = `running… (${elapsed}s)`;
+        }
+      } catch {}
+    }, 3000);
+  }
+
+  // ── Live prices (Alpaca IEX) ─────────────────────────────────────────
+  const LIVE_POLL_MS = 3000;
+  let liveTimer = null;
+  let liveEnabled = false;
+
+  function collectTickers() {
+    const set = new Set();
+    document.querySelectorAll('table.trade tbody tr[data-ticker]').forEach(tr => {
+      const t = tr.dataset.ticker;
+      if (t) set.add(t);
+    });
+    return Array.from(set);
+  }
+
+  function setLiveStatus(state, label) {
+    const dot = document.getElementById('live-dot');
+    const lbl = document.getElementById('live-label');
+    if (!dot || !lbl) return;
+    dot.classList.remove('on', 'off');
+    dot.classList.add(state);
+    lbl.textContent = label;
+  }
+
+  function applyQuote(ticker, price) {
+    document.querySelectorAll(`tr[data-ticker="${ticker}"] .live-price`).forEach(td => {
+      const prev = parseFloat(td.dataset.last || td.dataset.static || 0);
+      td.textContent = '$' + price.toFixed(2);
+      td.dataset.last = price;
+      if (prev && Math.abs(price - prev) > 1e-4) {
+        td.classList.remove('flash-up', 'flash-down');
+        void td.offsetWidth; // reflow to restart transition
+        td.classList.add(price > prev ? 'flash-up' : 'flash-down');
+        setTimeout(() => td.classList.remove('flash-up', 'flash-down'), 700);
+      }
+    });
+  }
+
+  async function pollQuotes() {
+    const tickers = collectTickers();
+    if (!tickers.length) return;
+    try {
+      const r = await fetch('/api/stocks/quotes?symbols=' + encodeURIComponent(tickers.join(',')));
+      const j = await r.json();
+      if (!j.enabled) {
+        liveEnabled = false;
+        setLiveStatus('off', 'Live: off (set ALPACA_KEY)');
+        if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+        return;
+      }
+      liveEnabled = true;
+      const quotes = j.quotes || {};
+      const n = Object.keys(quotes).length;
+      setLiveStatus('on', `Live: ${n}/${tickers.length} · 3s poll`);
+      for (const [sym, q] of Object.entries(quotes)) {
+        if (q && typeof q.price === 'number') applyQuote(sym, q.price);
+      }
+    } catch (e) {
+      setLiveStatus('off', 'Live: error');
+    }
+  }
+
+  function startLivePolling() {
+    pollQuotes();
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(pollQuotes, LIVE_POLL_MS);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ['risk-input', 'equity-input', 'cap-input', 'sector-cap'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', recalcSizing);
+    });
+    recalcSizing();
+    updateStaleness();
+    const btn = document.getElementById('refresh-btn');
+    if (btn) btn.addEventListener('click', refreshNow);
+    const rbtn = document.getElementById('reliab-refresh-btn');
+    if (rbtn) rbtn.addEventListener('click', reliabRefresh);
+    startLivePolling();
+  });
+</script>
+
+{# ── Futures last-trade poller (Databento) ── #}
+<script>
+  (function () {
+    var SYMS = "ESM6,GCM6,CLM6,NQM6";
+    var META = {
+      ESM6: { name: "E-mini S&P 500",   tick: 0.25 },
+      GCM6: { name: "Gold (COMEX)",     tick: 0.10 },
+      CLM6: { name: "WTI Crude (NYMEX)", tick: 0.01 },
+      NQM6: { name: "E-mini Nasdaq",    tick: 0.25 },
+    };
+    var prev = {};
+    function fmtTs(ts) {
+      if (!ts) return "—";
+      var s = String(ts).replace(" ", "T").replace(/\+00:00$/, "Z");
+      var d = new Date(s);
+      if (isNaN(d)) return ts;
+      var now = Date.now();
+      var ageS = Math.floor((now - d.getTime()) / 1000);
+      if (ageS < 60)   return ageS + "s ago";
+      if (ageS < 3600) return Math.floor(ageS / 60) + "m ago";
+      return Math.floor(ageS / 3600) + "h ago";
+    }
+    function render(quotes) {
+      var grid = document.getElementById("futures-quotes-grid");
+      if (!grid) return;
+      var keys = Object.keys(META);
+      var html = keys.map(function (k) {
+        var q = quotes[k];
+        var meta = META[k];
+        if (!q) {
+          return '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:.65rem;">' +
+            '<div style="font-size:.7rem;color:#64748b;letter-spacing:.05em;text-transform:uppercase;">' + k + '</div>' +
+            '<div style="font-size:1.1rem;font-weight:700;color:#94a3b8;margin-top:.2rem;">no data</div>' +
+            '<div style="font-size:.65rem;color:#94a3b8;">' + meta.name + '</div>' +
+            '</div>';
+        }
+        var p = Number(q.price);
+        var prevP = prev[k];
+        var dir = "";
+        var color = "#0f172a";
+        if (prevP != null && Math.abs(p - prevP) > 1e-9) {
+          dir = p > prevP ? " ▲" : " ▼";
+          color = p > prevP ? "#047857" : "#991b1b";
+        }
+        prev[k] = p;
+        var precision = meta.tick < 0.05 ? 2 : (meta.tick < 0.5 ? 2 : 2);
+        return '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:.65rem;">' +
+          '<div style="font-size:.7rem;color:#64748b;letter-spacing:.05em;text-transform:uppercase;">' + k + '</div>' +
+          '<div style="font-size:1.25rem;font-weight:800;color:' + color + ';margin-top:.2rem;">' +
+              p.toLocaleString(undefined, {minimumFractionDigits: precision, maximumFractionDigits: precision}) +
+              '<span style="font-size:.85rem;font-weight:700;">' + dir + '</span>' +
+          '</div>' +
+          '<div style="font-size:.65rem;color:#64748b;">' + meta.name + ' · ' + fmtTs(q.ts) + '</div>' +
+          '</div>';
+      }).join("");
+      grid.innerHTML = html;
+    }
+    function tick() {
+      fetch('/api/futures/quotes?symbols=' + encodeURIComponent(SYMS) + '&tf=1m', {cache: 'no-store'})
+        .then(function (r) { return r.json(); })
+        .then(function (d) { render(d.quotes || {}); })
+        .catch(function () {});
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      tick();
+      setInterval(tick, 30000);
+    });
+  })();
+</script>
+
+{# ── Custom Technical Gauge for SPX ── #}
+<script>
+  (function () {
+    var el = document.getElementById('gauge_spx');
+    if (!el) return;
+    function widthPct(tally) {
+      var total = (tally.buy + tally.sell + tally.neutral) || 1;
+      return {
+        buy:  (tally.buy / total * 100).toFixed(1) + '%',
+        neu:  (tally.neutral / total * 100).toFixed(1) + '%',
+        sell: (tally.sell / total * 100).toFixed(1) + '%'
+      };
+    }
+    function card(title, v) {
+      var w = widthPct(v.tally);
+      return '<div class="gauge-card v-' + v.verdict + '">' +
+               '<div class="gtitle">' + title + '</div>' +
+               '<div class="gverdict">' + v.verdict.replace('_', ' ') + '</div>' +
+               '<div class="gmeter">' +
+                 '<div class="m-buy"  style="width:' + w.buy + '"></div>' +
+                 '<div class="m-neu"  style="width:' + w.neu + '"></div>' +
+                 '<div class="m-sell" style="width:' + w.sell + '"></div>' +
+               '</div>' +
+               '<div class="gtally">' +
+                 '<strong style="color:#16a34a;">' + v.tally.buy + ' buy</strong> · ' +
+                 v.tally.neutral + ' neutral · ' +
+                 '<strong style="color:#dc2626;">' + v.tally.sell + ' sell</strong>' +
+               '</div>' +
+             '</div>';
+    }
+    function detailTable(heading, detail) {
+      var rows = Object.keys(detail).map(function (k) {
+        var d = detail[k];
+        var val = d.value == null ? '—' : (typeof d.value === 'number' ? d.value.toFixed(2) : d.value);
+        return '<tr>' +
+          '<td class="name">' + k + '</td>' +
+          '<td class="val">' + val + '</td>' +
+          '<td class="sig ' + d.signal + '">' + d.signal + '</td>' +
+        '</tr>';
+      }).join('');
+      return '<div class="gauge-detail">' +
+               '<h4>' + heading + '</h4>' +
+               '<table>' + rows + '</table>' +
+             '</div>';
+    }
+    function render(d) {
+      if (d.error) {
+        el.innerHTML = '<div class="gauge-loading">Gauge unavailable: ' + d.error + '</div>';
+        return;
+      }
+      el.innerHTML =
+        '<div class="gauge-top">' +
+          card('Summary',      d.overall) +
+          card('Oscillators',  d.oscillators) +
+          card('Moving Avgs',  d.moving_averages) +
+        '</div>' +
+        '<div class="gauge-detail-grid">' +
+          detailTable('Oscillators (5)', d.oscillators.detail) +
+          detailTable('Moving Averages (5)', d.moving_averages.detail) +
+        '</div>';
+    }
+    fetch('/api/gauge?symbol=SPX', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(render)
+      .catch(function (e) { el.innerHTML = '<div class="gauge-loading">Fetch failed.</div>'; });
+  })();
+</script>
+
+{# ── Lightweight Charts — SPX (our yfinance data, no TV feed dependency) ── #}
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  (function () {
+    var el = document.getElementById('lwc_spx_chart');
+    if (!el || typeof LightweightCharts === 'undefined') return;
+
+    var chart = LightweightCharts.createChart(el, {
+      layout:    { background: { color: '#ffffff' }, textColor: '#334155' },
+      grid:      { vertLines: { color: '#f1f5f9' }, horzLines: { color: '#f1f5f9' } },
+      rightPriceScale: { borderColor: '#e2e8f0' },
+      timeScale:       { borderColor: '#e2e8f0', timeVisible: false },
+      crosshair:       { mode: 1 },
+      autoSize: true
+    });
+    var candles = chart.addCandlestickSeries({
+      upColor: '#16a34a', downColor: '#dc2626',
+      borderUpColor: '#16a34a', borderDownColor: '#dc2626',
+      wickUpColor: '#16a34a', wickDownColor: '#dc2626'
+    });
+    var ema20 = chart.addLineSeries({ color: '#2563eb', lineWidth: 1, priceLineVisible: false });
+    var ema50 = chart.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceLineVisible: false });
+
+    function ema(vals, period) {
+      var k = 2 / (period + 1);
+      var out = []; var prev = null;
+      for (var i = 0; i < vals.length; i++) {
+        if (prev == null) { prev = vals[i]; }
+        else { prev = vals[i] * k + prev * (1 - k); }
+        out.push(prev);
+      }
+      return out;
+    }
+
+    fetch('/api/ohlc?symbol=SPX&lookback=400', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var bars = (j && j.bars) || [];
+        if (!bars.length) {
+          el.innerHTML = '<div style="padding:1rem;color:#64748b;font-size:.85rem;">No data returned by /api/ohlc.</div>';
+          return;
+        }
+        candles.setData(bars.map(function (b) {
+          return { time: b.time, open: b.open, high: b.high, low: b.low, close: b.close };
+        }));
+        var closes = bars.map(function (b) { return b.close; });
+        var e20 = ema(closes, 20), e50 = ema(closes, 50);
+        ema20.setData(bars.map(function (b, i) { return { time: b.time, value: e20[i] }; }));
+        ema50.setData(bars.map(function (b, i) { return { time: b.time, value: e50[i] }; }));
+        chart.timeScale().fitContent();
+      })
+      .catch(function (e) {
+        el.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:.85rem;">Chart load failed: ' + e + '</div>';
+      });
+  })();
+</script>
+
+</body>
+</html>

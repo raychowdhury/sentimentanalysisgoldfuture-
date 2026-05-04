@@ -62,6 +62,32 @@ async def run(cycle: int, payload: dict) -> None:
 
     body.append(f"- **Promoted**: {'yes' if payload.get('promoted') else 'no'}")
 
+    residuals = payload.get("residuals") or {}
+    if residuals:
+        promoted_now = sorted(t for t, r in residuals.items() if r.get("promoted"))
+        trained_count = sum(1 for r in residuals.values() if r.get("residual_acc") is not None)
+        body.append(
+            f"- **Residuals**: trained={trained_count}/{len(residuals)}, "
+            f"promoted_this_cycle={len(promoted_now)}"
+        )
+        body.append("  | ticker | residual_acc | pooled_acc | promoted |")
+        body.append("  |--------|--------------|------------|----------|")
+        for ticker in sorted(residuals):
+            r = residuals[ticker]
+            r_acc = r.get("residual_acc")
+            p_acc = r.get("pooled_acc")
+            r_fmt = f"{r_acc:.4f}" if r_acc is not None else "—"
+            p_fmt = f"{p_acc:.4f}" if p_acc is not None else "—"
+            body.append(
+                f"  | {ticker} | {r_fmt} | {p_fmt} | {'yes' if r.get('promoted') else 'no'} |"
+            )
+    if ev.get("hybrid_accuracy") is not None:
+        body.append(
+            f"- **Hybrid eval**: hybrid_acc={ev['hybrid_accuracy']}, "
+            f"pooled_acc={ev['accuracy']}, "
+            f"residuals_active={len(ev.get('residuals_applied') or [])}"
+        )
+
     flags = payload.get("flags") or []
     if flags:
         body.append(f"- **Flags**: {', '.join(flags)}")

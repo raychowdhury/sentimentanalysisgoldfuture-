@@ -2,6 +2,10 @@
 Eval agent: backtest the currently-promoted pooled classifier on the last N
 trading days. Reports mean per-ticker accuracy + pooled Sharpe / drawdown.
 Cold-start returns accuracy=None so orchestrator forces the first train.
+
+When per-ticker residual models are promoted, the eval also reports
+hybrid metrics: for tickers with a promoted residual, the residual's
+prediction replaces pooled; other tickers keep pooled.
 """
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from agents.residual_agent import RESIDUAL_FEATURES, _logit
 from config.settings import settings
 from data.pipeline import load_cached_frame
 from models.model_registry import registry
@@ -50,6 +55,34 @@ def _metrics(df_holdout: pd.DataFrame, y_pred: np.ndarray) -> dict:
     }
 
 
+def _apply_residuals(
+    holdout: pd.DataFrame,
+    pooled_model,
+    y_pred_pooled: np.ndarray,
+) -> tuple[np.ndarray, list[str]]:
+    """
+    Replace pooled predictions with residual predictions for any ticker
+    that has a promoted residual model on disk. Returns (y_pred_hybrid,
+    list of tickers whose residuals were applied).
+    """
+    pooled_proba = pooled_model.predict_proba(holdout[pooled_model.features])
+    work = holdout.copy()
+    work["pooled_logit"] = _logit(np.asarray(pooled_proba))
+
+    y_pred = y_pred_pooled.copy()
+    applied: list[str] = []
+    for ticker in sorted(work["ticker"].astype(str).unique()):
+        residual = registry.load_residual(ticker)
+        if residual is None:
+            continue
+        mask = (work["ticker"].astype(str) == ticker).to_numpy()
+        if not mask.any():
+            continue
+        y_pred[mask] = residual.predict(work.loc[mask, RESIDUAL_FEATURES])
+        applied.append(ticker)
+    return y_pred, applied
+
+
 async def run(version: str | None = None) -> dict:
     df = load_cached_frame()
     if df is None:
@@ -70,10 +103,30 @@ async def run(version: str | None = None) -> dict:
         version = meta.version
 
     model, _meta = registry.load(version)
-    y_pred = model.predict(holdout[model.features])
+    y_pred_pooled = model.predict(holdout[model.features])
 
-    out = _metrics(holdout, y_pred)
+    out = _metrics(holdout, y_pred_pooled)
     out.update({"version": version, "evaluated_at_rows": len(df)})
-    logger.info("[eval_agent] %s → mean_acc=%.4f sharpe=%.2f dd=%.2f",
-                version, out["accuracy"], out["sharpe"], out["max_drawdown"])
+
+    y_pred_hybrid, residuals_applied = _apply_residuals(holdout, model, y_pred_pooled)
+    if residuals_applied:
+        hybrid = _metrics(holdout, y_pred_hybrid)
+        out["hybrid_accuracy"]       = hybrid["accuracy"]
+        out["hybrid_sharpe"]         = hybrid["sharpe"]
+        out["hybrid_max_drawdown"]   = hybrid["max_drawdown"]
+        out["hybrid_per_ticker_acc"] = hybrid["per_ticker_acc"]
+        out["residuals_applied"]     = residuals_applied
+    else:
+        out["residuals_applied"] = []
+
+    logger.info(
+        "[eval_agent] %s → pooled_acc=%.4f sharpe=%.2f dd=%.2f residuals=%d",
+        version, out["accuracy"], out["sharpe"], out["max_drawdown"],
+        len(residuals_applied),
+    )
+    if residuals_applied:
+        logger.info(
+            "[eval_agent] hybrid_acc=%.4f (pooled_acc=%.4f, residuals=%s)",
+            out["hybrid_accuracy"], out["accuracy"], ",".join(residuals_applied),
+        )
     return out

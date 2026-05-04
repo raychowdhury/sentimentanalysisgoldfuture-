@@ -96,11 +96,21 @@ async def run_cycle(cycle: int, cfg: ProgramConfig) -> dict:
     data_out = await data_agent.run()
     eval_before = await eval_agent.run()
 
+    # Demote a broken incumbent before deciding whether to train. Otherwise
+    # the retrain-then-promote path judges every new candidate against a
+    # garbage baseline and improvements get blocked by the >= incumbent rule.
+    demoted = registry.demote_if_unfit(
+        current_accuracy=eval_before.get("accuracy"),
+        current_sharpe=eval_before.get("sharpe"),
+        current_drawdown=eval_before.get("max_drawdown"),
+    )
+
     training_out = None
     promoted = False
 
     need_train = (
-        eval_before.get("accuracy") is None
+        demoted
+        or eval_before.get("accuracy") is None
         or eval_before["accuracy"] < cfg.retrain_floor
     )
     if need_train:

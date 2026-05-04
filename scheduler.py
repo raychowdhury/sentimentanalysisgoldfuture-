@@ -15,6 +15,7 @@ import threading
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 import config
@@ -120,6 +121,45 @@ def _run_pipeline(
 
 # ── Scheduler lifecycle ───────────────────────────────────────────────────────
 
+def _run_ml_retrain() -> None:
+    """Weekly ML retrain — runs in scheduler thread, isolates failures."""
+    try:
+        from ml_engine.retrain_all import run as retrain_run
+        logger.info("[ml_retrain] starting weekly retrain")
+        out = retrain_run()
+        ok = sum(1 for r in out["results"] if "auc_long" in r)
+        logger.info(f"[ml_retrain] done — {ok} models retrained")
+    except Exception:
+        logger.exception("[ml_retrain] failed")
+
+
+def _add_ml_retrain_job() -> None:
+    """Sunday 22:00 UTC — before Asia open Monday."""
+    if _scheduler is None:
+        return
+    _scheduler.add_job(
+        func=_run_ml_retrain,
+        trigger=CronTrigger(day_of_week="sun", hour=22, minute=0),
+        id="ml_retrain_weekly",
+        name="ML retrain (weekly Sun 22:00 UTC)",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+
+def init_ml_retrain_only() -> None:
+    """Start a scheduler with only the ML retrain job. Used when the main
+    auto-fetch scheduler is disabled but we still want weekly retraining."""
+    global _scheduler
+    if _scheduler is not None and _scheduler.running:
+        _add_ml_retrain_job()
+        return
+    _scheduler = BackgroundScheduler(daemon=True)
+    _add_ml_retrain_job()
+    _scheduler.start()
+    logger.info("Scheduler started (ml_retrain only) — Sun 22:00 UTC weekly")
+
+
 def _refresh_next_run() -> None:
     """Update _state['next_run_at'] from the live APScheduler job."""
     if _scheduler is None:
@@ -159,6 +199,7 @@ def init_scheduler(app=None) -> None:
         replace_existing=True,
         misfire_grace_time=60,
     )
+    _add_ml_retrain_job()
     _scheduler.start()
     _refresh_next_run()
     logger.info(
