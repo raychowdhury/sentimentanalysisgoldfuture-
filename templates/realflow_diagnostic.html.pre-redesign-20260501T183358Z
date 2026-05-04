@@ -1,0 +1,1344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Real-flow Diagnostic · {{ symbol }} {{ tf }}</title>
+  <style>
+    :root {
+      --bg:#0b1220; --bg2:#0f172a; --card:#131c2e; --card2:#17213a;
+      --border:#1e2a44; --border2:#2a3a5e;
+      --ink:#e2e8f0; --muted:#94a3b8; --dim:#64748b;
+      --accent:#fbbf24; --accent2:#f59e0b;
+      --buy:#34d399; --sell:#f87171; --neutral:#8b9cb8;
+      --warn:#fbbf24; --bad:#f87171; --ok:#34d399;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background:var(--bg); color:var(--ink);
+      font-family:-apple-system,BlinkMacSystemFont,"Inter",sans-serif;
+      margin:0; font-size:14px;
+    }
+    a { color:var(--accent); text-decoration:none; }
+
+    header { padding:1rem 1.5rem; background:var(--bg2); border-bottom:1px solid var(--border); }
+    .logo { font-weight:700; font-size:1.15rem; }
+    .logo-sub { color:var(--muted); font-weight:400; font-size:.8rem; margin-left:.5rem; }
+    main { padding:1.25rem 1.5rem 3rem; max-width:1400px; margin:0 auto; }
+
+    .card {
+      background:var(--card); border:1px solid var(--border); border-radius:6px;
+      padding:1rem 1.1rem; margin-bottom:1rem;
+    }
+    .card h2 {
+      font-size:.85rem; font-weight:600; color:var(--accent);
+      margin:0 0 .65rem 0; text-transform:uppercase; letter-spacing:.06em;
+    }
+
+    .controls {
+      display:flex; gap:.5rem; align-items:center;
+      flex-wrap:wrap; margin-bottom:1rem;
+    }
+    .controls input[type=text] {
+      background:#0b1220; color:var(--ink); border:1px solid var(--border2);
+      padding:.4rem .55rem; border-radius:4px; font-size:.85rem; width:6rem;
+    }
+    .controls button {
+      background:var(--accent); color:#0f172a; border:none; padding:.45rem .9rem;
+      border-radius:4px; font-size:.85rem; font-weight:600; cursor:pointer;
+    }
+    .controls button:hover { background:var(--accent2); }
+    .controls button.btn-new    { background:#34d399; color:#0f172a; }
+    .controls button.btn-new:hover { background:#10b981; }
+    .controls button.btn-stale  { background:#fbbf24; color:#0f172a; }
+    .controls button.btn-stale:hover { background:#f59e0b; }
+    .controls button.btn-uptodate {
+      background:#334155; color:#94a3b8; cursor:default;
+    }
+    .controls button.btn-uptodate:hover { background:#334155; }
+    .btn-tip {
+      color:var(--muted); font-size:.72rem; margin-left:.5rem;
+      line-height:1.3;
+    }
+    .controls .meta { color:var(--muted); font-size:.78rem; margin-left:.5rem; }
+
+    .err {
+      background:rgba(248,113,113,.08); border:1px solid rgba(248,113,113,.3);
+      color:#fecaca; padding:.7rem .95rem; border-radius:6px; font-size:.85rem;
+      margin-bottom:1rem;
+    }
+
+    .kv-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:.75rem; }
+    .kv {
+      background:var(--card2); border:1px solid var(--border); border-radius:4px;
+      padding:.55rem .7rem;
+    }
+    .kv-label { color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; }
+    .kv-value { color:var(--ink); font-size:1rem; font-weight:600; margin-top:.1rem; font-variant-numeric:tabular-nums; }
+
+    table {
+      width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums;
+      font-size:.83rem;
+    }
+    th, td {
+      padding:.4rem .55rem; text-align:right;
+      border-bottom:1px solid var(--border);
+    }
+    th:first-child, td:first-child { text-align:left; }
+    th { color:var(--muted); font-weight:500; text-transform:uppercase; font-size:.7rem; letter-spacing:.04em; }
+    td.proxy { color:var(--warn); }
+    td.real  { color:var(--ok); }
+    td.delta-pos { color:var(--ok); }
+    td.delta-neg { color:var(--bad); }
+    td.muted { color:var(--muted); }
+    tbody tr:hover { background:rgba(255,255,255,.02); }
+
+    .scroll-x { overflow-x:auto; }
+    details > summary {
+      cursor:pointer; color:var(--muted); font-size:.85rem;
+      padding:.3rem 0; user-select:none;
+    }
+    details[open] > summary { color:var(--ink); }
+    details .scroll-y { max-height:400px; overflow-y:auto; }
+
+    .pill {
+      display:inline-block; padding:.05rem .35rem; border-radius:3px;
+      font-size:.7rem; margin-right:.2rem;
+      background:#334155; color:var(--ink);
+    }
+    .notes { color:var(--warn); font-size:.85rem; }
+    .notes li { margin:.25rem 0; }
+
+    code.path {
+      background:var(--card2); padding:.15rem .35rem; border-radius:3px;
+      font-size:.78rem; color:var(--muted);
+    }
+  </style>
+</head>
+<body>
+<header>
+  <span class="logo">Real-flow Diagnostic</span>
+  <span class="logo-sub">{{ symbol }} · {{ tf }} · proxy vs real comparison</span>
+</header>
+
+<main>
+  <div class="controls">
+    <label>Symbol <input type="text" id="sym" value="{{ symbol }}"></label>
+    <label>TF <input type="text" id="tf" value="{{ tf }}"></label>
+    <button onclick="reload(false)">Reload</button>
+    <button id="regenBtn" onclick="reload(true)"
+            class="{% if button_status %}btn-{{ button_status.state.replace('_','') }}{% endif %}">
+      {{ button_status.label if button_status else "Regenerate" }}
+    </button>
+    <label style="display:inline-flex; align-items:center; gap:.3rem; cursor:pointer;">
+      <input type="checkbox" id="autoRegenChk">
+      <span style="font-size:.8rem; color:var(--muted);">Auto-regenerate</span>
+    </label>
+    <span id="autoPill" class="pill"
+          style="display:none; background:rgba(52,211,153,.2); color:#34d399;">
+      AUTO
+    </span>
+    <span class="btn-tip" id="regenTip">
+      {% if button_status %}
+        Last regenerated: {{ button_status.last_regen.ts_ny or "—" }}<br>
+        Current live max: {{ button_status.current_live_max.ts_ny or "—" }}<br>
+        Live lag: {{ button_status.lag_minutes_now }} min
+      {% endif %}
+    </span>
+    <span id="lastAutoLine" class="btn-tip" style="display:none;"></span>
+    <span class="meta">JSON: <code class="path">{{ json_path }}</code></span>
+  </div>
+
+  {% if error %}
+    <div class="err">{{ error }}</div>
+  {% endif %}
+
+  {% if data %}
+
+  {# ── Trader View — plain English summary card ───────────────────────────#}
+  <div class="card" style="border-left:4px solid #34d399;">
+    <h2 style="font-size:1rem; color:#fbbf24;">Trader View — Plain English Summary</h2>
+
+    {# top status row #}
+    <div class="kv-grid">
+      <div class="kv">
+        <div class="kv-label">Live data</div>
+        <div class="kv-value" style="font-size:.95rem;">
+          {% if data.freshness and data.freshness.label == 'fresh' %}
+            <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">CONNECTED</span>
+            <span class="muted" style="font-size:.78rem;">last bar {{ data.latest_live_bar.primary.lag_minutes }} min ago</span>
+          {% elif data.freshness and data.freshness.label == 'recent' %}
+            <span class="pill" style="background:rgba(251,191,36,.2); color:#fbbf24;">SLOW</span>
+            <span class="muted" style="font-size:.78rem;">last bar {{ data.latest_live_bar.primary.lag_minutes }} min ago</span>
+          {% elif data.freshness %}
+            <span class="pill" style="background:rgba(248,113,113,.2); color:#f87171;">STALE</span>
+            <span class="muted" style="font-size:.78rem;">no fresh bar in {{ data.latest_live_bar.primary.lag_minutes }} min</span>
+          {% else %}
+            <span class="pill">UNKNOWN</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="kv">
+        <div class="kv-label">Real-flow rule mode</div>
+        <div class="kv-value" style="font-size:.95rem;">
+          {% if data.status and data.status.phase2a_status.pass %}
+            <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">R1/R2: ON</span>
+          {% else %}
+            <span class="pill" style="background:rgba(251,191,36,.2); color:#fbbf24;">R1/R2: WARMING UP</span>
+          {% endif %}
+          {% if r7_shadow %}
+            <span class="pill" style="background:rgba(148,163,184,.2); color:var(--muted);">R7: SHADOW ONLY</span>
+          {% else %}
+            <span class="pill" style="background:rgba(148,163,184,.2); color:var(--muted);">R7: PRODUCTION</span>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if data.monitoring %}
+      {% set fires = data.monitoring.real_fires_cumulative %}
+      <div class="kv">
+        <div class="kv-label">Today's rule activity (joined window)</div>
+        <div class="kv-value" style="font-size:.95rem;">
+          R1: {{ fires.r1_buyer_down or 0 }}
+          · R2: {{ fires.r2_seller_up or 0 }}
+          · R7: {{ fires.r7_cvd_divergence or 0 }}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    {# performance recap #}
+    {% if outcomes and outcomes.n_settled %}
+    <h2 style="font-size:.85rem; margin-top:1.1rem;">Recent performance ({{ outcomes.n_settled }} trades since {{ outcomes.since or "—" }})</h2>
+    <p style="font-size:.95rem; line-height:1.6; margin:.4rem 0;">
+      {% set r1 = outcomes.by_rule.get('r1_buyer_down', {}) %}
+      {% set r2 = outcomes.by_rule.get('r2_seller_up', {}) %}
+      {% if r1.n %}
+      <b>R1 (fade buyer dominance):</b>
+      Wins {{ (r1.hit_rate * 100) | round(1) }}% of trades,
+      average reward
+      <span class="{% if r1.mean_r and r1.mean_r > 0 %}delta-pos{% elif r1.mean_r and r1.mean_r < 0 %}delta-neg{% endif %}">
+        {{ "%+.2f"|format(r1.mean_r) }}R
+      </span>
+      across {{ r1.n }} trades.<br>
+      {% endif %}
+      {% if r2.n %}
+      <b>R2 (fade seller dominance):</b>
+      Wins {{ (r2.hit_rate * 100) | round(1) }}% of trades,
+      average reward
+      <span class="{% if r2.mean_r and r2.mean_r > 0 %}delta-pos{% elif r2.mean_r and r2.mean_r < 0 %}delta-neg{% endif %}">
+        {{ "%+.2f"|format(r2.mean_r) }}R
+      </span>
+      across {{ r2.n }} trades.
+      {% endif %}
+    </p>
+    {% endif %}
+
+    {# live sample progress #}
+    {% if outcomes and outcomes.by_mode %}
+    {% set live = outcomes.by_mode.get('live', {}) %}
+    <p style="font-size:.9rem; margin:.3rem 0;">
+      <b>Live-only trades so far:</b>
+      {{ live.n or 0 }} settled · target ≥ 60 (30 per rule) before final verdict.
+    </p>
+    {% endif %}
+
+    {# what this means + what to do #}
+    <h2 style="font-size:.85rem; margin-top:1rem;">What this means</h2>
+    <p style="font-size:.92rem; line-height:1.55; margin:.3rem 0;">
+      {% set r1 = (outcomes or {}).by_rule.get('r1_buyer_down', {}) if outcomes else {} %}
+      {% set r2 = (outcomes or {}).by_rule.get('r2_seller_up', {}) if outcomes else {} %}
+      {% if r2.mean_r and r2.mean_r > 0.5 and r2.hit_rate and r2.hit_rate > 0.55 %}
+        R2 looks healthy — fading seller dominance is currently a winning pattern.
+      {% elif r2.mean_r and r2.mean_r > 0 %}
+        R2 is positive but borderline.
+      {% elif r2.mean_r and r2.mean_r <= 0 %}
+        R2 is breaking even or losing — investigate.
+      {% endif %}
+      {% if r1.mean_r and r1.mean_r > 0.5 %}
+        R1 is also strong.
+      {% elif r1.mean_r and r1.mean_r > 0 %}
+        R1 is positive but weaker than the calibration baseline.
+      {% elif r1.mean_r and r1.mean_r <= 0 %}
+        R1 is breaking even or losing — investigate.
+      {% endif %}
+      R7 stays at the conservative production threshold; a shadow tracker
+      monitors what would happen at a looser threshold without affecting
+      live signals.
+    </p>
+
+    <h2 style="font-size:.85rem; margin-top:.8rem;">What to do</h2>
+    <p style="font-size:.92rem; line-height:1.55; margin:.3rem 0;">
+      {% set live_n = (outcomes or {}).by_mode.get('live', {}).get('n', 0) if outcomes else 0 %}
+      {% if live_n < 60 %}
+        Wait for the live-only sample to grow past 60 settled trades before
+        any threshold change. Keep the dashboard open or run the monitor
+        loop to accumulate.
+      {% else %}
+        Live sample is large enough — review the per-rule numbers above
+        and decide whether to keep, retune, or investigate.
+      {% endif %}
+      Emergency revert path: set
+      <code class="path">OF_REAL_THRESHOLDS_ENABLED=0</code> in
+      <code class="path">.env</code> and restart Flask — reverts all bars
+      to the original proxy thresholds.
+    </p>
+  </div>
+
+  {# ── Help — collapsible plain-English explainer ─────────────────────────#}
+  <div class="card">
+    <details>
+      <summary style="font-size:1rem; color:#fbbf24; font-weight:600;">
+        Help — What does this mean?
+      </summary>
+
+      <h2 style="margin-top:1rem;">1. What is this dashboard?</h2>
+      <p style="font-size:.92rem; line-height:1.55;">
+        Real-time monitor for <b>ESM6</b> (E-mini S&amp;P 500 futures, June
+        2026 contract) at the <b>15-minute</b> timeframe. The engine looks for
+        reversal patterns using real order-flow data (who is buying vs selling
+        each bar), then tracks how those patterns perform after they fire.
+      </p>
+
+      <h2 style="margin-top:1rem;">2. What are R1, R2, R7?</h2>
+      <p style="font-size:.92rem; line-height:1.55;">
+        <b>R1 — fade buyer dominance.</b> Many buyers hit the bar but price
+        drops anyway. Engine bets the drop continues — go short.<br>
+        <b>R2 — fade seller dominance.</b> Many sellers hit the bar but price
+        rises. Engine bets the rise continues — go long.<br>
+        <b>R7 — CVD divergence.</b> Cumulative buy minus sell volume
+        disagrees with bar direction over a 20-bar window. Engine bets price
+        will revert toward the imbalance side.
+      </p>
+
+      <h2 style="margin-top:1rem;">3. How to read the numbers</h2>
+      <ul style="font-size:.92rem; line-height:1.6; padding-left:1.2rem;">
+        <li><b>Wins X% of trades</b> — hit rate. ~50% is a coin flip;
+            &gt;55% is meaningful.</li>
+        <li><b>Average reward +X R</b> — average profit per trade, measured
+            in units of one bar's volatility (ATR). +0.5R means a typical
+            trade made half a "normal move" of profit.</li>
+        <li><b>Retention vs baseline</b> — how live performance compares to
+            the test-window calibration. 1.0 means matching; below 0.5
+            means significant decay.</li>
+        <li><b>Sample size</b> — &lt;30 trades is too small to judge. ≥30 is
+            "first check"; ≥100 is "strong read"; ≥200 is "better read".</li>
+        <li><b>Live vs historical</b> — historical = backfilled trades
+            (already happened); live = real-time ingestion since the
+            rules went live.</li>
+      </ul>
+
+      <h2 style="margin-top:1rem;">4. Why do numbers move?</h2>
+      <ul style="font-size:.92rem; line-height:1.6; padding-left:1.2rem;">
+        <li>More trades arrive each minute → counts grow.</li>
+        <li>Market regime changes (e.g. trending vs choppy) shift mean R
+            and hit rate.</li>
+        <li>Extending the historical backfill window grows the
+            historical sample and can dilute or strengthen aggregates.</li>
+        <li>Live SDK gaps (e.g. Databento upstream issue) freeze the
+            live-only counts even though historical numbers don't change.</li>
+      </ul>
+
+      <h2 style="margin-top:1rem;">5. What to do</h2>
+      <table style="margin-top:.4rem;">
+        <thead><tr><th>Situation</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>live-only sample &lt; 60</td>
+            <td>wait — sample too small for verdict</td>
+          </tr>
+          <tr>
+            <td>mean_r turns negative on n ≥ 30</td>
+            <td>investigate the affected rule one at a time</td>
+          </tr>
+          <tr>
+            <td>hit rate drops below 50%</td>
+            <td>check Recent performance card; flag a session if one is dragging</td>
+          </tr>
+          <tr>
+            <td>live tail stale &gt; 30 min</td>
+            <td>restart Flask or check Databento</td>
+          </tr>
+          <tr>
+            <td>retention &lt; 0.5 but mean_r still positive</td>
+            <td>continue monitoring, no action</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 style="margin-top:1rem;">6. Emergency revert</h2>
+      <p style="font-size:.92rem; line-height:1.55;">
+        Revert real-flow rule path to the original conservative thresholds:
+        set
+        <code class="path">OF_REAL_THRESHOLDS_ENABLED=0</code>
+        in <code class="path">.env</code> and restart Flask. All bars
+        revert to the proxy-tuned thresholds. No data is lost; the live
+        tail and historical outcomes JSONL are unaffected.
+      </p>
+    </details>
+  </div>
+
+  {% if data.generated %}
+  <div class="card">
+    <h2>
+      Generated · Freshness
+      {% if data.freshness %}
+        {% if data.freshness.label == 'fresh' %}
+          <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">FRESH</span>
+        {% elif data.freshness.label == 'recent' %}
+          <span class="pill" style="background:rgba(251,191,36,.2); color:#fbbf24;">RECENT</span>
+        {% elif data.freshness.label == 'stale' %}
+          <span class="pill" style="background:rgba(248,113,113,.2); color:#f87171;">STALE</span>
+        {% else %}
+          <span class="pill">UNKNOWN</span>
+        {% endif %}
+      {% endif %}
+    </h2>
+    <div class="kv-grid">
+      <div class="kv">
+        <div class="kv-label">Generated (UTC)</div>
+        <div class="kv-value" style="font-size:.8rem;">{{ data.generated.ts_utc }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Generated (NY)</div>
+        <div class="kv-value" style="font-size:.8rem;">{{ data.generated.ts_ny }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Latest live bar (primary)</div>
+        <div class="kv-value" style="font-size:.78rem;">
+          UTC: {{ data.latest_live_bar.primary.ts_utc }}<br>
+          NY: {{ data.latest_live_bar.primary.ts_ny }}<br>
+          <span class="muted">src: {{ data.latest_live_bar.primary.source }}</span>
+        </div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Lag (min)</div>
+        <div class="kv-value">{{ data.latest_live_bar.primary.lag_minutes }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Latest at TF ({{ data.timeframe }})</div>
+        <div class="kv-value" style="font-size:.78rem;">
+          {% if data.latest_live_bar.tf.ts_utc %}
+            UTC: {{ data.latest_live_bar.tf.ts_utc }}<br>
+            NY: {{ data.latest_live_bar.tf.ts_ny }}
+          {% else %}
+            <span class="muted">no file</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Latest at 1m</div>
+        <div class="kv-value" style="font-size:.78rem;">
+          {% if data.latest_live_bar.one_min.ts_utc %}
+            UTC: {{ data.latest_live_bar.one_min.ts_utc }}<br>
+            NY: {{ data.latest_live_bar.one_min.ts_ny }}
+          {% else %}
+            <span class="muted">no file</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Next check</div>
+        <div class="kv-value" style="font-size:.78rem;">
+          UTC: {{ data.next_check.ts_utc }}<br>
+          NY: {{ data.next_check.ts_ny }}<br>
+          <span class="muted">{{ data.next_check.rationale }}</span>
+        </div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Freshness</div>
+        <div class="kv-value" style="font-size:.78rem;">
+          {{ data.freshness.label }} · {{ data.freshness.lag_vs_period }}× period<br>
+          <span class="muted">{{ data.freshness.explanation }}</span>
+        </div>
+      </div>
+    </div>
+    {% if data.load_error %}
+    <div class="err" style="margin-top:1rem;">
+      <b>Pipeline did not run:</b> {{ data.load_error }}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if data.status %}
+  <div class="card">
+    <h2>Status — Phase 2A / 2B / Data / Volume</h2>
+    <div class="kv-grid">
+      <div class="kv">
+        <div class="kv-label">Data readiness</div>
+        <div class="kv-value">
+          {% if data.status.data_readiness.pass %}
+            <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">PASSED</span>
+          {% else %}
+            <span class="pill" style="background:rgba(251,191,36,.2); color:#fbbf24;">INSUFFICIENT</span>
+          {% endif %}
+        </div>
+        <div class="kv-label" style="margin-top:.4rem;">
+          bar_count: {{ data.status.data_readiness.checks.bar_count_ge_500 }}<br>
+          vol_match_median: {{ data.status.data_readiness.checks.vol_match_median_ok }}<br>
+          drift: {{ data.status.data_readiness.checks.drift_ok }}
+        </div>
+      </div>
+
+      <div class="kv">
+        <div class="kv-label">Phase 2A Status</div>
+        <div class="kv-value">
+          {% if data.status.phase2a_status.pass %}
+            <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">PASSED</span>
+          {% else %}
+            <span class="pill" style="background:rgba(248,113,113,.2); color:#f87171;">NEEDED</span>
+          {% endif %}
+        </div>
+        <div class="kv-label" style="margin-top:.4rem;">
+          {{ data.status.phase2a_status.scope }}<br>
+          R1 fires: {{ data.status.phase2a_status.fires_r1 }}
+          <span class="muted">| target ≥ {{ data.status.phase2a_status.fires_min }} |</span>
+          {% if data.status.phase2a_status.fires_r1 >= data.status.phase2a_status.fires_min %}
+            <span style="color:#34d399;">PASSED</span>
+          {% else %}
+            <span style="color:#f87171;">BELOW</span>
+          {% endif %}
+          <br>
+          R2 fires: {{ data.status.phase2a_status.fires_r2 }}
+          <span class="muted">| target ≥ {{ data.status.phase2a_status.fires_min }} |</span>
+          {% if data.status.phase2a_status.fires_r2 >= data.status.phase2a_status.fires_min %}
+            <span style="color:#34d399;">PASSED</span>
+          {% else %}
+            <span style="color:#f87171;">BELOW</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="kv">
+        <div class="kv-label">Phase 2B Status</div>
+        <div class="kv-value">
+          {% if data.status.phase2b_status.pass %}
+            <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">PASSED</span>
+          {% else %}
+            <span class="pill" style="background:rgba(251,191,36,.2); color:#fbbf24;">NEEDED FOR R7</span>
+          {% endif %}
+        </div>
+        <div class="kv-label" style="margin-top:.4rem;">
+          {{ data.status.phase2b_status.scope }}<br>
+          R7 fires: {{ data.status.phase2b_status.fires_r7 }}
+          <span class="muted">| target ≥ {{ data.status.phase2b_status.fires_min }} |</span>
+          {% if data.status.phase2b_status.fires_r7 >= data.status.phase2b_status.fires_min %}
+            <span style="color:#34d399;">PASSED</span>
+          {% else %}
+            <span style="color:#f87171;">BELOW</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="kv">
+        <div class="kv-label">Volume Reconciliation</div>
+        <div class="kv-value">
+          {% if data.status.volume_warning.ok %}
+            <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">OK</span>
+          {% else %}
+            <span class="pill" style="background:rgba(251,191,36,.2); color:#fbbf24;">WARNING</span>
+          {% endif %}
+        </div>
+        <div class="kv-label" style="margin-top:.4rem;">
+          mismatch_5pct: {{ data.status.volume_warning.actual }}<br>
+          <em>{{ data.status.volume_warning.note }}</em>
+        </div>
+      </div>
+    </div>
+    <p class="btn-tip" style="margin-top:.6rem;">
+      <em>Target</em> = minimum number of real-flow fires required for the
+      Phase 2A readiness gate. Once a rule's fire count meets or exceeds the
+      target, that rule's gate is PASSED.
+    </p>
+  </div>
+  {% endif %}
+
+  {% if data.phase2_gates %}
+  <div class="card">
+    <h2>Phase 2 Gate Detail (raw)</h2>
+    <table>
+      <thead><tr>
+        <th>Gate</th><th>Target</th><th>Actual</th><th>Status</th>
+      </tr></thead>
+      <tbody>
+        {% for key, g in data.phase2_gates.items() if key != "all_pass" %}
+        <tr>
+          <td>{{ key }}</td>
+          <td class="muted">{{ g.target }}</td>
+          <td>{{ g.actual }}</td>
+          <td class="{{ 'delta-pos' if g.pass else 'delta-neg' }}">
+            {{ "PASS" if g.pass else "FAIL" }}
+            {% if g.note %}<span class="muted"> · {{ g.note }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if data.monitoring %}
+  <div class="card">
+    <h2>Daily Metrics — {{ data.monitoring.today_utc }}</h2>
+    <div class="kv-grid">
+      <div class="kv">
+        <div class="kv-label">Bars added today</div>
+        <div class="kv-value">{{ data.monitoring.bars_added_today }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Joined bars (cum)</div>
+        <div class="kv-value">{{ data.monitoring.joined_bar_count }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Live NaN rows</div>
+        <div class="kv-value">{{ data.monitoring.live_nan_rows }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">delta_ratio drift %</div>
+        <div class="kv-value">
+          {% if data.monitoring.delta_ratio_drift.drift_pct is not none %}
+            {{ data.monitoring.delta_ratio_drift.drift_pct }}
+          {% else %}
+            <span class="muted" style="font-size:.75rem;">{{ data.monitoring.delta_ratio_drift.note }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">vol_match median</div>
+        <div class="kv-value">{{ data.monitoring.vol_match.median }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">vol_match IQR</div>
+        <div class="kv-value">{{ data.monitoring.vol_match.iqr }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">vol mismatch &gt;5%</div>
+        <div class="kv-value">{{ data.monitoring.vol_match.mismatch_5pct_rate }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">vol_match n_bars</div>
+        <div class="kv-value">{{ data.monitoring.vol_match.n_bars }}</div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:1rem;">Session split (vol_match)</h2>
+    <table>
+      <thead><tr>
+        <th>Session</th><th>n bars</th>
+        <th>vol_match median</th><th>mismatch &gt;5%</th>
+      </tr></thead>
+      <tbody>
+        {% for sess in ["RTH", "ETH"] %}
+          {% set s = data.monitoring.session_split[sess] %}
+          <tr>
+            <td>{{ sess }}</td>
+            <td>{{ s.n_bars }}</td>
+            <td>{{ s.vol_match_median }}</td>
+            <td>{{ s.mismatch_5pct_rate }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h2 style="margin-top:1rem;">Real-flow rule fires (cumulative, joined window)</h2>
+    <table>
+      <thead><tr>
+        <th>Rule</th><th>Cumulative fires</th><th>Gate (R1/R2/R7)</th>
+      </tr></thead>
+      <tbody>
+        {% for rule, n in data.monitoring.real_fires_cumulative.items() %}
+        <tr>
+          <td>{{ rule }}</td>
+          <td>{{ n }}</td>
+          <td class="muted">
+            {% if rule in ["r1_buyer_down", "r2_seller_up", "r7_cvd_divergence"] %}
+              need ≥10 ({{ n }}/10)
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if outcomes %}
+  <div class="card">
+    <h2>
+      Phase 2A Live Outcomes
+      {% set lbl = outcomes.sample_size_label %}
+      {% if lbl in ['better read', 'strong read'] %}
+        <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">{{ lbl }}</span>
+      {% elif lbl in ['first check'] %}
+        <span class="pill" style="background:rgba(52,211,153,.2); color:#34d399;">{{ lbl }}</span>
+      {% elif lbl == 'early read' %}
+        <span class="pill" style="background:rgba(251,191,36,.2); color:#fbbf24;">{{ lbl }}</span>
+      {% else %}
+        <span class="pill" style="background:#334155; color:var(--muted);">{{ lbl }}</span>
+      {% endif %}
+    </h2>
+
+    <div class="kv-grid">
+      <div class="kv">
+        <div class="kv-label">Settled</div>
+        <div class="kv-value">{{ outcomes.n_settled }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Pending</div>
+        <div class="kv-value">{{ outcomes.n_pending }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Alerts / day</div>
+        <div class="kv-value">{{ outcomes.alerts_per_day }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Since</div>
+        <div class="kv-value" style="font-size:.78rem;">
+          {{ outcomes.since or "—" }}
+        </div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:1rem;">Per rule</h2>
+    <div class="scroll-x"><table id="outcomesByRule">
+      <thead><tr>
+        <th>rule</th><th>n</th><th>wins</th><th>losses</th>
+        <th>hit_rate</th><th>mean_r</th><th>hit_1r</th><th>stop_1atr</th>
+        <th>vs baseline</th>
+      </tr></thead>
+      <tbody>
+      {% for rule in ['r1_buyer_down', 'r2_seller_up'] %}
+        {% set s = outcomes.by_rule.get(rule, {}) %}
+        {% set vb = outcomes.vs_baseline.get(rule, {}) %}
+        <tr>
+          <td>{{ rule }}</td>
+          <td>{{ s.n or 0 }}</td>
+          <td>{{ s.wins or 0 }}</td>
+          <td>{{ s.losses or 0 }}</td>
+          <td>{{ s.hit_rate }}</td>
+          <td class="{% if s.mean_r and s.mean_r > 0 %}delta-pos{% elif s.mean_r and s.mean_r < 0 %}delta-neg{% endif %}">{{ s.mean_r }}</td>
+          <td class="muted">{{ s.hit_1r_rate }}</td>
+          <td class="muted">{{ s.stopped_out_rate }}</td>
+          <td class="muted">
+            base={{ vb.baseline_mean_r }} · live={{ vb.live_mean_r }} · ret={{ vb.retention_pct }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+
+    <h2 style="margin-top:1rem;">Per session</h2>
+    <div class="scroll-x"><table id="outcomesBySession">
+      <thead><tr>
+        <th>session</th><th>n</th><th>wins</th><th>hit_rate</th><th>mean_r</th>
+      </tr></thead>
+      <tbody>
+      {% for sess in ['RTH_open', 'RTH_mid', 'RTH_close', 'ETH'] %}
+        {% set s = outcomes.by_session.get(sess, {}) %}
+        <tr>
+          <td>{{ sess }}</td>
+          <td>{{ s.n or 0 }}</td>
+          <td>{{ s.wins or 0 }}</td>
+          <td>{{ s.hit_rate }}</td>
+          <td class="{% if s.mean_r and s.mean_r > 0 %}delta-pos{% elif s.mean_r and s.mean_r < 0 %}delta-neg{% endif %}">{{ s.mean_r }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+
+    <p class="btn-tip" style="margin-top:.6rem;">
+      Read-only tracker — no auto-action. Manual revert path:
+      <code class="path">OF_REAL_THRESHOLDS_ENABLED=0</code>.
+    </p>
+  </div>
+  {% endif %}
+
+  {% if r7_shadow %}
+  <div class="card">
+    <h2>
+      R7 Shadow Mode — Diagnostic Only
+      <span class="pill" style="background:rgba(248,113,113,.2); color:#f87171;">SHADOW</span>
+    </h2>
+
+    <div class="err" style="margin-bottom:1rem;">
+      <b>SHADOW ONLY</b> — not used in alerts, rules, model, or trading.
+      Production R7 still fires at threshold
+      <code class="path">{{ r7_shadow.production_threshold }}</code>.
+    </div>
+
+    <div class="kv-grid">
+      <div class="kv">
+        <div class="kv-label">Shadow threshold</div>
+        <div class="kv-value">{{ r7_shadow.shadow_threshold }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Production threshold</div>
+        <div class="kv-value">{{ r7_shadow.production_threshold }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Settled</div>
+        <div class="kv-value" id="r7sN">{{ r7_shadow.n_settled }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Pending</div>
+        <div class="kv-value" id="r7sP">{{ r7_shadow.n_pending }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Hit rate</div>
+        <div class="kv-value" id="r7sHit">{{ r7_shadow.overall.hit_rate }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Mean R</div>
+        <div class="kv-value" id="r7sMr">{{ r7_shadow.overall.mean_r }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Hit 1R rate</div>
+        <div class="kv-value" id="r7sHit1r">{{ r7_shadow.overall.hit_1r_rate }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Stopped 1ATR rate</div>
+        <div class="kv-value" id="r7sStop">{{ r7_shadow.overall.stopped_out_rate }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Alerts / day</div>
+        <div class="kv-value" id="r7sApd">{{ r7_shadow.alerts_per_day }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Retention vs Phase 2B baseline</div>
+        <div class="kv-value" id="r7sRet">{{ r7_shadow.vs_shadow_baseline.retention_pct }}</div>
+        <div class="kv-label" style="margin-top:.2rem;">
+          baseline mean_r = {{ r7_shadow.vs_shadow_baseline.baseline_test_mean_r }}
+        </div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Sample size label</div>
+        <div class="kv-value" id="r7sLabel">{{ r7_shadow.sample_size_label }}</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Since</div>
+        <div class="kv-value" style="font-size:.78rem;">{{ r7_shadow.since or "—" }}</div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:1rem;">Historical vs Live</h2>
+    <div class="scroll-x"><table id="r7sByMode">
+      <thead><tr>
+        <th>mode</th><th>n</th><th>wins</th><th>losses</th>
+        <th>hit_rate</th><th>mean_r</th>
+      </tr></thead>
+      <tbody>
+      {% for mode in ['historical', 'live'] %}
+        {% set s = r7_shadow.by_mode.get(mode, {}) %}
+        <tr>
+          <td>{{ mode }}</td>
+          <td>{{ s.n or 0 }}</td>
+          <td>{{ s.wins or 0 }}</td>
+          <td>{{ s.losses or 0 }}</td>
+          <td>{{ s.hit_rate }}</td>
+          <td class="{% if s.mean_r and s.mean_r > 0 %}delta-pos{% elif s.mean_r and s.mean_r < 0 %}delta-neg{% endif %}">{{ s.mean_r }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+
+    <h2 style="margin-top:1rem;">Last 10 shadow outcomes</h2>
+    <div class="scroll-x"><table id="r7sRecent">
+      <thead><tr>
+        <th>fire_ts</th><th>mode</th><th>session</th><th>direction</th>
+        <th>fwd_r</th><th>outcome</th><th>hit_1r</th><th>stopped</th>
+      </tr></thead>
+      <tbody>
+      {% for r in r7_shadow.recent %}
+        <tr>
+          <td>{{ r.fire_ts_utc }}</td>
+          <td>{{ r.mode }}</td>
+          <td>{{ r.session }}</td>
+          <td>{{ r.direction }}</td>
+          <td class="{% if r.fwd_r_signed and r.fwd_r_signed > 0 %}delta-pos{% elif r.fwd_r_signed and r.fwd_r_signed < 0 %}delta-neg{% endif %}">{{ r.fwd_r_signed }}</td>
+          <td>{{ r.outcome }}</td>
+          <td class="muted">{{ r.hit_1r }}</td>
+          <td class="muted">{{ r.stopped_out_1atr }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+
+    <p class="btn-tip" style="margin-top:.6rem;">
+      Read-only display — page does NOT trigger <code class="path">shadow_pass</code>.
+      Monitor loop owns the cadence (runs every 15 min).
+    </p>
+  </div>
+  {% endif %}
+
+  {% if live_signals is defined %}
+  <div class="card" style="border-left:4px solid #38bdf8;">
+    <h2 style="font-size:1rem; color:#38bdf8;">Live Signal Trade Details</h2>
+    <p class="muted" style="font-size:.8rem;">
+      Read-only. Live-only R1, R2, R7 shadow signals. Stop = 1×ATR opposite to direction.
+      Target = 1×ATR with direction. Max profit / max loss = forward extent within 12-bar horizon.
+    </p>
+    {% if live_signals %}
+    <div class="scroll-x"><table>
+      <thead><tr>
+        <th>rule</th>
+        <th>fire (NY)</th>
+        <th>session</th>
+        <th>dir</th>
+        <th>entry</th>
+        <th>stop</th>
+        <th>target</th>
+        <th>max profit</th>
+        <th>max loss</th>
+        <th>final R</th>
+        <th>outcome</th>
+        <th>status</th>
+      </tr></thead>
+      <tbody>
+      {% for r in live_signals %}
+        <tr>
+          <td>{{ r.rule }}</td>
+          <td>{{ r.fire_ts_ny }}</td>
+          <td>{{ r.session }}</td>
+          <td>{{ r.direction }}</td>
+          <td>{{ r.entry }}</td>
+          <td>{{ r.stop }}</td>
+          <td>{{ r.target }}</td>
+          <td>{{ r.mfe_price if r.mfe_price is not none else "—" }}</td>
+          <td>{{ r.mae_price if r.mae_price is not none else "—" }}</td>
+          <td class="{% if r.final_r is not none and r.final_r > 0 %}delta-pos{% elif r.final_r is not none and r.final_r < 0 %}delta-neg{% endif %}">{{ r.final_r if r.final_r is not none else "—" }}</td>
+          <td>{{ r.outcome }}</td>
+          <td class="muted">{{ r.status }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    <p class="muted">No live signals yet — live-mode fires accumulate as the live tail rolls forward.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if data.joined %}
+  <div class="card">
+    <h2>Joined Window</h2>
+    <div class="kv-grid">
+      <div class="kv"><div class="kv-label">Start</div><div class="kv-value">{{ data.joined.start }}</div></div>
+      <div class="kv"><div class="kv-label">End</div><div class="kv-value">{{ data.joined.end }}</div></div>
+      <div class="kv"><div class="kv-label">N bars</div><div class="kv-value">{{ data.joined.n_bars }}</div></div>
+      <div class="kv">
+        <div class="kv-label">Thresholds</div>
+        <div class="kv-value" style="font-size:.85rem;">
+          dom={{ data.thresholds.RULE_DELTA_DOMINANCE }} ·
+          abs={{ data.thresholds.RULE_ABSORPTION_DELTA }} ·
+          trap={{ data.thresholds.RULE_TRAP_DELTA }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Distribution — proxy vs real</h2>
+    <div class="scroll-x"><table>
+      <thead><tr>
+        <th>Metric</th><th>mean</th><th>std</th><th>min</th>
+        <th>p25</th><th>p50</th><th>p75</th><th>max</th><th>extra</th>
+      </tr></thead>
+      <tbody>
+      {% for src in ["proxy", "real"] %}
+        {% set d = data.distribution[src] %}
+        <tr>
+          <td><b>{{ src }}</b> · delta_ratio</td>
+          <td class="{{ src }}">{{ d.delta_ratio.mean }}</td>
+          <td class="{{ src }}">{{ d.delta_ratio.std }}</td>
+          <td class="{{ src }}">{{ d.delta_ratio.min }}</td>
+          <td class="{{ src }}">{{ d.delta_ratio.p25 }}</td>
+          <td class="{{ src }}">{{ d.delta_ratio.p50 }}</td>
+          <td class="{{ src }}">{{ d.delta_ratio.p75 }}</td>
+          <td class="{{ src }}">{{ d.delta_ratio.max }}</td>
+          <td class="muted">|dr|≥dom: {{ d.delta_ratio.frac_abs_ge_dominance }} ·
+                            |dr|≥abs: {{ d.delta_ratio.frac_abs_ge_absorption }} ·
+                            |dr|≥trap: {{ d.delta_ratio.frac_abs_ge_trap }}</td>
+        </tr>
+        <tr>
+          <td><b>{{ src }}</b> · cvd_z</td>
+          <td class="{{ src }}">{{ d.cvd_z.mean }}</td>
+          <td class="{{ src }}">{{ d.cvd_z.std }}</td>
+          <td class="{{ src }}">{{ d.cvd_z.min }}</td>
+          <td class="{{ src }}">{{ d.cvd_z.p25 }}</td>
+          <td class="{{ src }}">{{ d.cvd_z.p50 }}</td>
+          <td class="{{ src }}">{{ d.cvd_z.p75 }}</td>
+          <td class="{{ src }}">{{ d.cvd_z.max }}</td>
+          <td class="muted"></td>
+        </tr>
+        <tr>
+          <td><b>{{ src }}</b> · buy_share</td>
+          <td class="{{ src }}">{{ d.buy_share.mean }}</td>
+          <td class="{{ src }}">{{ d.buy_share.std }}</td>
+          <td class="{{ src }}">{{ d.buy_share.min }}</td>
+          <td class="{{ src }}">{{ d.buy_share.p25 }}</td>
+          <td class="{{ src }}">{{ d.buy_share.p50 }}</td>
+          <td class="{{ src }}">{{ d.buy_share.p75 }}</td>
+          <td class="{{ src }}">{{ d.buy_share.max }}</td>
+          <td class="muted"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2>Volume reconciliation (real_total / cache_volume)</h2>
+    <div class="kv-grid">
+      <div class="kv"><div class="kv-label">Mean</div><div class="kv-value">{{ data.volume_recon.mean }}</div></div>
+      <div class="kv"><div class="kv-label">Min</div><div class="kv-value">{{ data.volume_recon.min }}</div></div>
+      <div class="kv"><div class="kv-label">Max</div><div class="kv-value">{{ data.volume_recon.max }}</div></div>
+      <div class="kv">
+        <div class="kv-label">Mismatches &gt; 5%</div>
+        <div class="kv-value">{{ data.volume_recon.n_mismatch_5pct }} / {{ data.volume_recon.n_bars }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Threshold sensitivity — R1/R2 fires by RULE_DELTA_DOMINANCE</h2>
+    <div class="scroll-x"><table>
+      <thead><tr>
+        <th>threshold</th>
+        <th>proxy R1</th><th>proxy R2</th>
+        <th>real R1</th><th>real R2</th>
+      </tr></thead>
+      <tbody>
+      {% for thr, p in data.threshold_sensitivity.proxy.items() %}
+        {% set r = data.threshold_sensitivity.real[thr] %}
+        <tr>
+          <td>{{ thr }}</td>
+          <td class="proxy">{{ p.r1_buyer_down }}</td>
+          <td class="proxy">{{ p.r2_seller_up }}</td>
+          <td class="real">{{ r.r1_buyer_down }}</td>
+          <td class="real">{{ r.r2_seller_up }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2>Top diff bars (|proxy_dr − real_dr|)</h2>
+    <div class="scroll-x"><table>
+      <thead><tr>
+        <th>ts</th>
+        <th>proxy dr</th><th>real dr</th>
+        <th>|diff|</th>
+        <th>vol_match</th>
+        <th>proxy rules</th>
+        <th>real rules</th>
+      </tr></thead>
+      <tbody>
+      {% for b in data.top_diff_bars %}
+        <tr>
+          <td>{{ b.ts }}</td>
+          <td class="proxy">{{ b.proxy_delta_ratio }}</td>
+          <td class="real">{{ b.real_delta_ratio }}</td>
+          <td>{{ b.abs_diff }}</td>
+          <td class="muted">{{ b.vol_match_pct }}</td>
+          <td>{% for r in b.proxy_rules_fired %}<span class="pill">{{ r }}</span>{% endfor %}</td>
+          <td>{% for r in b.real_rules_fired %}<span class="pill">{{ r }}</span>{% endfor %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2>Per-bar trace</h2>
+    <details>
+      <summary>{{ data.bars | length }} bars — click to expand</summary>
+      <div class="scroll-y scroll-x">
+        <table>
+          <thead><tr>
+            <th>ts</th>
+            <th>Close</th>
+            <th>cache vol</th>
+            <th>real total</th>
+            <th>vol match</th>
+            <th>clv</th>
+            <th>proxy buy%</th>
+            <th>real buy%</th>
+            <th>proxy dr</th>
+            <th>real dr</th>
+            <th>proxy cvd_z</th>
+            <th>real cvd_z</th>
+            <th>proxy rules</th>
+            <th>real rules</th>
+          </tr></thead>
+          <tbody>
+          {% for b in data.bars %}
+            <tr>
+              <td>{{ b.ts }}</td>
+              <td>{{ b.Close }}</td>
+              <td class="muted">{{ b.cache_volume }}</td>
+              <td class="muted">{{ b.real_total_vol }}</td>
+              <td class="muted">{{ b.vol_match_pct }}</td>
+              <td class="muted">{{ b.clv }}</td>
+              <td class="proxy">{{ b.proxy_buy_share }}</td>
+              <td class="real">{{ b.real_buy_share }}</td>
+              <td class="proxy">{{ b.proxy_delta_ratio }}</td>
+              <td class="real">{{ b.real_delta_ratio }}</td>
+              <td class="proxy">{{ b.proxy_cvd_z }}</td>
+              <td class="real">{{ b.real_cvd_z }}</td>
+              <td>{% for r in b.proxy_rules_fired %}<span class="pill">{{ r }}</span>{% endfor %}</td>
+              <td>{% for r in b.real_rules_fired %}<span class="pill">{{ r }}</span>{% endfor %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+  {% endif %}{# data.joined #}
+  {% endif %}{# data #}
+</main>
+
+<script>
+function reload(regenerate) {
+  const sym = document.getElementById("sym").value.trim() || "ESM6";
+  const tf  = document.getElementById("tf").value.trim()  || "15m";
+  const url = new URL(window.location.href);
+  url.searchParams.set("symbol", sym);
+  url.searchParams.set("tf", tf);
+  if (regenerate) {
+    fetch(`/api/order-flow/realflow-diagnostic?symbol=${sym}&tf=${tf}&regenerate=1`)
+      .then(r => r.json())
+      .then(() => { window.location.href = url.toString(); })
+      .catch(e => alert("Regenerate failed: " + e));
+  } else {
+    window.location.href = url.toString();
+  }
+}
+
+function applyBtnStatus(s) {
+  if (!s) return;
+  const btn = document.getElementById("regenBtn");
+  const tip = document.getElementById("regenTip");
+  if (!btn || !tip) return;
+  btn.classList.remove("btn-new", "btn-stale", "btn-uptodate");
+  if (s.state === "new_data") btn.classList.add("btn-new");
+  else if (s.state === "stale") btn.classList.add("btn-stale");
+  else btn.classList.add("btn-uptodate");
+  btn.textContent = s.label;
+  const last  = (s.last_regen        && s.last_regen.ts_ny) || "—";
+  const live  = (s.current_live_max  && s.current_live_max.ts_ny) || "—";
+  const lag   = (s.lag_minutes_now  != null) ? s.lag_minutes_now + " min" : "—";
+  tip.innerHTML =
+    "Last regenerated: " + last + "<br>" +
+    "Current live max: " + live + "<br>" +
+    "Live lag: " + lag;
+}
+
+// ── Auto-regenerate (opt-in, rate-limited, paused on hidden tab) ───────────
+const AUTO_KEY = "realflow_auto_regenerate";
+const AUTO_LAST_KEY = "realflow_auto_last_ts";
+const AUTO_MIN_INTERVAL_MS = 60 * 1000;   // ≥ 60s between auto-fires
+let autoFiring = false;
+
+function getAutoEnabled() {
+  return localStorage.getItem(AUTO_KEY) === "1";
+}
+function setAutoEnabled(v) {
+  localStorage.setItem(AUTO_KEY, v ? "1" : "0");
+  document.getElementById("autoPill").style.display = v ? "inline-block" : "none";
+}
+function getLastAutoFireMs() {
+  const v = localStorage.getItem(AUTO_LAST_KEY);
+  return v ? parseInt(v, 10) : 0;
+}
+function recordAutoFire(tsMs) {
+  localStorage.setItem(AUTO_LAST_KEY, String(tsMs));
+  const line = document.getElementById("lastAutoLine");
+  const t = new Date(tsMs).toLocaleString("en-US", {
+    timeZone: "America/New_York", hour12: false
+  });
+  line.textContent = "Last auto-regenerated: " + t + " NY";
+  line.style.display = "inline";
+}
+
+function maybeAutoRegen(state) {
+  if (!getAutoEnabled())            return;
+  if (state !== "new_data")         return;     // skip on stale / up_to_date
+  if (document.visibilityState !== "visible") return;
+  const now = Date.now();
+  if (now - getLastAutoFireMs() < AUTO_MIN_INTERVAL_MS) return;
+  if (autoFiring) return;
+
+  const sym = document.getElementById("sym").value.trim() || "ESM6";
+  const tf  = document.getElementById("tf").value.trim()  || "15m";
+  autoFiring = true;
+  recordAutoFire(now);
+  fetch(`/api/order-flow/realflow-diagnostic?symbol=${sym}&tf=${tf}&regenerate=1`)
+    .then(r => r.json())
+    .then(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("symbol", sym);
+      url.searchParams.set("tf", tf);
+      window.location.href = url.toString();   // full reload, same as manual
+    })
+    .catch(() => { autoFiring = false; });
+}
+
+function pollBtnStatus() {
+  const sym = document.getElementById("sym").value.trim() || "ESM6";
+  const tf  = document.getElementById("tf").value.trim()  || "15m";
+  fetch(`/api/order-flow/realflow-diagnostic-status?symbol=${sym}&tf=${tf}`)
+    .then(r => r.json())
+    .then(s => {
+      if (s.error) return;
+      applyBtnStatus(s);
+      maybeAutoRegen(s.state);
+    })
+    .catch(() => {});
+}
+
+// init checkbox + pill from localStorage on load
+(function initAuto() {
+  const chk = document.getElementById("autoRegenChk");
+  const enabled = getAutoEnabled();
+  chk.checked = enabled;
+  document.getElementById("autoPill").style.display = enabled ? "inline-block" : "none";
+  chk.addEventListener("change", () => setAutoEnabled(chk.checked));
+  // Show last-auto line if a prior session recorded one.
+  const last = getLastAutoFireMs();
+  if (last) {
+    const line = document.getElementById("lastAutoLine");
+    const t = new Date(last).toLocaleString("en-US", {
+      timeZone: "America/New_York", hour12: false
+    });
+    line.textContent = "Last auto-regenerated: " + t + " NY";
+    line.style.display = "inline";
+  }
+})();
+
+setInterval(pollBtnStatus, 30000);
+
+// ── Phase 2D outcomes refresh (read-only) ──────────────────────────────────
+function refreshOutcomes() {
+  const sym = document.getElementById("sym").value.trim() || "ESM6";
+  const tf  = document.getElementById("tf").value.trim()  || "15m";
+  fetch(`/api/order-flow/realflow-outcomes?symbol=${sym}&tf=${tf}&settle=1`)
+    .then(r => r.json())
+    .then(s => { if (!s.error) applyOutcomes(s); })
+    .catch(() => {});
+}
+
+function applyOutcomes(s) {
+  const ruleTable = document.getElementById("outcomesByRule");
+  const sessTable = document.getElementById("outcomesBySession");
+  if (!ruleTable || !sessTable) return;
+  // rule rows
+  const ruleBody = ruleTable.querySelector("tbody");
+  ruleBody.innerHTML = "";
+  ["r1_buyer_down", "r2_seller_up"].forEach(rule => {
+    const r = (s.by_rule || {})[rule] || {};
+    const vb = (s.vs_baseline || {})[rule] || {};
+    const mrCls = (r.mean_r > 0) ? "delta-pos" : (r.mean_r < 0) ? "delta-neg" : "";
+    ruleBody.insertAdjacentHTML("beforeend",
+      `<tr>
+        <td>${rule}</td>
+        <td>${r.n || 0}</td>
+        <td>${r.wins || 0}</td>
+        <td>${r.losses || 0}</td>
+        <td>${r.hit_rate ?? "—"}</td>
+        <td class="${mrCls}">${r.mean_r ?? "—"}</td>
+        <td class="muted">${r.hit_1r_rate ?? "—"}</td>
+        <td class="muted">${r.stopped_out_rate ?? "—"}</td>
+        <td class="muted">base=${vb.baseline_mean_r} · live=${vb.live_mean_r} · ret=${vb.retention_pct}</td>
+      </tr>`);
+  });
+  // session rows
+  const sessBody = sessTable.querySelector("tbody");
+  sessBody.innerHTML = "";
+  ["RTH_open", "RTH_mid", "RTH_close", "ETH"].forEach(sess => {
+    const r = (s.by_session || {})[sess] || {};
+    const mrCls = (r.mean_r > 0) ? "delta-pos" : (r.mean_r < 0) ? "delta-neg" : "";
+    sessBody.insertAdjacentHTML("beforeend",
+      `<tr>
+        <td>${sess}</td>
+        <td>${r.n || 0}</td>
+        <td>${r.wins || 0}</td>
+        <td>${r.hit_rate ?? "—"}</td>
+        <td class="${mrCls}">${r.mean_r ?? "—"}</td>
+      </tr>`);
+  });
+}
+
+setInterval(refreshOutcomes, 30000);
+
+// ── R7 shadow refresh (read-only — no shadow_pass trigger) ────────────────
+function refreshR7Shadow() {
+  const sym = document.getElementById("sym").value.trim() || "ESM6";
+  const tf  = document.getElementById("tf").value.trim()  || "15m";
+  fetch(`/api/order-flow/r7-shadow?symbol=${sym}&tf=${tf}&n_recent=10`)
+    .then(r => r.json())
+    .then(s => { if (!s.error) applyR7Shadow(s); })
+    .catch(() => {});
+}
+
+function applyR7Shadow(s) {
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = (v === null || v === undefined) ? "—" : v;
+  };
+  set("r7sN",     s.n_settled);
+  set("r7sP",     s.n_pending);
+  set("r7sHit",   (s.overall || {}).hit_rate);
+  set("r7sMr",    (s.overall || {}).mean_r);
+  set("r7sHit1r", (s.overall || {}).hit_1r_rate);
+  set("r7sStop",  (s.overall || {}).stopped_out_rate);
+  set("r7sApd",   s.alerts_per_day);
+  set("r7sRet",   (s.vs_shadow_baseline || {}).retention_pct);
+  set("r7sLabel", s.sample_size_label);
+
+  const modeTable = document.getElementById("r7sByMode");
+  if (modeTable) {
+    const body = modeTable.querySelector("tbody");
+    body.innerHTML = "";
+    ["historical", "live"].forEach(mode => {
+      const r = (s.by_mode || {})[mode] || {};
+      const cls = (r.mean_r > 0) ? "delta-pos" : (r.mean_r < 0) ? "delta-neg" : "";
+      body.insertAdjacentHTML("beforeend",
+        `<tr>
+          <td>${mode}</td>
+          <td>${r.n || 0}</td>
+          <td>${r.wins || 0}</td>
+          <td>${r.losses || 0}</td>
+          <td>${r.hit_rate ?? "—"}</td>
+          <td class="${cls}">${r.mean_r ?? "—"}</td>
+        </tr>`);
+    });
+  }
+
+  const recentTable = document.getElementById("r7sRecent");
+  if (recentTable) {
+    const body = recentTable.querySelector("tbody");
+    body.innerHTML = "";
+    (s.recent || []).forEach(r => {
+      const cls = (r.fwd_r_signed > 0) ? "delta-pos" : (r.fwd_r_signed < 0) ? "delta-neg" : "";
+      body.insertAdjacentHTML("beforeend",
+        `<tr>
+          <td>${r.fire_ts_utc}</td>
+          <td>${r.mode}</td>
+          <td>${r.session}</td>
+          <td>${r.direction}</td>
+          <td class="${cls}">${r.fwd_r_signed ?? "—"}</td>
+          <td>${r.outcome}</td>
+          <td class="muted">${r.hit_1r}</td>
+          <td class="muted">${r.stopped_out_1atr}</td>
+        </tr>`);
+    });
+  }
+}
+
+setInterval(refreshR7Shadow, 30000);
+</script>
+</body>
+</html>

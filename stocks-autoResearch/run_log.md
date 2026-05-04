@@ -293,3 +293,13 @@
 - **Experiment note**: cycle-5
 - **Promoted**: no
 
+## Cycle 6 — 2026-05-03T03:20:11+00:00
+
+- **Dataset**: rows=16053, cols=23, last=2026-04-30, tickers=20
+- **Eval (production)**: mean_acc=0.5242, sharpe=2.0685, dd=0.032, version=s1776896677
+- **Per-ticker**: top=[AAPL:0.65, MA:0.58, MSFT:0.58, XOM:0.58, GOOG:0.57], bottom=[META:0.45, AMZN:0.40, COST:0.35]
+- **Candidate**: version=s1777778411, mean_acc=0.505, sharpe=0.7174, dd=0.052
+- **Hyperparams**: `{"xgb": {"max_depth": 8, "learning_rate": 0.05, "n_estimators": 300}, "ticker_map_size": 20}`
+- **Experiment note**: cycle-6
+- **Promoted**: no
+

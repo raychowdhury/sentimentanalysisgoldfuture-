@@ -846,86 +846,6 @@ def register(app: Flask) -> None:
         rows.sort(key=lambda x: x.get("fire_ts_ny") or "")
         return rows
 
-    def _live_checkpoints(symbol: str, tf: str) -> list[dict]:
-        """Per-rule checkpoint classifications at n=10/15/30 levels.
-        Read-only. Returns list of cells across (R1, R2, R7 shadow) × levels.
-        Status: NOT_REACHED | OK | WARN. WARN if mean_r <= 0 OR retention < 0.5
-        OR hit_rate < 0.45 once n threshold is met."""
-
-        BASELINES = {
-            "r1_buyer_down":            1.18,
-            "r2_seller_up":             0.75,
-            "r7_cvd_divergence_shadow": 0.7135,
-        }
-
-        out_path = of_cfg.OF_OUTPUT_DIR / f"realflow_outcomes_{symbol}_{tf}.jsonl"
-        sh_path  = of_cfg.OF_OUTPUT_DIR / f"realflow_r7_shadow_outcomes_{symbol}_{tf}.jsonl"
-
-        stats = {k: {"n": 0, "wins": 0, "rs": []} for k in BASELINES}
-
-        def ingest(path):
-            if not path.exists():
-                return
-            try:
-                with path.open() as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            r = json.loads(line)
-                        except Exception:
-                            continue
-                        if r.get("mode") != "live":
-                            continue
-                        rule = r.get("rule")
-                        if rule not in stats:
-                            continue
-                        bucket = stats[rule]
-                        bucket["n"] += 1
-                        if r.get("outcome") == "win":
-                            bucket["wins"] += 1
-                        fr = r.get("fwd_r_signed")
-                        if fr is not None:
-                            bucket["rs"].append(fr)
-            except Exception:
-                pass
-
-        ingest(out_path)
-        ingest(sh_path)
-
-        cells: list[dict] = []
-        for rule, baseline in BASELINES.items():
-            s = stats[rule]
-            n = s["n"]
-            if n > 0:
-                mean_r = sum(s["rs"]) / len(s["rs"]) if s["rs"] else 0.0
-                hit_rate = s["wins"] / n
-                retention = (mean_r / baseline) if baseline else 0.0
-            else:
-                mean_r = hit_rate = retention = None
-
-            for level in (10, 15, 30):
-                if n < level:
-                    cells.append({
-                        "rule": rule, "level": level, "n": n,
-                        "status": "NOT_REACHED",
-                        "mean_r": round(mean_r, 4) if mean_r is not None else None,
-                        "retention": round(retention, 4) if retention is not None else None,
-                        "hit_rate": round(hit_rate, 4) if hit_rate is not None else None,
-                    })
-                    continue
-                warn = (mean_r is not None
-                        and (mean_r <= 0 or retention < 0.5 or hit_rate < 0.45))
-                cells.append({
-                    "rule": rule, "level": level, "n": n,
-                    "status": "WARN" if warn else "OK",
-                    "mean_r": round(mean_r, 4),
-                    "retention": round(retention, 4),
-                    "hit_rate": round(hit_rate, 4),
-                })
-        return cells
-
     def _trader_summary(symbol: str, tf: str,
                         outcomes: dict | None,
                         r7_shadow: dict | None) -> dict:
@@ -1135,17 +1055,12 @@ def register(app: Flask) -> None:
             trader = _trader_summary(symbol, tf, outcomes, r7_shadow)
         except Exception:
             trader = None
-        try:
-            checkpoints = _live_checkpoints(symbol, tf)
-        except Exception:
-            checkpoints = []
         return render_template(
             "realflow_diagnostic.html",
             symbol=symbol, tf=tf, data=data, error=error,
             json_path=str(path), button_status=button_status,
             outcomes=outcomes, r7_shadow=r7_shadow,
             live_signals=live_signals, trader=trader,
-            checkpoints=checkpoints,
         )
 
     def _outcomes_summary_path(symbol: str, tf: str) -> Path:
