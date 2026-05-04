@@ -11,7 +11,9 @@
       "Bash(ls .venv/bin/python*)",
       "Bash(.venv/bin/python -c ' *)",
       "Bash(.venv/bin/python -m order_flow_engine.src.monitor_loop --symbol ESM6 --tf 15m --interval 900 --max-iterations 1 --log /tmp/monitor-test.log)",
-      "Bash(.venv/bin/python -m pytest order_flow_engine/tests/ -q)"
+      "Bash(.venv/bin/python -m pytest order_flow_engine/tests/ -q)",
+      "Bash(curl -s -o /dev/null -w \"diagnostic: HTTP %{http_code}\\\\n\" \"http://localhost:5001/order-flow/realflow-diagnostic?symbol=ESM6&tf=15m\")",
+      "Bash(curl -s -w \"\\\\ncheckpoints API: HTTP %{http_code} bytes=%{size_download}\\\\n\" \"http://localhost:5001/api/order-flow/checkpoints?symbol=ESM6&tf=15m\")"
     ]
   }
 }

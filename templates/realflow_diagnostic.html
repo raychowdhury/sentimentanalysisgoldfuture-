@@ -259,7 +259,7 @@
       WARN if mean_r ≤ 0, retention &lt; 0.5, or hit_rate &lt; 0.45.
       Baselines: R1=1.18 · R2=0.75 · R7 shadow=0.7135.
     </p>
-    <div class="scroll-x"><table>
+    <div class="scroll-x"><table id="checkpointsTable">
       <thead><tr>
         <th>rule</th>
         <th>n</th>
@@ -270,7 +270,7 @@
         <th>retention</th>
         <th>hit_rate</th>
       </tr></thead>
-      <tbody>
+      <tbody id="checkpointsBody">
       {% for rule_label, rule_key in [('R1','r1_buyer_down'), ('R2','r2_seller_up'), ('R7 shadow','r7_cvd_divergence_shadow')] %}
         {% set c10 = checkpoints | selectattr('rule','equalto',rule_key) | selectattr('level','equalto',10) | list | first %}
         {% set c15 = checkpoints | selectattr('rule','equalto',rule_key) | selectattr('level','equalto',15) | list | first %}
@@ -1370,6 +1370,73 @@ function applyR7Shadow(s) {
 }
 
 setInterval(refreshR7Shadow, 30000);
+
+// ── Checkpoints auto-refresh (every 30s) ─────────────────────────────────
+const RULE_LABELS = [
+  ['R1',        'r1_buyer_down'],
+  ['R2',        'r2_seller_up'],
+  ['R7 shadow', 'r7_cvd_divergence_shadow'],
+];
+
+function statusClass(s) {
+  if (s === 'OK')   return 'delta-pos';
+  if (s === 'WARN') return 'delta-neg';
+  return 'muted';
+}
+function statusLabel(s) {
+  return s === 'NOT_REACHED' ? 'WAITING' : s;
+}
+function meanRClass(v) {
+  if (v === null || v === undefined) return '';
+  return v > 0 ? 'delta-pos' : (v < 0 ? 'delta-neg' : '');
+}
+function retentionClass(v) {
+  if (v === null || v === undefined) return '';
+  return v >= 0.5 ? 'delta-pos' : 'delta-neg';
+}
+function hitRateClass(v) {
+  if (v === null || v === undefined) return '';
+  if (v >= 0.55) return 'delta-pos';
+  if (v <  0.45) return 'delta-neg';
+  return '';
+}
+function findCell(cells, ruleKey, level) {
+  return cells.find(c => c.rule === ruleKey && c.level === level) || {};
+}
+function renderCheckpointsBody(cells) {
+  const rows = RULE_LABELS.map(([label, key]) => {
+    const c10 = findCell(cells, key, 10);
+    const c15 = findCell(cells, key, 15);
+    const c30 = findCell(cells, key, 30);
+    const fmt = v => (v === null || v === undefined) ? '—' : v;
+    return `
+      <tr>
+        <td>${label}</td>
+        <td>${fmt(c10.n)}</td>
+        <td class="${statusClass(c10.status)}">${statusLabel(c10.status)}</td>
+        <td class="${statusClass(c15.status)}">${statusLabel(c15.status)}</td>
+        <td class="${statusClass(c30.status)}">${statusLabel(c30.status)}</td>
+        <td class="${meanRClass(c10.mean_r)}">${fmt(c10.mean_r)}</td>
+        <td class="${retentionClass(c10.retention)}">${fmt(c10.retention)}</td>
+        <td class="${hitRateClass(c10.hit_rate)}">${fmt(c10.hit_rate)}</td>
+      </tr>`;
+  });
+  return rows.join('');
+}
+async function refreshCheckpoints() {
+  const tbody = document.getElementById('checkpointsBody');
+  if (!tbody) return;
+  try {
+    const r = await fetch(`/api/order-flow/checkpoints?symbol=${sym}&tf=${tf}`,
+                          { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (Array.isArray(j.checkpoints)) {
+      tbody.innerHTML = renderCheckpointsBody(j.checkpoints);
+    }
+  } catch (e) { /* silent — preserve prior table */ }
+}
+setInterval(refreshCheckpoints, 30000);
 </script>
 </body>
 </html>

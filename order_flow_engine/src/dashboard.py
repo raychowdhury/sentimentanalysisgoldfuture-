@@ -1261,6 +1261,19 @@ def register(app: Flask) -> None:
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @app.route("/api/order-flow/checkpoints")
+    def order_flow_checkpoints():  # pragma: no cover
+        """Read-only JSON of per-rule checkpoint cells. Used by dashboard
+        JS to refresh the Checkpoints card without full page reload.
+        Mirrors the data passed to the realflow_diagnostic template."""
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        try:
+            cells = _live_checkpoints(symbol, tf)
+        except Exception as e:
+            return jsonify({"error": str(e), "checkpoints": []}), 500
+        return jsonify({"symbol": symbol, "tf": tf, "checkpoints": cells})
+
     @app.route("/api/order-flow/notifiers/test", methods=["POST"])
     def order_flow_notifiers_test():  # pragma: no cover
         from order_flow_engine.src import notifier
