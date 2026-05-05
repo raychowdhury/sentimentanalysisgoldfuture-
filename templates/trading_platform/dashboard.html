@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trading Platform — RFM</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background:#0d1117; color:#e6edf3; }
+  .banner { background:#7d1f1f; color:#fff; padding:12px 20px; font-weight:600; text-align:center; letter-spacing:0.5px; }
+  .container { padding: 20px 30px; max-width: 1400px; margin: 0 auto; }
+  h1 { margin: 14px 0; font-size: 22px; }
+  h2 { margin: 24px 0 8px; font-size: 16px; color:#7ee787; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px 18px; }
+  .card.full { grid-column: 1 / -1; }
+  .num { font-family:'SF Mono', monospace; font-size: 20px; font-weight: 600; }
+  .pos { color:#7ee787; } .neg { color:#ff7b72; } .neutral { color:#8b949e; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid #21262d; font-family:'SF Mono', monospace; }
+  th { color:#8b949e; font-weight: 500; text-transform: uppercase; font-size: 11px; }
+  button { background:#238636; color:#fff; border:0; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:12px; margin: 2px; }
+  button.danger { background:#da3633; }
+  button.disarm { background:#6e7681; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+  .badge.armed { background:#238636; color:#fff; }
+  .badge.disarmed { background:#6e7681; color:#fff; }
+  .badge.kill { background:#da3633; color:#fff; }
+  .small { font-size: 11px; color:#8b949e; }
+  pre { white-space:pre-wrap; word-break:break-all; font-size: 11px; color:#8b949e; }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  PAPER BROKER STUB — NO REAL FILLS — NO REAL CAPITAL — Manual ARM Required Per Rule
+</div>
+
+<div class="container">
+<h1>Trading Platform — {{ status.broker.name }}</h1>
+
+<div class="grid">
+  <div class="card">
+    <h2>Account</h2>
+    <div class="num">${{ '%.2f' % status.account.paper_balance }}</div>
+    <div class="small">starting ${{ '%.2f' % status.account.starting_balance }} · realized P&amp;L
+      <span class="{% if status.account.realized_pnl >= 0 %}pos{% else %}neg{% endif %}">${{ '%.2f' % status.account.realized_pnl }}</span>
+    </div>
+    <div class="small">connected: {{ status.broker.connected }}</div>
+  </div>
+
+  <div class="card">
+    <h2>Risk Today</h2>
+    <div class="num
+      {% if status.risk.realized_r_today > 0 %}pos{% elif status.risk.realized_r_today < 0 %}neg{% else %}neutral{% endif %}">
+      {{ '%+.2f' % status.risk.realized_r_today }} R
+    </div>
+    <div class="small">trades today: {{ status.risk.trades_today }} · daily stop {{ status.risk.daily_loss_r_stop }}R · max trade {{ status.risk.max_trade_r }}R</div>
+    <div class="small">max concurrent {{ status.risk.max_concurrent_positions }} · per-symbol {{ status.risk.max_position_per_symbol }}</div>
+  </div>
+
+  <div class="card">
+    <h2>Kill Switch</h2>
+    {% if status.risk.kill_switch %}
+      <div><span class="badge kill">ENGAGED</span></div>
+      <button onclick="postApi('/api/trading-platform/kill/disengage')">Disengage</button>
+    {% else %}
+      <div><span class="badge armed">CLEAR</span></div>
+      <button class="danger" onclick="postApi('/api/trading-platform/kill/engage')">Engage Kill Switch</button>
+    {% endif %}
+    <div class="small">Halts ALL new orders. Existing positions remain until closed.</div>
+  </div>
+
+  <div class="card full">
+    <h2>Strategy Registry — Manual ARM</h2>
+    <table>
+      <tr><th>rule</th><th>status</th><th>since</th><th>action</th></tr>
+      {% for rule, st in status.strategies.items() %}
+      <tr>
+        <td>{{ rule }}</td>
+        <td>
+          {% if st.armed %}<span class="badge armed">ARMED</span>
+          {% else %}<span class="badge disarmed">DISARMED</span>{% endif %}
+        </td>
+        <td class="small">{{ st.armed_ts or "—" }}</td>
+        <td>
+          {% if st.armed %}
+          <button class="disarm" onclick="postApi('/api/trading-platform/disarm/{{ rule }}')">Disarm</button>
+          {% else %}
+          <button onclick="postApi('/api/trading-platform/arm/{{ rule }}')">Arm</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="small" style="margin-top:8px">Defaults to DISARMED. Promotion is manual; checkpoint state file is NOT consulted by the OMS.</div>
+  </div>
+
+  <div class="card full">
+    <h2>Open Positions ({{ status.open_positions|length }})</h2>
+    {% if status.open_positions %}
+    <table>
+      <tr><th>position_id</th><th>rule</th><th>symbol</th><th>side</th><th>qty</th><th>entry</th><th>stop</th><th>atr</th><th>horizon_eta</th><th>action</th></tr>
+      {% for p in status.open_positions %}
+      <tr>
+        <td>{{ p.position_id }}</td>
+        <td>{{ p.rule }}</td>
+        <td>{{ p.symbol }}</td>
+        <td>{{ p.side }}</td>
+        <td>{{ p.qty }}</td>
+        <td>{{ '%.2f' % p.entry_price }}</td>
+        <td>{{ '%.2f' % p.stop_price }}</td>
+        <td>{{ '%.4f' % p.atr }}</td>
+        <td class="small">{{ p.horizon_eta_utc or "—" }}</td>
+        <td><button class="disarm" onclick="closePos('{{ p.position_id }}', {{ p.entry_price }})">Close at Entry</button></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="small">No open positions.</div>
+    {% endif %}
+  </div>
+
+  <div class="card full">
+    <h2>Recent Orders ({{ status.recent_orders|length }})</h2>
+    {% if status.recent_orders %}
+    <table>
+      <tr><th>ts</th><th>order_id</th><th>rule</th><th>symbol</th><th>side</th><th>qty</th><th>state</th><th>price</th><th>note</th></tr>
+      {% for o in status.recent_orders|reverse %}
+      <tr>
+        <td class="small">{{ o.ts }}</td>
+        <td>{{ o.order_id }}</td>
+        <td>{{ o.rule }}</td>
+        <td>{{ o.symbol }}</td>
+        <td>{{ o.side }}</td>
+        <td>{{ o.qty }}</td>
+        <td>
+          {% if o.state == "FILLED" %}<span class="badge armed">FILLED</span>
+          {% elif o.state == "REJECTED" %}<span class="badge kill">REJECTED</span>
+          {% else %}{{ o.state }}{% endif %}
+        </td>
+        <td>{{ '%.2f' % o.fill_price if o.fill_price else "—" }}</td>
+        <td class="small">{{ o.reject_reason or o.exit_reason or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="small">No orders yet. Arm a rule + run signal consumer when fires arrive.</div>
+    {% endif %}
+  </div>
+
+  <div class="card full">
+    <h2>Signal Consumer</h2>
+    <button onclick="postApi('/api/trading-platform/consume-pending')">Consume Pending Fires</button>
+    <button onclick="postApi('/api/trading-platform/consume-settled-tail?n=20')">Replay Last 20 Settled (testing)</button>
+    <div class="small">Reads pending JSON / settled JSONL. Fires from DISARMED rules are skipped + logged.</div>
+  </div>
+
+  <div class="card full">
+    <h2>Audit Log (last 50)</h2>
+    <table>
+      <tr><th>ts</th><th>event</th><th>detail</th></tr>
+      {% for a in status.recent_audit|reverse %}
+      <tr>
+        <td class="small">{{ a.ts }}</td>
+        <td><span class="badge {% if 'reject' in a.event_type or 'kill' in a.event_type %}kill{% elif 'arm' in a.event_type or 'opened' in a.event_type or 'filled' in a.event_type %}armed{% else %}disarmed{% endif %}">{{ a.event_type }}</span></td>
+        <td><pre>{{ a }}</pre></td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+</div>
+</div>
+
+<script>
+async function postApi(path) {
+  const r = await fetch(path, { method:'POST' });
+  await r.json();
+  location.reload();
+}
+async function closePos(pid, price) {
+  const r = await fetch('/api/trading-platform/close-position/' + pid + '?price=' + price + '&reason=manual', { method:'POST' });
+  await r.json();
+  location.reload();
+}
+setTimeout(() => location.reload(), 30000);
+</script>
+</body>
+</html>

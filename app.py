@@ -30,6 +30,9 @@ register_order_flow(app)
 from ml_engine.dashboard import register as register_ml_engine
 register_ml_engine(app)
 
+from trading_platform.dashboard import register as register_trading_platform
+register_trading_platform(app)
+
 
 # ── Jinja2 filters ────────────────────────────────────────────────────────────
 
