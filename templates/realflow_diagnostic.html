@@ -328,6 +328,68 @@
     </label>
   </div>
 
+  {# ── Trader insights (always visible — derived from alerts.jsonl) ───────#}
+  <div class="card" style="border-left:4px solid #34d399;">
+    <h2 style="color:#34d399;">Trader insights — last 1000 alerts</h2>
+
+    <div class="kv-grid" style="grid-template-columns:repeat(4, 1fr); gap:.5rem;">
+      <div class="kv">
+        <div class="kv-label">Buy pressure</div>
+        <div class="kv-value" id="ti-buy-pct">—</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Sell pressure</div>
+        <div class="kv-value" id="ti-sell-pct">—</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Net imbalance</div>
+        <div class="kv-value" id="ti-net">—</div>
+      </div>
+      <div class="kv">
+        <div class="kv-label">Alerts / hr (60m)</div>
+        <div class="kv-value" id="ti-rate">—</div>
+      </div>
+    </div>
+
+    <div style="margin-top:.7rem;">
+      <div style="font-size:.78rem; color:var(--muted); margin-bottom:.3rem;">
+        Pressure bar (buy ▮ sell)
+      </div>
+      <div id="ti-pressure-bar" style="display:flex; height:.9rem; border:1px solid var(--border); border-radius:3px; overflow:hidden;">
+        <div id="ti-pressure-buy" style="background:#34d399; width:50%;"></div>
+        <div id="ti-pressure-sell" style="background:#f87171; width:50%;"></div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:.85rem;">
+      <div>
+        <div style="font-size:.78rem; color:var(--muted); margin-bottom:.3rem;">
+          Latest alert
+        </div>
+        <div id="ti-latest" style="font-family:ui-monospace,monospace; font-size:.78rem; line-height:1.5;">
+          —
+        </div>
+      </div>
+      <div>
+        <div style="font-size:.78rem; color:var(--muted); margin-bottom:.3rem;">
+          Session split (NY ET)
+        </div>
+        <div id="ti-sessions" style="display:grid; grid-template-columns:6rem 1fr 3rem; gap:.25rem .5rem; align-items:center; font-size:.78rem;">
+          —
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:.85rem;">
+      <div style="font-size:.78rem; color:var(--muted); margin-bottom:.3rem;">
+        High-confidence alerts (≥80, last 10)
+      </div>
+      <div id="ti-hiconf-table" style="font-family:ui-monospace,monospace; font-size:.75rem;">
+        —
+      </div>
+    </div>
+  </div>
+
   {# ── LAYER 1 — Live Signal Trade Details (always visible) ───────────────#}
   {% if live_signals is defined %}
   <div class="card" style="border-left:4px solid #38bdf8;">
@@ -1539,6 +1601,131 @@ document.getElementById('label-dist-show-zero')
         ?.addEventListener('change', refreshLabelDistribution);
 refreshLabelDistribution();
 setInterval(refreshLabelDistribution, 60000);
+
+// ── Trader insights ──────────────────────────────────────────────────────
+const BUY_LABELS = new Set([
+  'sweep_buy','iceberg_buy','block_buy',
+  'seller_absorption','bearish_trap'
+]);
+const SELL_LABELS = new Set([
+  'sweep_sell','iceberg_sell','block_sell',
+  'buyer_absorption','bullish_trap'
+]);
+function nyHourFromUtc(iso) {
+  try {
+    const d = new Date(iso);
+    const ny = new Date(d.toLocaleString('en-US', { timeZone:'America/New_York' }));
+    return ny.getHours();
+  } catch (e) { return null; }
+}
+function nySession(hour) {
+  if (hour === null) return 'unknown';
+  if (hour >= 18 || hour < 9) return 'ETH';
+  if (hour >= 9 && hour < 11) return 'RTH_open';
+  if (hour >= 11 && hour < 15) return 'RTH_mid';
+  if (hour >= 15 && hour < 18) return 'RTH_close';
+  return 'unknown';
+}
+async function refreshTraderInsights() {
+  let alerts = [];
+  try {
+    const r = await fetch('/api/order-flow/alerts', { cache: 'no-store' });
+    if (!r.ok) return;
+    alerts = await r.json();
+  } catch (e) { return; }
+  if (!Array.isArray(alerts) || !alerts.length) return;
+
+  let buy = 0, sell = 0, neutral = 0;
+  alerts.forEach(a => {
+    if (BUY_LABELS.has(a.label)) buy++;
+    else if (SELL_LABELS.has(a.label)) sell++;
+    else neutral++;
+  });
+  const total = buy + sell;
+  const buyPct = total ? (buy / total * 100) : 0;
+  const sellPct = total ? (sell / total * 100) : 0;
+  const net = buy - sell;
+  document.getElementById('ti-buy-pct').textContent =
+    `${buy} (${buyPct.toFixed(1)}%)`;
+  document.getElementById('ti-buy-pct').className = 'kv-value delta-pos';
+  document.getElementById('ti-sell-pct').textContent =
+    `${sell} (${sellPct.toFixed(1)}%)`;
+  document.getElementById('ti-sell-pct').className = 'kv-value delta-neg';
+  const netEl = document.getElementById('ti-net');
+  netEl.textContent = (net > 0 ? '+' : '') + net;
+  netEl.className = 'kv-value ' + (net > 0 ? 'delta-pos' : net < 0 ? 'delta-neg' : '');
+
+  document.getElementById('ti-pressure-buy').style.width = `${buyPct}%`;
+  document.getElementById('ti-pressure-sell').style.width = `${sellPct}%`;
+
+  const now = Date.now();
+  const oneHr = 60 * 60 * 1000;
+  const lastHr = alerts.filter(a => {
+    const t = new Date(a.timestamp_utc).getTime();
+    return (now - t) < oneHr;
+  }).length;
+  document.getElementById('ti-rate').textContent = lastHr;
+
+  const sorted = [...alerts].sort((a, b) =>
+    new Date(b.timestamp_utc) - new Date(a.timestamp_utc));
+  const latest = sorted[0];
+  if (latest) {
+    const ts = new Date(latest.timestamp_utc);
+    const ageMin = Math.round((now - ts.getTime()) / 60000);
+    const conf = latest.confidence ?? '—';
+    const m = latest.metrics || {};
+    const dq = latest.data_quality || {};
+    const src = (dq.proxy_mode === false) ? 'real' : 'proxy';
+    document.getElementById('ti-latest').innerHTML = `
+      <div><b>${latest.label || '?'}</b> · ${latest.symbol || '?'} ${latest.timeframe || ''} · ${ageMin}m ago</div>
+      <div style="color:var(--muted);">px ${latest.price ?? '—'} · atr ${(latest.atr ?? 0).toFixed(2)} · conf ${conf}</div>
+      <div style="color:var(--muted);">delta_ratio ${m.delta_ratio ?? '—'} · cvd_z ${m.cvd_z ?? '—'} · src ${src}</div>
+    `;
+  }
+
+  const sessCount = { ETH:0, RTH_open:0, RTH_mid:0, RTH_close:0, unknown:0 };
+  alerts.forEach(a => {
+    const s = nySession(nyHourFromUtc(a.timestamp_utc));
+    sessCount[s] = (sessCount[s] || 0) + 1;
+  });
+  const sessOrder = ['ETH','RTH_open','RTH_mid','RTH_close'];
+  const sessMax = Math.max(1, ...sessOrder.map(s => sessCount[s]));
+  document.getElementById('ti-sessions').innerHTML = sessOrder.map(s => {
+    const n = sessCount[s] || 0;
+    const pct = (n / sessMax) * 100;
+    return `<div>${s}</div>
+      <div style="background:#0b1220; border:1px solid var(--border); border-radius:3px; height:.7rem; overflow:hidden;">
+        <div style="background:#fbbf24; width:${pct}%; height:100%;"></div>
+      </div>
+      <div style="text-align:right; color:var(--muted); font-variant-numeric:tabular-nums;">${n}</div>`;
+  }).join('');
+
+  const hiconf = sorted.filter(a => (a.confidence ?? 0) >= 80).slice(0, 10);
+  const hiEl = document.getElementById('ti-hiconf-table');
+  if (!hiconf.length) {
+    hiEl.innerHTML = `<div style="color:var(--muted);">No alerts with confidence ≥ 80 in window.</div>`;
+  } else {
+    hiEl.innerHTML = `
+      <div style="display:grid; grid-template-columns:7rem 8rem 6rem 4rem 4rem; gap:.2rem .5rem; color:var(--muted); font-size:.7rem; margin-bottom:.2rem;">
+        <div>time (NY)</div><div>label</div><div>price</div><div>atr</div><div>conf</div>
+      </div>
+      ` + hiconf.map(a => {
+        const ts = new Date(a.timestamp_utc);
+        const ny = ts.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour12:false });
+        const sideCls = BUY_LABELS.has(a.label) ? 'delta-pos'
+                      : SELL_LABELS.has(a.label) ? 'delta-neg' : '';
+        return `<div style="display:grid; grid-template-columns:7rem 8rem 6rem 4rem 4rem; gap:.2rem .5rem;">
+          <div>${ny}</div>
+          <div class="${sideCls}">${a.label || '?'}</div>
+          <div>${a.price ?? '—'}</div>
+          <div>${(a.atr ?? 0).toFixed(2)}</div>
+          <div>${a.confidence ?? '—'}</div>
+        </div>`;
+      }).join('');
+  }
+}
+refreshTraderInsights();
+setInterval(refreshTraderInsights, 30000);
 </script>
 </body>
 </html>
