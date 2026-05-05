@@ -17,11 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from trading_platform import audit, broker, positions, risk
-from trading_platform.broker import (
-    COMMISSION_PER_RT,
-    DOLLAR_PER_R,
-    SLIPPAGE_ATR,
-)
+from trading_platform.broker import COMMISSION_PER_RT, DOLLAR_PER_R
 
 PROJECT = Path("/Users/ray/Dev/Sentiment analysis projtect")
 ORDERS_LOG = PROJECT / "outputs/trading_platform/orders.jsonl"
@@ -145,6 +141,24 @@ def place_paper_order(fire: dict) -> dict:
     positions.add(pos)
     audit.log("position_opened", pos)
     return rec
+
+
+def place_manual_order(symbol: str, side: str, qty: int,
+                       decision_price: float, atr: float,
+                       note: str = "manual") -> dict:
+    """Manual order entry — bypasses signal consumer; still passes risk engine."""
+    sid = f"manual-{uuid.uuid4().hex[:8]}"
+    fire = {
+        "signal_id": sid,
+        "symbol": symbol,
+        "rule": f"manual_{note}",
+        "direction": 1 if side == "buy" else -1,
+        "entry_close": float(decision_price),
+        "atr": float(atr),
+        "horizon_bars": None,
+        "settle_eta_utc": None,
+    }
+    return place_paper_order(fire)
 
 
 def close_position(position_id: str, exit_price: float,

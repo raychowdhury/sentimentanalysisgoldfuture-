@@ -101,6 +101,17 @@ def register(app) -> None:
         n = int(request.args.get("n", "50"))
         return jsonify(signal_consumer.consume_settled_tail(n=n))
 
+    @app.route("/api/trading-platform/manual-order", methods=["POST"])
+    def trading_platform_manual_order():
+        symbol = request.args.get("symbol", "ESM6")
+        side = request.args.get("side", "buy")
+        qty = int(request.args.get("qty", "1"))
+        price = float(request.args.get("price", "0"))
+        atr = float(request.args.get("atr", "1"))
+        rec = oms.place_manual_order(symbol, side, qty, price, atr,
+                                     note=request.args.get("note", "manual"))
+        return jsonify(rec)
+
     @app.route("/api/trading-platform/close-position/<pos_id>",
                methods=["POST"])
     def trading_platform_close_position(pos_id):
