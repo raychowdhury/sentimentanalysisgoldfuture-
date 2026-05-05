@@ -1034,6 +1034,31 @@
       </details>
     </div>
     {% endif %}{# data.joined for distribution/vol/threshold/diff/per-bar trace #}
+
+    <div class="card">
+      <h2>Label distribution — alerts.jsonl</h2>
+      <div id="label-dist-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.55rem;">
+        loading…
+      </div>
+      <div id="label-dist-bars"
+           style="display:grid; grid-template-columns: 11rem 1fr 4rem;
+                  gap:.35rem .6rem; align-items:center; font-size:.83rem;">
+      </div>
+      <div style="color:var(--muted); font-size:.72rem; margin-top:.55rem;">
+        Pulled from <code>/api/order-flow/alerts</code> (last 1000 alerts).
+        Counts every distinct <code>label</code> field. Includes legacy labels
+        (buyer_absorption / seller_absorption / bullish_trap / bearish_trap /
+        possible_reversal) and current emit labels (sweep_buy/sell,
+        iceberg_buy/sell, block_buy/sell). Zero rows hidden by default;
+        toggle to show.
+      </div>
+      <label style="display:inline-flex; align-items:center; gap:.3rem;
+                    color:var(--muted); font-size:.78rem; margin-top:.4rem; cursor:pointer;">
+        <input type="checkbox" id="label-dist-show-zero">
+        Show zero-count labels
+      </label>
+    </div>
+
   </details>
 
   {# ── LAYER 4 — Help / glossary (collapsed by default) ───────────────────#}
@@ -1437,6 +1462,83 @@ async function refreshCheckpoints() {
   } catch (e) { /* silent — preserve prior table */ }
 }
 setInterval(refreshCheckpoints, 30000);
+
+const LABEL_DIST_TRACKED = [
+  "buyer_absorption", "seller_absorption", "bullish_trap", "bearish_trap",
+  "possible_reversal", "sweep_buy", "sweep_sell", "iceberg_buy",
+  "iceberg_sell", "block_buy", "block_sell",
+];
+function labelChipClass(l) {
+  if (!l) return "";
+  if (l.endsWith("_buy") || l === "seller_absorption" || l === "bearish_trap") return "buy";
+  if (l.endsWith("_sell") || l === "buyer_absorption" || l === "bullish_trap") return "sell";
+  if (l === "possible_reversal") return "neutral";
+  return "";
+}
+async function refreshLabelDistribution() {
+  const meta = document.getElementById('label-dist-meta');
+  const bars = document.getElementById('label-dist-bars');
+  if (!meta || !bars) return;
+  let alerts = [];
+  try {
+    const r = await fetch('/api/order-flow/alerts', { cache: 'no-store' });
+    if (!r.ok) {
+      meta.textContent = `error fetching alerts: HTTP ${r.status}`;
+      return;
+    }
+    alerts = await r.json();
+  } catch (e) {
+    meta.textContent = `error fetching alerts: ${e.message || e}`;
+    return;
+  }
+  if (!Array.isArray(alerts)) {
+    meta.textContent = 'unexpected response shape';
+    return;
+  }
+  const dist = {};
+  alerts.forEach(a => {
+    const lbl = a && a.label;
+    if (!lbl) return;
+    dist[lbl] = (dist[lbl] || 0) + 1;
+  });
+  LABEL_DIST_TRACKED.forEach(l => { if (!(l in dist)) dist[l] = 0; });
+
+  const showZero = document.getElementById('label-dist-show-zero')
+                          ?.checked || false;
+  let entries = Object.entries(dist).sort((a, b) => b[1] - a[1]);
+  if (!showZero) entries = entries.filter(([_, n]) => n > 0);
+
+  const total = alerts.length;
+  const max = Math.max(1, ...entries.map(([_, n]) => n));
+  meta.textContent = `${total} alerts in window · ${entries.length} `
+                   + (showZero ? 'tracked' : 'non-zero') + ' labels';
+
+  bars.innerHTML = entries.map(([lbl, n]) => {
+    const pct = (n / max) * 100;
+    const cls = labelChipClass(lbl);
+    const chipBg = cls === 'buy' ? '#10b981'
+                : cls === 'sell' ? '#f87171'
+                : cls === 'neutral' ? '#94a3b8'
+                : '#475569';
+    return `
+      <div><span style="display:inline-block; padding:.12rem .5rem;
+        background:${chipBg}22; color:${chipBg};
+        border:1px solid ${chipBg}55; border-radius:3px;
+        font-size:.75rem; font-family:ui-monospace,monospace;">
+        ${lbl}</span></div>
+      <div style="background:#0b1220; border:1px solid var(--border);
+        border-radius:3px; height:.85rem; overflow:hidden;">
+        <div style="background:${chipBg}; width:${pct}%; height:100%;"></div>
+      </div>
+      <div style="text-align:right; color:var(--muted);
+        font-variant-numeric:tabular-nums;">${n}</div>
+    `;
+  }).join('');
+}
+document.getElementById('label-dist-show-zero')
+        ?.addEventListener('change', refreshLabelDistribution);
+refreshLabelDistribution();
+setInterval(refreshLabelDistribution, 60000);
 </script>
 </body>
 </html>
