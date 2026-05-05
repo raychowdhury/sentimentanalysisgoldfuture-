@@ -1,6 +1,6 @@
 # PROJECT_STATE — RFM ES Real-Flow Monitor
 
-_Last updated: 2026-05-04 UTC (R2 + R7 shadow n=10 finalized)_
+_Last updated: 2026-05-04T17:30Z (R1 n=10 + R2 n=15 finalized; R7 shadow n=12 status refresh; R2 Deceleration Watch policy approved; Live SDK Watchdog Stage 1 read-only built)_
 
 Decision-focused snapshot. Update after every major change.
 
@@ -1066,6 +1066,194 @@ Safety:
 - no rule, threshold, config, model, ml_engine, outcome_scoring, horizon_bars, R7 promotion, or trading behavior change
 - standing instruction reinforced, not relaxed
 
+## R2 Deceleration Watch
+
+Status: ACTIVE — manual review policy only
+
+Approved 2026-05-04T17:30Z. Documentation/review workflow only. No code change, no probe, no dashboard card, no health monitor change. No rule / threshold / config / models / `ml_engine/` / outcome scoring / horizon / R7 promotion / trading behavior change.
+
+Companion: `docs/RESEARCH_TAKEAWAYS.md` section 5b (full hypothesis tree, decision matrix, verdict boundary).
+
+Purpose:
+Detect whether R2 edge is decaying or sample noise between n=15 and n=30. R2 passed n=15 KEEP but trajectory is degrading — n=10 mean_r +0.9808, n=16 mean_r +0.6450, new 6 fires averaged +0.085R.
+
+### Soft trip lines (manual, observation only)
+
+| probe | trigger | action |
+|---|---|---|
+| P1 rolling-6 cold | last 6 settled R2 fires mean_r ≤ +0.30 | flag investigation |
+| P2 retention floor | live retention < 0.80 | pre-stage investigate review |
+| P3 hit floor | live hit_rate < 0.55 | pre-stage investigate review |
+| P4 mean negative | live mean_r ≤ 0 | hard escalate / pre-stage REVERT review |
+| P5 RTH starvation | n=20 reached AND RTH_open + RTH_close both still 0 | document ETH-only caveat |
+| P6 single-day concentration | any new date contributes > 40% of fires since n=15 | flag regime concentration |
+
+None auto-act. None coded. Reviewer reads `.live_checkpoint_state.json` + outcomes JSONL manually.
+
+### Informal n=20 soft probe
+
+Not in the standard n=10/n=15/n=30 schedule. Manual mid-checkpoint at 4 fires past n=16.
+
+At R2 n=20 compute:
+- mean_r for fires 17–20
+- mean_r for fires 11–20
+- hit rate for fires 17–20
+- session distribution
+- ATR / regime distribution
+- whether 2026-05-04 cluster still dominates
+
+Decision guide:
+- mean_r fires 17–20 > +0.50 → recovering; continue silently to n=30
+- mean_r fires 17–20 in 0 to +0.50 → WATCH-CONTINUE; flag here in PROJECT_STATE
+- mean_r fires 17–20 ≤ 0 → investigate pre-n=30; pre-stage decay-investigation review
+
+Reuse `R2_REVIEW_TEMPLATE.md`; checkpoint level field = "n=20 soft probe (informal)". Save as `docs/reviews/r2_n20probe_<UTC>.md`.
+
+### Pre-staged review files (when triggered)
+
+| trip | pre-stage file | finalize when |
+|---|---|---|
+| n=20 informal | `docs/reviews/r2_n20probe_<UTC>.md` | 4 more fires settled |
+| P1 persists 2 consecutive 6-windows | `docs/reviews/r2_decay_investigation_<UTC>.md` | flag set |
+| P2 retention < 0.80 | `docs/reviews/r2_retention_breach_<UTC>.md` | breach detected |
+| P4 mean ≤ 0 | `docs/reviews/r2_revert_candidate_<UTC>.md` | flag set |
+
+All copies of existing R2 review template; only headers + checkpoint level changed.
+
+### Open question this policy does NOT solve
+
+If R2 falls below KEEP gates at n=20 mid-probe, the standing instruction still bars threshold change. Only available lever is REVERT (`OF_REAL_THRESHOLDS_ENABLED=0`). No retune. Document and accept honest negative result as risk.
+
+### Safety
+
+- documentation only
+- no code change, no probe, no dashboard card, no health monitor change
+- no rule / threshold / config / models / `ml_engine/` / outcome scoring / horizon / R7 promotion / trading behavior change
+- standing instruction reinforced, not relaxed
+
+## Live SDK Watchdog (Stage 1 — read-only)
+
+Status: BUILT — awaiting `launchctl load` to activate. Stage 1 only. Read-only observation. NO restart behavior.
+
+Purpose:
+Detect the known failure mode where Flask remains HTTP 200 but the Databento Live SDK silently stops emitting tape alerts and 1m bars. Stage 1 evaluates restart criteria and logs the decision per tick; Stage 2 (actual restart) requires separate explicit approval after Stage 1 observation.
+
+Files:
+- `scripts/live_sdk_watchdog.py` — Python core; reuses `market_open()`, `latest_tape_alert_utc()`, `last_bar_age_min()` primitives in standalone form (no `health_monitor.py` import to keep watchdog self-contained)
+- `scripts/live_sdk_watchdog.sh` — bash wrapper, venv-aware, exits 0 on python failure (avoid launchd thrash)
+- `~/Library/LaunchAgents/com.rfm.live-sdk-watchdog.plist` — launchd job
+- `outputs/order_flow/live_sdk_watchdog.log` — JSON-per-line decision record
+- `outputs/order_flow/live_sdk_watchdog.launchd.stdout.log` — launchd stdout capture
+- `outputs/order_flow/live_sdk_watchdog.launchd.stderr.log` — launchd stderr capture
+
+Mode: `read_only_stage1`
+
+Cadence: 300s (5 min, matches `com.rfm.health-monitor`) once launchd is loaded. `RunAtLoad=true`. `ThrottleInterval=60` to prevent rapid relaunch on crash.
+
+Current behavior (Stage 1):
+- Observes Flask PID via `pgrep -f "python.*app\.py"`
+- Observes Flask HTTP 200 via `urlopen http://localhost:5001/`
+- Observes latest `TAPE ALERT` age in `/tmp/flask.log`
+- Observes latest bar age in `ESM6_1m_live.parquet`
+- Observes presence of stale `ESM6_15m_live.parquet`
+- Applies `market_open()` guard (CME approx: closed Fri 22Z → Sun 22Z)
+- Logs one decision per tick: `SKIP_MARKET_CLOSED`, `WOULD_RESTART`, `FLASK_DOWN`, `FLASK_HTTP_DOWN`, `PARTIAL_TAPE_STALE`, `PARTIAL_1M_STALE`, or `HEALTHY`
+- Decision criteria for `WOULD_RESTART` (logged only, not executed): market open AND Flask PID present AND HTTP 200 AND tape alert age > 30 min AND 1m parquet age > 30 min
+
+Restart criteria thresholds:
+- `TAPE_AGE_RESTART_MIN = 30.0` minutes
+- `PARQUET_AGE_RESTART_MIN = 30.0` minutes
+- Both must be exceeded simultaneously to log `WOULD_RESTART` (single-stale conditions log `PARTIAL_*` for diagnosis)
+
+NO restart behavior in Stage 1:
+- no Flask kill (`SIGTERM` / `SIGKILL`)
+- no Flask spawn (`nohup` / `tmux respawn`)
+- no `ESM6_15m_live.parquet` rename
+- no `monitor_loop` invocation
+- no parquet, JSONL, or pending-state writes
+- no health monitor probe extension yet (s18/s19 deferred to Stage 2)
+- no FAILED.flag, no DISABLED switch, no `/tmp/` cooldown/lockdir sentinels (Stage 2 territory)
+
+Stage 1 smoke test (2026-05-04T18:17:01Z, manual run):
+- decision: `PARTIAL_TAPE_STALE`
+- would_restart: `false`
+- flask_pid: 61206
+- flask_http_200: `true`
+- tape_alert_age_min: 623.3 (stale)
+- parquet_1m_age_min: 19.0 (fresh)
+- parquet_15m_present: `false` (workaround per blocker #5 already applied)
+- reason: tape stale but 1m parquet fresh — log rotation or quiet tape
+
+Observation note for Stage 1 review:
+The very first tick already shows tape alert log can lag wall-clock by 10+ hours while the 1m parquet stays fresh. This means a naive "tape stale ⇒ restart" rule would have produced false positives. The conjunctive (tape AND parquet) restart rule prevents this. Stage 1's job is to build evidence over a few days that:
+1. `WOULD_RESTART` only fires during genuine SDK outages (not log rotations)
+2. `PARTIAL_*` events outnumber `WOULD_RESTART` events
+3. `HEALTHY` is the dominant decision during open market hours
+
+Activation (manual, by user):
+```bash
+launchctl load ~/Library/LaunchAgents/com.rfm.live-sdk-watchdog.plist
+launchctl list | grep com.rfm.live-sdk-watchdog
+```
+
+Stop:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.rfm.live-sdk-watchdog.plist
+```
+
+Manual run (anytime, bypasses launchd schedule):
+```bash
+bash scripts/live_sdk_watchdog.sh
+tail -1 outputs/order_flow/live_sdk_watchdog.log
+```
+
+Inspect log:
+```bash
+tail -30 outputs/order_flow/live_sdk_watchdog.log
+```
+
+Stage 2 (NOT yet approved — separate approval required):
+- Add restart sequence (SIGTERM Flask + spawn under nohup + rename 15m parquet + run one monitor_loop iteration)
+- Add cooldown sentinel (`/tmp/rfm-live-sdk-watchdog.cooldown`, 30 min)
+- Add lockdir (`/tmp/rfm-live-sdk-watchdog.lockdir`)
+- Add FAILED.flag (3-strike escalation)
+- Add DISABLED kill-switch (`outputs/order_flow/live_sdk_watchdog.DISABLED`)
+- Add health probes s18 (watchdog log freshness) + s19 (FAILED.flag presence)
+- Required Stage 1 review before Stage 2 approval
+
+Coordination with existing schedules:
+- `com.rfm.cache-refresh` (hourly raw OHLCV refresh)
+- `com.rfm.realflow-backfill` (8h heavy backfill)
+- `com.rfm.health-monitor` (5m observe-only, 17 probes)
+- `com.rfm.live-sdk-watchdog` (5m observe-only Stage 1; will add restart action in Stage 2)
+- All four read different files; no race condition expected
+- Watchdog read-only path: `pgrep`, `urlopen`, `/tmp/flask.log` (read), `ESM6_1m_live.parquet` (read), `ESM6_15m_live.parquet` (existence check), append-only `live_sdk_watchdog.log`
+
+Safety:
+- read-only on all engine state in Stage 1
+- atomic append on log file (one JSON line per run)
+- stdlib + pandas only (already venv requirements)
+- launchd unload fully reversible
+- standing instruction reinforced: no rule / threshold / config / model / `ml_engine/` / predictor / alert_engine / ingest / outcome scoring / horizon / R7 promotion / trading behavior change
+
+No changes to:
+- rules
+- thresholds
+- config
+- models
+- `ml_engine/`
+- predictor
+- alert_engine
+- ingest
+- monitor_loop
+- cache_refresh
+- realflow_backfill
+- health_monitor (no s18/s19 yet)
+- outcome_tracker
+- horizon_bars
+- R7 promotion
+- trading behavior
+
 ## Standing instruction
 
 - No detector behavior changes.
@@ -1078,21 +1266,24 @@ Safety:
 
 ## Next checkpoint
 
-| signal | target n | current n | n=10 status | n=15 ETA | n=30 ETA |
+| signal | target n | current n | n=10 status | n=15 status | n=30 ETA |
 |---|---|---|---|---|---|
-| R1 live | 30 | **7** | NOT_REACHED (~3 fires away) | ~1.5 wks | ~14 wks |
-| R2 live | 30 | **10 ✅ TRIPPED** | **OK** (KEEP, finalized 2026-05-04) | ~2 wks | ~9 wks |
-| R7 shadow live | 30 | **11 ✅ TRIPPED** | **WARN** (STAY-SHADOW, finalized 2026-05-04) | ~1.5 wks | ~6 wks |
+| R1 live | 30 | **11 ✅ TRIPPED** | **OK** (KEEP-WITH-CAVEAT, finalized 2026-05-04T17:30Z) | NOT_REACHED (~4 fires away) | ~12 wks |
+| R2 live | 30 | **16 ✅ TRIPPED** | **OK** (KEEP) | **OK** (KEEP, finalized 2026-05-04T17:30Z) | ~7 wks |
+| R7 shadow live | 30 | **12 ✅ TRIPPED** | **WARN** (STAY-SHADOW; n=12 refresh 2026-05-04T17:30Z) | NOT_REACHED (~3 fires away) | ~5 wks |
 
-When R1 live ≥ 10, fill R1 review using `R1_REVIEW_TEMPLATE.md`.
-When R1+R2 live ≥ 15, run soft verdict review (MVP-soft trigger if R2 stays OK).
-When R1+R2 live ≥ 30, run Phase 2D hard verdict (keep / retune / continue).
+When R1 live ≥ 15, re-review and populate convergence row.
+When R2 live ≥ 30, run Phase 2D hard verdict (keep / retune / continue) with bootstrap CI.
+When R7 shadow live ≥ 15, soft-decision review using `R7_SHADOW_REVIEW_TEMPLATE.md`.
 When R7 shadow live ≥ 30, evaluate Phase 2B Stage 2 readiness.
 
 ### Recent checkpoint events
 
-- **2026-05-04 07:15Z** — R2 live n=10 trip. Verdict KEEP. Review finalized at `docs/reviews/r2_n10_20260504T051805Z.md`. mean_r=+0.9808, hit=0.6000, retention=1.3078. Every gate passed; ETH 6/8 = 75% hit; 10th fire was win +1.22R.
-- **2026-05-04 07:30Z** — R7 shadow live n=10/n=11 trip. Verdict STAY-SHADOW. Review finalized at `docs/reviews/r7sh_n10_20260503T231500Z.md`. mean_r=-2.7725, hit=0.4545, retention=-3.8858. WARN (mean_r ≤ 0) but improved vs n=9. **Direction-sign concern weakened**: 2 new long fires (first ever) both wins (+1.18, +0.36).
+- **2026-05-04 17:30Z** — R1 live n=10 trip (current n=11). Verdict **KEEP-WITH-CAVEAT**. Review finalized at `docs/reviews/r1_n10_20260504T173000Z.md`. mean_r=+0.7858, hit=0.8182 (9/11), retention=0.666 (below 0.8 KEEP gate but 9.5× historical 0.07). 100% ETH coverage; two outlier losses (MAE -6.16R, -12.01R; fwd_R -3.54, -11.57) on adjacent bars 2026-05-01 10:30/11:00 dominate the mean. Sign-test 9/11 wins p≈0.033 vs 50% null.
+- **2026-05-04 17:30Z** — R2 live n=15 trip (current n=16). Verdict **KEEP** with deceleration flag. Review finalized at `docs/reviews/r2_n15_20260504T173000Z.md`. mean_r=+0.6450 (down from +0.9808 at n=10), hit=0.5625, retention=0.860. All gates still pass but **6 new fires averaged only +0.085R** vs prior +0.98R — degrading trajectory. RTH coverage gap unchanged (14 ETH / 2 RTH_mid / 0 RTH_open / 0 RTH_close). Single-day concentration: 6/16 fires on 05-04. Soft-warning probe at n=20-25 if next 5 fires don't recover above +0.3R.
+- **2026-05-04 17:30Z** — R7 shadow live n=12 status refresh. Status STILL **WARN** (verdict unchanged STAY-SHADOW). State now n=12, mean_r=-2.44 (improved from -2.7725 at n=10 review), hit=0.500, retention=-3.419. New review file NOT written (n=12 is between checkpoints; next review at n=15). Production R7 -0.50 still has zero fires (structurally protected per `r7_shadow_vs_production.md`).
+- **2026-05-04 07:15Z** — R2 live n=10 trip. Verdict KEEP. Review at `docs/reviews/r2_n10_20260504T051805Z.md`.
+- **2026-05-04 07:30Z** — R7 shadow live n=10/n=11 trip. Verdict STAY-SHADOW. Review at `docs/reviews/r7sh_n10_20260503T231500Z.md`.
 - Cross-reference: R7 shadow vs production report (`r7_shadow_vs_production.md`) confirms production R7 fired ZERO times on either trend-trap day (2026-04-30, 2026-05-01) — production structurally protected.
 
 ## Known blockers

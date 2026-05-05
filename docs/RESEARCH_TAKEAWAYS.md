@@ -91,6 +91,90 @@ MVP-soft trigger: R2 PASS at n=15 with --stop-r 1.0 → declare R2-only MVP. Add
 
 ---
 
+## 5b. R2 Deceleration Watch (post-n=15 manual policy)
+
+Status: ACTIVE — manual review policy only. Documentation/review workflow only. No code, no probes, no dashboard, no health monitor change. No rule / threshold / config / models / `ml_engine/` / outcome scoring / horizon / R7 promotion / trading behavior change.
+
+Purpose: Detect whether R2 edge is decaying or sample noise between n=15 and n=30, before the hard verdict locks in. R2 passed n=15 KEEP but trajectory is degrading (n=10 mean_r +0.9808 → n=16 mean_r +0.6450; new 6 fires averaged +0.085R).
+
+### Soft trip lines (manual, observation only)
+
+| probe | trigger | action |
+|---|---|---|
+| **P1 rolling-6 cold** | last 6 settled R2 fires mean_r ≤ +0.30 | flag investigation |
+| **P2 retention floor** | live retention < 0.80 | pre-stage investigate review |
+| **P3 hit floor** | live hit_rate < 0.55 | pre-stage investigate review |
+| **P4 mean negative** | live mean_r ≤ 0 | hard escalate / pre-stage REVERT review |
+| **P5 RTH starvation** | n=20 reached AND RTH_open + RTH_close both still 0 | document ETH-only caveat |
+| **P6 single-day concentration** | any new calendar date contributes > 40% of fires-since-n=15 | flag regime concentration |
+
+None auto-act. None coded. Reviewer reads `.live_checkpoint_state.json` + outcomes JSONL manually.
+
+### Informal n=20 soft probe
+
+Not in the standard n=10/n=15/n=30 schedule. Manual mid-checkpoint.
+
+Trigger: 4 more R2 fires settled (n=20).
+
+Compute manually:
+- mean_r for fires 17–20
+- mean_r for fires 11–20
+- hit rate for fires 17–20
+- session distribution
+- ATR / regime distribution
+- whether 2026-05-04 cluster still dominates (>40% of post-n=15 fires)
+
+Decision guide:
+- mean_r fires 17–20 > +0.50 → recovering; continue silently to n=30
+- mean_r fires 17–20 in 0 to +0.50 → **WATCH-CONTINUE**; flag in PROJECT_STATE
+- mean_r fires 17–20 ≤ 0 → investigate pre-n=30; pre-stage decay-investigation review
+
+No new template. Reuse `R2_REVIEW_TEMPLATE.md`; checkpoint level field = "n=20 soft probe (informal)". Save as `docs/reviews/r2_n20probe_<UTC>.md`.
+
+### Pre-staged review files (when triggered)
+
+| trip | pre-stage file | finalize when |
+|---|---|---|
+| n=20 informal | `docs/reviews/r2_n20probe_<UTC>.md` | 4 more fires settled |
+| P1 rolling-6 cold persists 2 consecutive 6-windows | `docs/reviews/r2_decay_investigation_<UTC>.md` | flag set |
+| P2 retention < 0.80 | `docs/reviews/r2_retention_breach_<UTC>.md` | breach detected |
+| P4 mean ≤ 0 | `docs/reviews/r2_revert_candidate_<UTC>.md` | flag set |
+
+All copies of existing R2 review template; only headers + checkpoint level changed.
+
+### Diagnostic hypothesis tree (rank order, walk before any verdict)
+
+When P1 / P2 / P3 fires, work through this order:
+
+1. **Single-day regime trap** — 2026-05-04 cluster (6 fires same day) hit unusual tape. If yes, decay is sample bias not rule decay.
+2. **Vol-regime drift** — ATR escalated 3.6 → 11.9 across 05-04. R2's 1R stop may be too tight at high ATR. Split fires by ATR bucket (low <5, mid 5-10, high >10) — if losses concentrate in high-ATR, structural.
+3. **Sample-size noise** — 6 new fires is small. Bootstrap CI on mean(11-16) vs mean(1-10) — if overlapping, no decay claim.
+4. **RTH-open chop** — fire 13 (05-04 09:00 UTC) MAE -7.97R. If new RTH fires (when they finally come) are all losses, R2 may be ETH-only.
+5. **Threshold over-fit** — `RULE_ABSORPTION_DELTA_REAL=0.20` may be tuned to overnight low-ATR distribution. **Investigation only — NO retune. Honest sample-failure better than rescue-tuning.**
+
+### Decision boundary at n=30 (verdict matrix using P1-P6 history)
+
+| live mean_r | retention | hit | new-fire trend | verdict |
+|---|---|---|---|---|
+| > +0.50 | ≥ 0.80 | ≥ 0.55 | stable or up | KEEP, declare MVP-soft |
+| > 0, ≤ +0.50 | 0.50-0.80 | ≥ 0.55 | flat | KEEP-WITH-CAVEAT, no MVP-soft |
+| > 0 | < 0.50 OR hit < 0.55 | — | down | INVESTIGATE before verdict |
+| ≤ 0 | — | — | — | REVERT (manual env flag flip only) |
+
+### Open question this policy does NOT solve
+
+If R2 falls below KEEP gates at n=20 mid-probe, the standing instruction still bars threshold change. Only available lever is REVERT (`OF_REAL_THRESHOLDS_ENABLED=0`). No retune. Document and accept honest negative result.
+
+### Safety
+
+- documentation only
+- no code change
+- no probe, no dashboard card, no health monitor change
+- no rule / threshold / config / models / `ml_engine/` / outcome scoring / horizon / R7 promotion / trading behavior change
+- standing instruction reinforced, not relaxed
+
+---
+
 ## 6. R1 diagnosis plan
 
 R1 live mean_r=-1.669 at n=6. Hit=0.667 (above floor). Direction: short. Trajectory likely WARN at n=10 trip.
