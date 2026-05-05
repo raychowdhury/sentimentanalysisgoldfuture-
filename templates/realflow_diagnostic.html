@@ -303,6 +303,31 @@
   </div>
   {% endif %}
 
+  {# ── Label distribution (always visible — after Checkpoints) ───────────#}
+  <div class="card">
+    <h2>Label distribution — alerts.jsonl</h2>
+    <div id="label-dist-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.55rem;">
+      loading…
+    </div>
+    <div id="label-dist-bars"
+         style="display:grid; grid-template-columns: 11rem 1fr 4rem;
+                gap:.35rem .6rem; align-items:center; font-size:.83rem;">
+    </div>
+    <div style="color:var(--muted); font-size:.72rem; margin-top:.55rem;">
+      Pulled from <code>/api/order-flow/alerts</code> (last 1000 alerts).
+      Counts every distinct <code>label</code> field. Includes legacy labels
+      (buyer_absorption / seller_absorption / bullish_trap / bearish_trap /
+      possible_reversal) and current emit labels (sweep_buy/sell,
+      iceberg_buy/sell, block_buy/sell). Zero rows hidden by default;
+      toggle to show.
+    </div>
+    <label style="display:inline-flex; align-items:center; gap:.3rem;
+                  color:var(--muted); font-size:.78rem; margin-top:.4rem; cursor:pointer;">
+      <input type="checkbox" id="label-dist-show-zero">
+      Show zero-count labels
+    </label>
+  </div>
+
   {# ── LAYER 1 — Live Signal Trade Details (always visible) ───────────────#}
   {% if live_signals is defined %}
   <div class="card" style="border-left:4px solid #38bdf8;">
@@ -351,31 +376,6 @@
     {% endif %}
   </div>
   {% endif %}
-
-  {# ── Label distribution (Layer 1 — always visible) ─────────────────────#}
-  <div class="card">
-    <h2>Label distribution — alerts.jsonl</h2>
-    <div id="label-dist-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.55rem;">
-      loading…
-    </div>
-    <div id="label-dist-bars"
-         style="display:grid; grid-template-columns: 11rem 1fr 4rem;
-                gap:.35rem .6rem; align-items:center; font-size:.83rem;">
-    </div>
-    <div style="color:var(--muted); font-size:.72rem; margin-top:.55rem;">
-      Pulled from <code>/api/order-flow/alerts</code> (last 1000 alerts).
-      Counts every distinct <code>label</code> field. Includes legacy labels
-      (buyer_absorption / seller_absorption / bullish_trap / bearish_trap /
-      possible_reversal) and current emit labels (sweep_buy/sell,
-      iceberg_buy/sell, block_buy/sell). Zero rows hidden by default;
-      toggle to show.
-    </div>
-    <label style="display:inline-flex; align-items:center; gap:.3rem;
-                  color:var(--muted); font-size:.78rem; margin-top:.4rem; cursor:pointer;">
-      <input type="checkbox" id="label-dist-show-zero">
-      Show zero-count labels
-    </label>
-  </div>
 
   {# ── LAYER 2 — Analyst details (collapsed by default) ───────────────────#}
   <details class="layer-wrap">
