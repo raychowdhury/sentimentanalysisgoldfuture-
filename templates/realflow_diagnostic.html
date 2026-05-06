@@ -247,65 +247,6 @@
     </div>
   </div>
 
-  {# ── LAYER 1 — Trader View (always visible) ─────────────────────────────#}
-  <div class="card" style="border-left:4px solid #34d399;">
-    <h2 style="font-size:1rem; color:#fbbf24;">Trader View</h2>
-
-    {% if trader %}
-    <div class="badge-row">
-      <div class="badge {% if trader.system == 'Healthy' %}ok{% elif trader.system == 'Warning' %}warn{% else %}bad{% endif %}">
-        <div class="label">System</div>
-        <div class="val">{{ trader.system }}</div>
-      </div>
-      <div class="badge {% if trader.live_data == 'Connected' %}ok{% elif trader.live_data == 'Slow' %}warn{% elif trader.live_data == 'Stale' %}bad{% else %}muted{% endif %}">
-        <div class="label">Live data</div>
-        <div class="val">{{ trader.live_data }}</div>
-      </div>
-      <div class="badge {% if trader.r1 == 'Strong' %}ok{% elif trader.r1 == 'Watching' %}warn{% else %}bad{% endif %}">
-        <div class="label">R1 · fade buyer</div>
-        <div class="val">{{ trader.r1 }}<small>n={{ trader.r1_live_n }}</small></div>
-      </div>
-      <div class="badge {% if trader.r2 == 'Strong' %}ok{% elif trader.r2 == 'Watching' %}warn{% else %}bad{% endif %}">
-        <div class="label">R2 · fade seller</div>
-        <div class="val">{{ trader.r2 }}<small>n={{ trader.r2_live_n }}</small></div>
-      </div>
-      <div class="badge {% if trader.r7 == 'Research' %}ok{% else %}muted{% endif %}">
-        <div class="label">R7 · CVD div</div>
-        <div class="val">{{ trader.r7 }}<small>n={{ trader.r7_live_n }}</small></div>
-      </div>
-      <div class="badge {% if trader.action == 'Keep monitoring' %}ok{% elif trader.action == 'Investigate' %}warn{% else %}bad{% endif %}">
-        <div class="label">Action</div>
-        <div class="val">{{ trader.action }}</div>
-      </div>
-    </div>
-
-    <div class="kv-grid" style="grid-template-columns:repeat(3,1fr); margin-top:.7rem;">
-      <div class="kv">
-        <div class="kv-label">Live data freshness</div>
-        <div class="kv-value">{{ trader.freshness }}</div>
-      </div>
-      <div class="kv">
-        <div class="kv-label">Live trades settled</div>
-        <div class="kv-value">{{ trader.live_trades_n }}</div>
-      </div>
-      <div class="kv">
-        <div class="kv-label">ETA to gate (R1≥30 AND R2≥30)</div>
-        <div class="kv-value" style="font-size:.95rem;">{{ trader.eta_to_gate }}</div>
-      </div>
-    </div>
-    {% else %}
-    <p class="muted">Trader summary unavailable — check health monitor outputs.</p>
-    {% endif %}
-
-    <p class="btn-tip" style="margin-top:.7rem; line-height:1.5;">
-      <b>Strong:</b> live n≥30 AND retention≥0.8 AND hit_rate≥0.55.
-      <b>Weak:</b> n≥10 AND (retention&lt;0.5 OR mean_r≤0).
-      <b>Watching:</b> otherwise.
-      <b>Action:</b> "Stop using signal" if System=Broken or live data Stale; "Investigate" if any rule Weak or pending&gt;30; else "Keep monitoring".
-      Emergency revert: <code class="path">OF_REAL_THRESHOLDS_ENABLED=0</code> in <code class="path">.env</code> + restart Flask.
-    </p>
-  </div>
-
   {# ── LAYER 1 — Checkpoints (always visible) ────────────────────────────#}
   {% if checkpoints %}
   <div class="card" style="border-left:4px solid #fbbf24;">
@@ -359,7 +300,19 @@
   </div>
   {% endif %}
 
-  {# ── Label distribution (always visible — after Checkpoints) ───────────#}
+  {# ── Pending Fires — moved up next to Checkpoints (always visible) ─────#}
+  <div class="card" style="border-left:4px solid #fbbf24;">
+    <h2>Pending fires — awaiting horizon settle</h2>
+    <div id="pending-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.5rem;">
+      loading…
+    </div>
+    <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;"></div>
+  </div>
+
+  {# ── Order-flow detail (collapsed drawer) ──────────────────────────────#}
+  <details class="layer-wrap">
+    <summary>Order-flow detail — label distribution &amp; alert pressure</summary>
+
   <div class="card">
     <h2>Label distribution — alerts.jsonl</h2>
     <div id="label-dist-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.55rem;">
@@ -369,14 +322,6 @@
          style="display:grid; grid-template-columns: 11rem 1fr 4rem;
                 gap:.35rem .6rem; align-items:center; font-size:.83rem;">
     </div>
-    <div style="color:var(--muted); font-size:.72rem; margin-top:.55rem;">
-      Pulled from <code>/api/order-flow/alerts</code> (last 1000 alerts).
-      Counts every distinct <code>label</code> field. Includes legacy labels
-      (buyer_absorption / seller_absorption / bullish_trap / bearish_trap /
-      possible_reversal) and current emit labels (sweep_buy/sell,
-      iceberg_buy/sell, block_buy/sell). Zero rows hidden by default;
-      toggle to show.
-    </div>
     <label style="display:inline-flex; align-items:center; gap:.3rem;
                   color:var(--muted); font-size:.78rem; margin-top:.4rem; cursor:pointer;">
       <input type="checkbox" id="label-dist-show-zero">
@@ -384,9 +329,9 @@
     </label>
   </div>
 
-  {# ── Trader insights (always visible — derived from alerts.jsonl) ───────#}
-  <div class="card" style="border-left:4px solid #34d399;">
-    <h2 style="color:#34d399;">Trader insights — last 1000 alerts</h2>
+  {# ── Trader insights (now inside drawer) ─────────────────────────────#}
+  <div class="card">
+    <h2>Trader insights — last 1000 alerts</h2>
 
     <div class="kv-grid" style="grid-template-columns:repeat(4, 1fr); gap:.5rem;">
       <div class="kv">
@@ -446,6 +391,8 @@
     </div>
   </div>
 
+  </details>{# end Order-flow detail drawer #}
+
   {# ── LAYER 1 — Live Signal Trade Details (always visible) ───────────────#}
   {% if live_signals is defined %}
   <div class="card" style="border-left:4px solid #38bdf8;">
@@ -494,15 +441,6 @@
     {% endif %}
   </div>
   {% endif %}
-
-  {# ── Pending Fires — fires waiting to settle (always visible) ───────────#}
-  <div class="card" style="border-left:4px solid #fbbf24;">
-    <h2 style="color:#fbbf24;">Pending fires — awaiting horizon settle</h2>
-    <div id="pending-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.5rem;">
-      loading…
-    </div>
-    <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;"></div>
-  </div>
 
   {# ── LAYER 2 — Analyst details (collapsed by default) ───────────────────#}
   <details class="layer-wrap">
