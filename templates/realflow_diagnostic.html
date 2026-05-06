@@ -191,6 +191,62 @@
 
   {% if data %}
 
+  {# ── Trader Snapshot — top-of-page big card (always visible) ───────────#}
+  <div class="card" style="border:2px solid #34d399; background:linear-gradient(180deg, #0f1f2e 0%, var(--card) 100%);">
+    <div style="display:grid; grid-template-columns: 1.2fr 1fr 1fr 1.2fr; gap:1rem; align-items:stretch;">
+
+      <!-- Price + ATR -->
+      <div style="display:flex; flex-direction:column; justify-content:center; padding-right:1rem; border-right:1px solid var(--border);">
+        <div style="color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.06em;">{{ symbol }} · {{ tf }}</div>
+        <div id="snap-price" style="font-size:2rem; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; line-height:1.1;">—</div>
+        <div style="color:var(--muted); font-size:.78rem; margin-top:.2rem;">
+          atr <span id="snap-atr">—</span> · last bar <span id="snap-bar-age">—</span>
+        </div>
+      </div>
+
+      <!-- Bias arrow -->
+      <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; padding-right:1rem; border-right:1px solid var(--border);">
+        <div style="color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.06em;">Order-flow bias (last 200 alerts)</div>
+        <div id="snap-bias-arrow" style="font-size:2.6rem; line-height:1; margin-top:.2rem;">—</div>
+        <div id="snap-bias-text" style="color:var(--muted); font-size:.8rem; margin-top:.2rem;">—</div>
+      </div>
+
+      <!-- Freshness light -->
+      <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; padding-right:1rem; border-right:1px solid var(--border);">
+        <div style="color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.06em;">Data feed</div>
+        <div id="snap-light" style="width:1.6rem; height:1.6rem; border-radius:50%; background:#475569; margin:.3rem 0; box-shadow:0 0 8px transparent;"></div>
+        <div id="snap-light-label" style="font-size:.85rem; font-weight:600;">—</div>
+        <div id="snap-light-detail" style="color:var(--muted); font-size:.72rem; margin-top:.15rem;">—</div>
+      </div>
+
+      <!-- Action -->
+      <div style="display:flex; flex-direction:column; justify-content:center;">
+        <div style="color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.06em;">Action</div>
+        <div id="snap-action" style="font-size:1.15rem; font-weight:700; color:#fbbf24; line-height:1.25; margin-top:.2rem;">—</div>
+        <div id="snap-action-reason" style="color:var(--muted); font-size:.75rem; margin-top:.3rem; line-height:1.35;">—</div>
+      </div>
+
+    </div>
+
+    <!-- Rule strip -->
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:.5rem; margin-top:.85rem;">
+      {% if trader %}
+      <div class="kv" style="text-align:center;">
+        <div class="kv-label">R1 fade buyer · short bias</div>
+        <div class="kv-value" style="color:{% if trader.r1 == 'Strong' %}var(--ok){% elif trader.r1 == 'Weak' %}var(--bad){% else %}var(--warn){% endif %};">{{ trader.r1 }} <small style="color:var(--muted); font-weight:400;">n={{ trader.r1_live_n }}</small></div>
+      </div>
+      <div class="kv" style="text-align:center;">
+        <div class="kv-label">R2 fade seller · long bias</div>
+        <div class="kv-value" style="color:{% if trader.r2 == 'Strong' %}var(--ok){% elif trader.r2 == 'Weak' %}var(--bad){% else %}var(--warn){% endif %};">{{ trader.r2 }} <small style="color:var(--muted); font-weight:400;">n={{ trader.r2_live_n }}</small></div>
+      </div>
+      <div class="kv" style="text-align:center;">
+        <div class="kv-label">R7 CVD div · shadow</div>
+        <div class="kv-value" style="color:var(--muted);">{{ trader.r7 }} <small style="color:var(--muted); font-weight:400;">n={{ trader.r7_live_n }}</small></div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
   {# ── LAYER 1 — Trader View (always visible) ─────────────────────────────#}
   <div class="card" style="border-left:4px solid #34d399;">
     <h2 style="font-size:1rem; color:#fbbf24;">Trader View</h2>
@@ -438,6 +494,15 @@
     {% endif %}
   </div>
   {% endif %}
+
+  {# ── Pending Fires — fires waiting to settle (always visible) ───────────#}
+  <div class="card" style="border-left:4px solid #fbbf24;">
+    <h2 style="color:#fbbf24;">Pending fires — awaiting horizon settle</h2>
+    <div id="pending-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.5rem;">
+      loading…
+    </div>
+    <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;"></div>
+  </div>
 
   {# ── LAYER 2 — Analyst details (collapsed by default) ───────────────────#}
   <details class="layer-wrap">
@@ -1726,6 +1791,156 @@ async function refreshTraderInsights() {
 }
 refreshTraderInsights();
 setInterval(refreshTraderInsights, 30000);
+
+// ── Trader Snapshot (top-of-page big card) ───────────────────────────────
+async function refreshSnapshot() {
+  let diag = null, alerts = [];
+  try {
+    const r = await fetch(`/api/order-flow/realflow-diagnostic?symbol=${sym}&tf=${tf}`,
+                          { cache: 'no-store' });
+    if (r.ok) diag = await r.json();
+  } catch (e) {}
+  try {
+    const r = await fetch('/api/order-flow/alerts', { cache: 'no-store' });
+    if (r.ok) alerts = await r.json();
+  } catch (e) {}
+  if (!diag) return;
+
+  // Price + ATR
+  let price = null, atr = null;
+  if (Array.isArray(diag.bars) && diag.bars.length) {
+    const b = diag.bars[diag.bars.length - 1];
+    price = b.close ?? b.Close ?? b.real_close ?? null;
+    atr = b.atr ?? null;
+  }
+  document.getElementById('snap-price').textContent =
+    (price !== null && price !== undefined) ? Number(price).toFixed(2) : '—';
+  document.getElementById('snap-atr').textContent =
+    (atr !== null && atr !== undefined) ? Number(atr).toFixed(2) : '—';
+
+  // Bar age
+  const lb = diag.latest_live_bar?.primary;
+  if (lb && lb.lag_minutes !== undefined) {
+    document.getElementById('snap-bar-age').textContent = `${lb.lag_minutes.toFixed(0)} min ago`;
+  } else {
+    document.getElementById('snap-bar-age').textContent = '—';
+  }
+
+  // Bias from last 200 alerts (recent only)
+  const recent = Array.isArray(alerts) ? alerts.slice(-200) : [];
+  let buy = 0, sell = 0;
+  recent.forEach(a => {
+    if (BUY_LABELS.has(a.label)) buy++;
+    else if (SELL_LABELS.has(a.label)) sell++;
+  });
+  const total = buy + sell;
+  const ratio = total ? (buy - sell) / total : 0;
+  let arrow = '→', biasText = 'balanced', arrowColor = 'var(--muted)';
+  if (ratio > 0.20) { arrow = '⬆'; biasText = `bullish ${Math.round(ratio*100)}%`; arrowColor = 'var(--ok)'; }
+  else if (ratio > 0.05) { arrow = '↗'; biasText = `tilt buy ${Math.round(ratio*100)}%`; arrowColor = 'var(--ok)'; }
+  else if (ratio < -0.20) { arrow = '⬇'; biasText = `bearish ${Math.round(ratio*100)}%`; arrowColor = 'var(--bad)'; }
+  else if (ratio < -0.05) { arrow = '↘'; biasText = `tilt sell ${Math.round(ratio*100)}%`; arrowColor = 'var(--bad)'; }
+  const biasEl = document.getElementById('snap-bias-arrow');
+  biasEl.textContent = arrow;
+  biasEl.style.color = arrowColor;
+  document.getElementById('snap-bias-text').textContent = `${biasText} · buy ${buy} / sell ${sell}`;
+
+  // Freshness light
+  const fr = diag.freshness;
+  const light = document.getElementById('snap-light');
+  const label = document.getElementById('snap-light-label');
+  const detail = document.getElementById('snap-light-detail');
+  let color = '#475569', lbl = 'unknown';
+  if (fr && fr.label) {
+    if (fr.label === 'fresh') { color = '#34d399'; lbl = 'FRESH'; }
+    else if (fr.label === 'recent') { color = '#34d399'; lbl = 'RECENT'; }
+    else if (fr.label === 'lagging' || fr.label === 'slow') { color = '#fbbf24'; lbl = 'LAGGING'; }
+    else if (fr.label === 'stale' || fr.label === 'broken') { color = '#f87171'; lbl = 'STALE'; }
+    else { lbl = String(fr.label).toUpperCase(); }
+  }
+  light.style.background = color;
+  light.style.boxShadow = `0 0 12px ${color}88`;
+  label.textContent = lbl;
+  label.style.color = color;
+  detail.textContent = fr?.explanation || '—';
+
+  // Action: derived from system + bias + R1/R2 weakness
+  const trader = {{ trader | tojson if trader else 'null' }};
+  let action = 'KEEP MONITORING', reason = 'no setup right now', actionColor = '#fbbf24';
+  if (fr && (fr.label === 'stale' || fr.label === 'broken')) {
+    action = 'STAND DOWN'; reason = 'data feed stale — do not act on stale signals'; actionColor = '#f87171';
+  } else if (trader && trader.system === 'Broken') {
+    action = 'STOP USING'; reason = 'system broken — see health probes'; actionColor = '#f87171';
+  } else if (trader && trader.action === 'Investigate') {
+    action = 'INVESTIGATE'; reason = 'rule weakness or pending backlog'; actionColor = '#fbbf24';
+  } else if (ratio > 0.20) {
+    action = 'WATCH FOR R2 LONG'; reason = `flow bullish ${Math.round(ratio*100)}% · wait for R2 fire`; actionColor = '#34d399';
+  } else if (ratio < -0.20) {
+    action = 'WATCH FOR R1 SHORT'; reason = `flow bearish ${Math.round(ratio*100)}% · wait for R1 fire`; actionColor = '#f87171';
+  }
+  const actEl = document.getElementById('snap-action');
+  actEl.textContent = action;
+  actEl.style.color = actionColor;
+  document.getElementById('snap-action-reason').textContent = reason;
+}
+refreshSnapshot();
+setInterval(refreshSnapshot, 30000);
+
+// ── Pending fires ────────────────────────────────────────────────────────
+async function refreshPending() {
+  const meta = document.getElementById('pending-meta');
+  const tbl = document.getElementById('pending-table');
+  if (!meta || !tbl) return;
+  let data = null;
+  try {
+    const r = await fetch(`/api/order-flow/pending?symbol=${sym}&tf=${tf}`,
+                          { cache: 'no-store' });
+    if (r.ok) data = await r.json();
+  } catch (e) {
+    meta.textContent = `error fetching pending: ${e.message || e}`;
+    return;
+  }
+  if (!data) { meta.textContent = 'no pending data'; return; }
+  const rows = [
+    ...(data.r1r2 || []).map(f => ({ ...f, _src: 'r1r2' })),
+    ...(data.r7_shadow || []).map(f => ({ ...f, _src: 'r7_sh' })),
+  ];
+  meta.textContent = rows.length
+    ? `${rows.length} pending (${(data.r1r2||[]).length} R1/R2 + ${(data.r7_shadow||[]).length} R7 shadow)`
+    : 'No fires pending. Engine quiet — waiting for next setup.';
+  if (!rows.length) { tbl.innerHTML = ''; return; }
+  rows.sort((a, b) => new Date(a.fire_ts_utc || 0) - new Date(b.fire_ts_utc || 0));
+  const now = Date.now();
+  tbl.innerHTML = `
+    <div style="display:grid; grid-template-columns:6rem 7rem 4rem 5rem 5rem 6rem 5rem; gap:.25rem .55rem; color:var(--muted); font-size:.7rem; margin-bottom:.2rem;">
+      <div>src</div><div>rule</div><div>dir</div><div>price</div><div>atr</div><div>fired (NY)</div><div>settle in</div>
+    </div>
+    ` + rows.map(f => {
+      const dir = f.direction === 1 ? 'LONG' : f.direction === -1 ? 'SHORT' : '?';
+      const dirCls = f.direction === 1 ? 'delta-pos' : f.direction === -1 ? 'delta-neg' : '';
+      const fired = f.fire_ts_ny || f.fire_ts_utc || '—';
+      const firedShort = (typeof fired === 'string' && fired.length > 16)
+        ? new Date(f.fire_ts_utc).toLocaleTimeString('en-US', { timeZone:'America/New_York', hour12:false })
+        : fired;
+      let settleIn = '—';
+      if (f.settle_eta_utc) {
+        const etaMs = new Date(f.settle_eta_utc).getTime();
+        const mins = Math.round((etaMs - now) / 60000);
+        settleIn = mins > 0 ? `${mins}m` : `${-mins}m late`;
+      }
+      return `<div style="display:grid; grid-template-columns:6rem 7rem 4rem 5rem 5rem 6rem 5rem; gap:.25rem .55rem;">
+        <div style="color:var(--muted);">${f._src}</div>
+        <div>${f.rule || '?'}</div>
+        <div class="${dirCls}">${dir}</div>
+        <div>${f.entry_close ?? '—'}</div>
+        <div>${(f.atr ?? 0).toFixed(2)}</div>
+        <div style="color:var(--muted);">${firedShort}</div>
+        <div>${settleIn}</div>
+      </div>`;
+    }).join('');
+}
+refreshPending();
+setInterval(refreshPending, 30000);
 </script>
 </body>
 </html>

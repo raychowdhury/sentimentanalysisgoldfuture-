@@ -1274,6 +1274,24 @@ def register(app: Flask) -> None:
             return jsonify({"error": str(e), "checkpoints": []}), 500
         return jsonify({"symbol": symbol, "tf": tf, "checkpoints": cells})
 
+    @app.route("/api/order-flow/pending")
+    def order_flow_pending():  # pragma: no cover
+        """Read-only pending fires JSON: R1/R2 + R7 shadow combined."""
+        from pathlib import Path
+        symbol = request.args.get("symbol", "ESM6")
+        tf     = request.args.get("tf", "15m")
+        base = Path("outputs/order_flow")
+        out = {"symbol": symbol, "tf": tf, "r1r2": [], "r7_shadow": []}
+        f1 = base / f"realflow_outcomes_pending_{symbol}_{tf}.json"
+        f2 = base / f"realflow_r7_shadow_pending_{symbol}_{tf}.json"
+        if f1.exists():
+            try: out["r1r2"] = json.loads(f1.read_text() or "[]")
+            except Exception: pass
+        if f2.exists():
+            try: out["r7_shadow"] = json.loads(f2.read_text() or "[]")
+            except Exception: pass
+        return jsonify(out)
+
     @app.route("/api/order-flow/notifiers/test", methods=["POST"])
     def order_flow_notifiers_test():  # pragma: no cover
         from order_flow_engine.src import notifier
