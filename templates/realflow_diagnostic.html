@@ -1794,9 +1794,11 @@ setInterval(refreshTraderInsights, 30000);
 
 // ── Trader Snapshot (top-of-page big card) ───────────────────────────────
 async function refreshSnapshot() {
+  const symLocal = (document.getElementById('sym')?.value || 'ESM6').trim();
+  const tfLocal = (document.getElementById('tf')?.value || '15m').trim();
   let diag = null, alerts = [];
   try {
-    const r = await fetch(`/api/order-flow/realflow-diagnostic?symbol=${sym}&tf=${tf}`,
+    const r = await fetch(`/api/order-flow/realflow-diagnostic?symbol=${symLocal}&tf=${tfLocal}`,
                           { cache: 'no-store' });
     if (r.ok) diag = await r.json();
   } catch (e) {}
@@ -1811,7 +1813,14 @@ async function refreshSnapshot() {
   if (Array.isArray(diag.bars) && diag.bars.length) {
     const b = diag.bars[diag.bars.length - 1];
     price = b.close ?? b.Close ?? b.real_close ?? null;
-    atr = b.atr ?? null;
+    // Compute ATR(14) approximation from High - Low of last 14 bars
+    const tail = diag.bars.slice(-14);
+    const ranges = tail.map(x => {
+      const h = x.high ?? x.High;
+      const l = x.low ?? x.Low;
+      return (h !== undefined && l !== undefined) ? (h - l) : null;
+    }).filter(v => v !== null);
+    if (ranges.length) atr = ranges.reduce((a, b) => a + b, 0) / ranges.length;
   }
   document.getElementById('snap-price').textContent =
     (price !== null && price !== undefined) ? Number(price).toFixed(2) : '—';
@@ -1888,12 +1897,14 @@ setInterval(refreshSnapshot, 30000);
 
 // ── Pending fires ────────────────────────────────────────────────────────
 async function refreshPending() {
+  const symLocal = (document.getElementById('sym')?.value || 'ESM6').trim();
+  const tfLocal = (document.getElementById('tf')?.value || '15m').trim();
   const meta = document.getElementById('pending-meta');
   const tbl = document.getElementById('pending-table');
   if (!meta || !tbl) return;
   let data = null;
   try {
-    const r = await fetch(`/api/order-flow/pending?symbol=${sym}&tf=${tf}`,
+    const r = await fetch(`/api/order-flow/pending?symbol=${symLocal}&tf=${tfLocal}`,
                           { cache: 'no-store' });
     if (r.ok) data = await r.json();
   } catch (e) {
