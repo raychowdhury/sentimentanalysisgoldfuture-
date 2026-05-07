@@ -1276,13 +1276,39 @@ def register(app: Flask) -> None:
 
     @app.route("/api/order-flow/bars-1m")
     def order_flow_bars_1m():  # pragma: no cover
-        """Read-only last N 1m bars from live parquet."""
+        """Read-only last N 1m bars. Prefer in-memory tail (live, every
+        bar) over parquet (batched persist every 25 bars). Fallback to
+        parquet if memory empty."""
         from pathlib import Path
         import pandas as pd
+        from order_flow_engine.src import ingest
         symbol = request.args.get("symbol", "ESM6")
         try: n = int(request.args.get("n", "30"))
         except Exception: n = 30
         n = max(1, min(n, 500))
+
+        bars_mem = ingest.get_recent_bars(symbol, "1m", n)
+        if bars_mem:
+            bars = []
+            for b in bars_mem:
+                ts = b.get("ts")
+                try:
+                    ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                except Exception:
+                    ts_str = str(ts)
+                bars.append({
+                    "ts": ts_str,
+                    "open":  float(b["Open"])  if b.get("Open")  is not None else None,
+                    "high":  float(b["High"])  if b.get("High")  is not None else None,
+                    "low":   float(b["Low"])   if b.get("Low")   is not None else None,
+                    "close": float(b["Close"]) if b.get("Close") is not None else None,
+                    "volume": float(b["Volume"]) if b.get("Volume") is not None else None,
+                    "buy_vol":  float(b["buy_vol_real"]) if b.get("buy_vol_real") is not None else None,
+                    "sell_vol": float(b["sell_vol_real"]) if b.get("sell_vol_real") is not None else None,
+                })
+            return jsonify({"symbol": symbol, "tf": "1m", "n": len(bars),
+                            "source": "memory", "bars": bars})
+
         p = Path(f"order_flow_engine/data/processed/{symbol}_1m_live.parquet")
         if not p.exists():
             return jsonify({"symbol": symbol, "bars": [], "error": "missing"}), 404
@@ -1309,7 +1335,8 @@ def register(app: Flask) -> None:
                 "buy_vol":  float(row.get("buy_vol_real", 0)) if pd.notna(row.get("buy_vol_real")) else None,
                 "sell_vol": float(row.get("sell_vol_real", 0)) if pd.notna(row.get("sell_vol_real")) else None,
             })
-        return jsonify({"symbol": symbol, "tf": "1m", "n": len(bars), "bars": bars})
+        return jsonify({"symbol": symbol, "tf": "1m", "n": len(bars),
+                        "source": "parquet", "bars": bars})
 
     @app.route("/api/order-flow/pending")
     def order_flow_pending():  # pragma: no cover
