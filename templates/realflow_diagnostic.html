@@ -309,143 +309,83 @@
     <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;"></div>
   </div>
 
-  {# ── Trade Idea — derived recommendation (always visible) ──────────────#}
-  <div class="card" id="trade-idea-card" style="border-left:4px solid #38bdf8;">
-    <h2>Trade idea — next 3h horizon</h2>
-    <div style="display:grid; grid-template-columns:1.2fr 1fr 1fr 1fr; gap:1rem; align-items:start;">
+  {# ── Forecast horizons — consolidated 1m / 15m / 3h (always visible) ───#}
+  <div class="card" id="forecast-multi" style="border-left:4px solid #a78bfa;">
+    <h2>Forecast · 1m · 15m · 3h horizons</h2>
+    <div style="display:grid; grid-template-columns: 8.5rem 1fr 1fr 1fr; gap:.4rem .9rem; align-items:start; font-size:.85rem;">
 
-      <div>
-        <div class="kv-label">Recommendation</div>
-        <div id="ti2-reco" style="font-size:1.6rem; font-weight:700; line-height:1.1; margin-top:.2rem;">—</div>
-        <div id="ti2-reco-sub" style="color:var(--muted); font-size:.78rem; margin-top:.2rem;">—</div>
+      <!-- Header row -->
+      <div></div>
+      <div style="text-align:center; color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; padding-bottom:.35rem; border-bottom:1px solid var(--border);">
+        1m <span style="color:#c084fc;">●</span><br>
+        <span style="font-size:.65rem; text-transform:none; letter-spacing:0; font-weight:400;">refresh 3s</span>
+      </div>
+      <div style="text-align:center; color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; padding-bottom:.35rem; border-bottom:1px solid var(--border);">
+        15m <span style="color:#a78bfa;">●</span><br>
+        <span style="font-size:.65rem; text-transform:none; letter-spacing:0; font-weight:400;">refresh 15s</span>
+      </div>
+      <div style="text-align:center; color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; padding-bottom:.35rem; border-bottom:1px solid var(--border);">
+        3h <span style="color:#38bdf8;">●</span><br>
+        <span style="font-size:.65rem; text-transform:none; letter-spacing:0; font-weight:400;">refresh 30s</span>
       </div>
 
-      <div>
-        <div class="kv-label">Entry / Stop / Target</div>
-        <div style="font-family:ui-monospace,monospace; font-size:.85rem; margin-top:.25rem; line-height:1.6;">
-          <div>entry  <span id="ti2-entry" style="color:var(--ink); font-weight:600;">—</span></div>
-          <div>stop   <span id="ti2-stop"  style="color:var(--bad);">—</span></div>
-          <div>target <span id="ti2-target" style="color:var(--ok);">—</span></div>
-        </div>
+      <!-- Direction row -->
+      <div class="kv-label" style="align-self:center;">Direction</div>
+      <div style="text-align:center;">
+        <div id="f1m-dir" style="font-size:1.25rem; font-weight:700;">—</div>
+        <div id="f1m-dir-sub" style="color:var(--muted); font-size:.7rem;">—</div>
+      </div>
+      <div style="text-align:center;">
+        <div id="f15m-dir" style="font-size:1.25rem; font-weight:700;">—</div>
+        <div id="f15m-dir-sub" style="color:var(--muted); font-size:.7rem;">—</div>
+      </div>
+      <div style="text-align:center;">
+        <div id="f3h-dir" style="font-size:1.25rem; font-weight:700;">—</div>
+        <div id="f3h-dir-sub" style="color:var(--muted); font-size:.7rem;">—</div>
       </div>
 
-      <div>
-        <div class="kv-label">Risk : Reward</div>
-        <div id="ti2-rr" style="font-size:1.1rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div class="kv-label" style="margin-top:.6rem;">Confidence</div>
-        <div id="ti2-conf" style="font-size:1rem; font-weight:600; margin-top:.2rem;">—</div>
-      </div>
+      <!-- Predicted mid -->
+      <div class="kv-label" style="align-self:center;">Predicted mid</div>
+      <div id="f1m-mid"  style="text-align:center; font-family:ui-monospace,monospace; font-weight:600;">—</div>
+      <div id="f15m-mid" style="text-align:center; font-family:ui-monospace,monospace; font-weight:600;">—</div>
+      <div id="f3h-mid"  style="text-align:center; font-family:ui-monospace,monospace; font-weight:600;">—</div>
 
-      <div>
-        <div class="kv-label">Market heading</div>
-        <div id="ti2-heading" style="font-size:.95rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="ti2-heading-sub" style="color:var(--muted); font-size:.75rem; margin-top:.2rem; line-height:1.4;">—</div>
-      </div>
+      <!-- Range -->
+      <div class="kv-label" style="align-self:center;">Range / SL · TP</div>
+      <div id="f1m-range"  style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem; color:var(--muted); line-height:1.4;">—</div>
+      <div id="f15m-range" style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem; color:var(--muted); line-height:1.4;">—</div>
+      <div id="f3h-range"  style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem; color:var(--muted); line-height:1.4;">—</div>
+
+      <!-- Confidence dots -->
+      <div class="kv-label" style="align-self:center;">Confidence</div>
+      <div id="f1m-conf"  style="text-align:center; font-size:.85rem;">—</div>
+      <div id="f15m-conf" style="text-align:center; font-size:.85rem;">—</div>
+      <div id="f3h-conf"  style="text-align:center; font-size:.85rem;">—</div>
+
+      <!-- Closes in -->
+      <div class="kv-label" style="align-self:center;">Bar closes in</div>
+      <div id="f1m-time"  style="text-align:center; font-family:ui-monospace,monospace; font-weight:600; font-variant-numeric:tabular-nums;">—</div>
+      <div id="f15m-time" style="text-align:center; font-family:ui-monospace,monospace; font-weight:600; font-variant-numeric:tabular-nums;">—</div>
+      <div id="f3h-time"  style="text-align:center; font-family:ui-monospace,monospace; color:var(--muted); font-size:.78rem;">horizon</div>
+
+      <!-- Flow / extra -->
+      <div class="kv-label" style="align-self:center;">Flow signal</div>
+      <div id="f1m-flow"  style="text-align:center; font-size:.78rem;">—</div>
+      <div id="f15m-flow" style="text-align:center; font-size:.78rem;">—</div>
+      <div id="f3h-flow"  style="text-align:center; font-size:.78rem;">—</div>
+
     </div>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:.8rem;">
-      <div>
-        <div class="kv-label">Reasons (for the call)</div>
-        <ul id="ti2-reasons" style="font-size:.78rem; color:var(--ok); padding-left:1rem; margin:.3rem 0 0;"></ul>
-      </div>
-      <div>
-        <div class="kv-label">Caveats (against)</div>
-        <ul id="ti2-caveats" style="font-size:.78rem; color:var(--warn); padding-left:1rem; margin:.3rem 0 0;"></ul>
-      </div>
-    </div>
-
-    <div style="color:var(--muted); font-size:.7rem; margin-top:.7rem; border-top:1px solid var(--border); padding-top:.45rem;">
-      Research read-out only. Computed from recent fires + order-flow bias + R1/R2 strength + freshness. NOT trading advice. NO auto-execution. Verify on chart before any action.
-    </div>
-  </div>
-
-  {# ── Next bar forecast — 15m candle prediction (always visible) ────────#}
-  <div class="card" id="next-bar-card" style="border-left:4px solid #a78bfa;">
-    <h2>Next bar forecast — 15m candle</h2>
-    <div style="display:grid; grid-template-columns:1.2fr 1fr 1fr 1fr; gap:1rem; align-items:start;">
-
-      <div>
-        <div class="kv-label">Direction (close vs open)</div>
-        <div id="nb-dir" style="font-size:1.6rem; font-weight:700; line-height:1.1; margin-top:.2rem;">—</div>
-        <div id="nb-dir-sub" style="color:var(--muted); font-size:.78rem; margin-top:.2rem;">—</div>
-      </div>
-
-      <div>
-        <div class="kv-label">Predicted close range</div>
-        <div style="font-family:ui-monospace,monospace; font-size:.85rem; margin-top:.25rem; line-height:1.6;">
-          <div>low  <span id="nb-low"  style="color:var(--bad);">—</span></div>
-          <div>mid  <span id="nb-mid"  style="color:var(--ink); font-weight:600;">—</span></div>
-          <div>high <span id="nb-high" style="color:var(--ok);">—</span></div>
-        </div>
-      </div>
-
-      <div>
-        <div class="kv-label">Flow forecast (next 15m)</div>
-        <div id="nb-flow" style="font-size:1rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="nb-flow-sub" style="color:var(--muted); font-size:.75rem; margin-top:.2rem;">—</div>
-        <div class="kv-label" style="margin-top:.6rem;">Confidence</div>
-        <div id="nb-conf" style="font-size:1rem; font-weight:600; margin-top:.2rem;">—</div>
-      </div>
-
-      <div>
-        <div class="kv-label">Time to bar close</div>
-        <div id="nb-time" style="font-size:1.4rem; font-weight:700; font-variant-numeric:tabular-nums; margin-top:.2rem;">—</div>
-        <div id="nb-time-sub" style="color:var(--muted); font-size:.75rem; margin-top:.2rem;">—</div>
-      </div>
-    </div>
-
-    <div style="margin-top:.8rem;">
-      <div class="kv-label">Forecast inputs</div>
-      <ul id="nb-inputs" style="font-size:.78rem; color:var(--muted); padding-left:1rem; margin:.3rem 0 0; line-height:1.5;"></ul>
-    </div>
-
-    <div style="color:var(--muted); font-size:.7rem; margin-top:.7rem; border-top:1px solid var(--border); padding-top:.45rem;">
-      Naive 15-min extrapolation: blends recent close-momentum, intra-bar drift, last-bar real flow imbalance, recent tape skew. NOT a trained model. Single-bar forecast is high-variance — treat as orientation, not guidance.
-    </div>
-  </div>
-
-  {# ── Next 1m bar forecast (always visible) ─────────────────────────────#}
-  <div class="card" id="next-1m-card" style="border-left:4px solid #c084fc;">
-    <h2>Next 1m bar forecast</h2>
-    <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr 1fr; gap:.8rem; align-items:start;">
-
-      <div>
-        <div class="kv-label">Direction</div>
-        <div id="n1-dir" style="font-size:1.4rem; font-weight:700; line-height:1.1; margin-top:.2rem;">—</div>
-        <div id="n1-dir-sub" style="color:var(--muted); font-size:.72rem; margin-top:.15rem;">—</div>
-      </div>
-
-      <div>
-        <div class="kv-label">Predicted close</div>
-        <div style="font-family:ui-monospace,monospace; font-size:.82rem; margin-top:.25rem; line-height:1.5;">
-          <div>low  <span id="n1-low"  style="color:var(--bad);">—</span></div>
-          <div>mid  <span id="n1-mid"  style="color:var(--ink); font-weight:600;">—</span></div>
-          <div>high <span id="n1-high" style="color:var(--ok);">—</span></div>
-        </div>
-      </div>
-
-      <div>
-        <div class="kv-label">Last bar flow</div>
-        <div id="n1-flow" style="font-size:.95rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="n1-flow-sub" style="color:var(--muted); font-size:.72rem; margin-top:.15rem;">—</div>
-      </div>
-
-      <div>
-        <div class="kv-label">Confidence</div>
-        <div id="n1-conf" style="font-size:1.05rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div class="kv-label" style="margin-top:.55rem;">ATR(14)</div>
-        <div id="n1-atr" style="font-family:ui-monospace,monospace; font-size:.85rem; margin-top:.15rem;">—</div>
-      </div>
-
-      <div>
-        <div class="kv-label">Bar closes in</div>
-        <div id="n1-time" style="font-size:1.4rem; font-weight:700; font-variant-numeric:tabular-nums; margin-top:.2rem;">—</div>
-        <div id="n1-time-sub" style="color:var(--muted); font-size:.72rem; margin-top:.15rem;">—</div>
-      </div>
+    <!-- Consensus row -->
+    <div id="forecast-consensus" style="margin-top:.85rem; padding:.55rem .85rem; border:1px solid var(--border); border-radius:5px; background:var(--card2); display:flex; gap:.7rem; align-items:center;">
+      <span style="color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.05em;">Consensus</span>
+      <span id="forecast-consensus-icon" style="font-size:1.4rem; line-height:1;">—</span>
+      <span id="forecast-consensus-text" style="font-weight:600; font-size:.95rem;">—</span>
+      <span id="forecast-consensus-detail" style="color:var(--muted); font-size:.78rem;">—</span>
     </div>
 
     <div style="color:var(--muted); font-size:.7rem; margin-top:.55rem; border-top:1px solid var(--border); padding-top:.4rem;">
-      1m forecast refreshes every 3s. Higher variance than 15m forecast. Inputs: last 5×1m close drift · last bar buy/sell vol delta · 1m ATR · tape skew last 60s.
+      Research read-out only. Naive momentum + flow extrapolation, not trained ML. Single-bar forecasts higher variance than 3h. NOT trading advice. NO auto-execution. Verify on chart.
     </div>
   </div>
 
@@ -2031,7 +1971,76 @@ async function refreshPending() {
 refreshPending();
 setInterval(refreshPending, 30000);
 
-// ── Trade Idea — derived BUY/SELL/WAIT verdict ──────────────────────────
+// ── Forecast multi-horizon (1m / 15m / 3h) ──────────────────────────────
+const FCAST = { f1m: null, f15m: null, f3h: null };
+
+function confDots(level) {
+  // level in {'high','medium','low'}
+  const filled = level === 'high' ? 3 : level === 'medium' ? 2 : level === 'low' ? 1 : 0;
+  const color = level === 'high' ? 'var(--ok)' : level === 'medium' ? 'var(--warn)' : 'var(--bad)';
+  let dots = '';
+  for (let i = 0; i < 3; i++) dots += `<span style="color:${i < filled ? color : '#334155'};">●</span>`;
+  return `${dots} <span style="font-size:.72rem; color:var(--muted); margin-left:.25rem;">${level || '—'}</span>`;
+}
+
+function dirArrow(dir) {
+  // dir signed integer: +1 up, -1 down, 0 flat
+  if (dir > 0) return '⬆';
+  if (dir < 0) return '⬇';
+  return '→';
+}
+
+function dirColor(dir) {
+  return dir > 0 ? 'var(--ok)' : dir < 0 ? 'var(--bad)' : 'var(--muted)';
+}
+
+function dirLabel(score) {
+  if (score > 0.30) return { label: 'UP', dir: 1 };
+  if (score > 0.10) return { label: 'tilt UP', dir: 1 };
+  if (score < -0.30) return { label: 'DOWN', dir: -1 };
+  if (score < -0.10) return { label: 'tilt DOWN', dir: -1 };
+  return { label: 'FLAT', dir: 0 };
+}
+
+function setCell(id, text, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  if (color) el.style.color = color;
+}
+
+function setCellHTML(id, html) {
+  const el = document.getElementById(id); if (el) el.innerHTML = html;
+}
+
+function renderConsensus() {
+  const dirs = [FCAST.f1m, FCAST.f15m, FCAST.f3h]
+    .filter(x => x !== null)
+    .map(x => x.dir);
+  if (dirs.length < 3) {
+    setCell('forecast-consensus-icon', '—', 'var(--muted)');
+    setCell('forecast-consensus-text', 'computing…', 'var(--muted)');
+    setCell('forecast-consensus-detail', 'awaiting all 3 horizons', 'var(--muted)');
+    return;
+  }
+  const ups   = dirs.filter(d => d > 0).length;
+  const downs = dirs.filter(d => d < 0).length;
+  const flats = dirs.filter(d => d === 0).length;
+  let icon = '→', text = 'mixed', color = 'var(--warn)', detail = `${ups}↑ ${flats}→ ${downs}↓`;
+  if (ups === 3) { icon = '⬆⬆⬆'; text = 'ALL UP — strong'; color = 'var(--ok)'; }
+  else if (downs === 3) { icon = '⬇⬇⬇'; text = 'ALL DOWN — strong'; color = 'var(--bad)'; }
+  else if (ups === 2 && flats === 1) { icon = '⬆⬆→'; text = 'tilt UP'; color = 'var(--ok)'; }
+  else if (downs === 2 && flats === 1) { icon = '⬇⬇→'; text = 'tilt DOWN'; color = 'var(--bad)'; }
+  else if (ups === 2 && downs === 1) { icon = '⬆⬆⬇'; text = 'mostly UP — weak'; color = 'var(--warn)'; }
+  else if (downs === 2 && ups === 1) { icon = '⬇⬇⬆'; text = 'mostly DOWN — weak'; color = 'var(--warn)'; }
+  else if (flats === 3) { icon = '→→→'; text = 'all FLAT — wait'; color = 'var(--muted)'; }
+  else { icon = '⬆⬇'; text = 'split — wait'; color = 'var(--warn)'; }
+  setCell('forecast-consensus-icon', icon, color);
+  setCell('forecast-consensus-text', text, color);
+  setCell('forecast-consensus-detail', `1m=${dirArrow(FCAST.f1m.dir)}  15m=${dirArrow(FCAST.f15m.dir)}  3h=${dirArrow(FCAST.f3h.dir)} · ${detail}`, 'var(--muted)');
+}
+
+// ── 3h horizon (BUY/SELL/WAIT) ──────────────────────────────────────────
 async function refreshTradeIdea() {
   const symLocal = (document.getElementById('sym')?.value || 'ESM6').trim();
   const tfLocal = (document.getElementById('tf')?.value || '15m').trim();
@@ -2151,66 +2160,42 @@ async function refreshTradeIdea() {
     if (trader?.pending_n && trader.pending_n > 5) caveats.push(`${trader.pending_n} pending fires — backlog`);
   }
 
-  // Compute entry / stop / target
-  const entryEl = document.getElementById('ti2-entry');
-  const stopEl = document.getElementById('ti2-stop');
-  const tgtEl = document.getElementById('ti2-target');
-  const rrEl = document.getElementById('ti2-rr');
+  // Render into new consolidated card (3h column)
+  const dirSigned = side === 'long' ? 1 : side === 'short' ? -1 : 0;
+  const recoColor3 = side === 'long' ? 'var(--ok)' : side === 'short' ? 'var(--bad)' : 'var(--muted)';
+  setCell('f3h-dir', reco, recoColor3);
+  setCell('f3h-dir-sub', recoSub, 'var(--muted)');
   if (price && atr && side) {
-    const entry = price;
-    const stop = side === 'long' ? entry - atr : entry + atr;
-    const target = side === 'long' ? entry + atr : entry - atr;
-    entryEl.textContent = entry.toFixed(2);
-    stopEl.textContent = `${stop.toFixed(2)} (-1 ATR)`;
-    tgtEl.textContent = `${target.toFixed(2)} (+1 ATR)`;
-    rrEl.textContent = '1 : 1';
-    rrEl.style.color = 'var(--muted)';
+    const stop = side === 'long' ? price - atr : price + atr;
+    const target = side === 'long' ? price + atr : price - atr;
+    setCell('f3h-mid', price.toFixed(2));
+    setCellHTML('f3h-range',
+      `<span style="color:var(--bad);">SL ${stop.toFixed(2)}</span> · <span style="color:var(--ok);">TP ${target.toFixed(2)}</span><br>` +
+      `<span style="color:var(--muted); font-size:.7rem;">RR 1:1 · ±1 ATR</span>`);
   } else {
-    entryEl.textContent = price ? price.toFixed(2) : '—';
-    stopEl.textContent = '—';
-    tgtEl.textContent = '—';
-    rrEl.textContent = '—';
+    setCell('f3h-mid', price ? price.toFixed(2) : '—');
+    setCellHTML('f3h-range', '<span style="color:var(--muted);">no setup — wait</span>');
   }
 
-  // Confidence
-  let conf = 'low', confColor = 'var(--muted)';
+  let conf = 'low';
   if (side) {
     const score = side === 'long'
       ? (biasRatio > 0.05 ? 1 : 0) + (trader?.r2 === 'Watching' ? 1 : 0) + (recentR2.length > 0 ? 1 : 0) + (drift > 0.5 ? 1 : 0)
       : (biasRatio < -0.05 ? 1 : 0) + (trader?.r1 === 'Watching' ? 1 : 0) + (recentR1.length > 0 ? 1 : 0) + (drift < -0.5 ? 1 : 0);
-    if (score >= 4) { conf = 'high'; confColor = 'var(--ok)'; }
-    else if (score >= 3) { conf = 'medium'; confColor = 'var(--warn)'; }
-    else { conf = 'low'; confColor = 'var(--bad)'; }
+    if (score >= 4) conf = 'high';
+    else if (score >= 3) conf = 'medium';
   }
-  const confEl = document.getElementById('ti2-conf');
-  confEl.textContent = conf;
-  confEl.style.color = confColor;
+  setCellHTML('f3h-conf', confDots(conf));
 
-  // Render reco
-  const recoEl = document.getElementById('ti2-reco');
-  recoEl.textContent = reco;
-  recoEl.style.color = recoColor;
-  document.getElementById('ti2-reco-sub').textContent = recoSub;
-
-  // Market heading text
-  let heading = 'sideways', headingSub = '', headingColor = 'var(--muted)';
+  let heading = 'sideways', headingColor = 'var(--muted)';
   if (drift > 1.0) { heading = 'strong up'; headingColor = 'var(--ok)'; }
   else if (drift > 0.3) { heading = 'tilt up'; headingColor = 'var(--ok)'; }
   else if (drift < -1.0) { heading = 'strong down'; headingColor = 'var(--bad)'; }
   else if (drift < -0.3) { heading = 'tilt down'; headingColor = 'var(--bad)'; }
-  if (atr) headingSub = `last 8 bars drift ${drift > 0 ? '+' : ''}${drift.toFixed(2)}× ATR (~${(drift * atr).toFixed(2)} pts)`;
-  const hdEl = document.getElementById('ti2-heading');
-  hdEl.textContent = heading;
-  hdEl.style.color = headingColor;
-  document.getElementById('ti2-heading-sub').textContent = headingSub;
+  setCell('f3h-flow', `${heading} · drift ${drift >= 0 ? '+' : ''}${drift.toFixed(2)}× ATR`, headingColor);
 
-  // Render reasons / caveats
-  document.getElementById('ti2-reasons').innerHTML = reasons.length
-    ? reasons.map(r => `<li>${r}</li>`).join('')
-    : '<li style="color:var(--muted);">no positive signals</li>';
-  document.getElementById('ti2-caveats').innerHTML = caveats.length
-    ? caveats.map(c => `<li>${c}</li>`).join('')
-    : '<li style="color:var(--muted);">none</li>';
+  FCAST.f3h = { dir: dirSigned, label: reco, conf };
+  renderConsensus();
 }
 refreshTradeIdea();
 setInterval(refreshTradeIdea, 30000);
@@ -2243,10 +2228,7 @@ async function refreshNextBar() {
   const remainMs = nextEdge - ms;
   const remMin = Math.floor(remainMs / 60000);
   const remSec = Math.floor((remainMs % 60000) / 1000);
-  const timeEl = document.getElementById('nb-time');
-  timeEl.textContent = `${remMin}:${remSec.toString().padStart(2, '0')}`;
-  const nextNy = new Date(nextEdge).toLocaleTimeString('en-US', { timeZone:'America/New_York', hour12:false, hour:'2-digit', minute:'2-digit' });
-  document.getElementById('nb-time-sub').textContent = `closes ${nextNy} NY`;
+  setCell('f15m-time', `${remMin}:${remSec.toString().padStart(2, '0')}`);
 
   // ATR + last 5 close drift
   const tail14 = bars.slice(-14);
@@ -2304,56 +2286,32 @@ async function refreshNextBar() {
   const lowPred = midPred - rangeWidth;
   const highPred = midPred + rangeWidth;
 
-  // Direction
-  let dir = 'FLAT', dirSub = '', dirColor = 'var(--muted)';
-  if (clipped > 0.30) { dir = 'UP'; dirColor = 'var(--ok)'; dirSub = `+${(clipped*atr*0.5).toFixed(2)} pts expected`; }
-  else if (clipped > 0.10) { dir = 'tilt UP'; dirColor = 'var(--ok)'; dirSub = `+${(clipped*atr*0.5).toFixed(2)} pts expected`; }
-  else if (clipped < -0.30) { dir = 'DOWN'; dirColor = 'var(--bad)'; dirSub = `${(clipped*atr*0.5).toFixed(2)} pts expected`; }
-  else if (clipped < -0.10) { dir = 'tilt DOWN'; dirColor = 'var(--bad)'; dirSub = `${(clipped*atr*0.5).toFixed(2)} pts expected`; }
-  else { dirSub = 'expected magnitude < 0.1 ATR'; }
-  const dirEl = document.getElementById('nb-dir');
-  dirEl.textContent = dir;
-  dirEl.style.color = dirColor;
-  document.getElementById('nb-dir-sub').textContent = dirSub;
+  const lbl = dirLabel(clipped);
+  setCell('f15m-dir', lbl.label, dirColor(lbl.dir));
+  setCell('f15m-dir-sub', `${clipped >= 0 ? '+' : ''}${(clipped*atr*0.5).toFixed(2)} pts`, 'var(--muted)');
 
-  document.getElementById('nb-low').textContent = lowPred.toFixed(2);
-  document.getElementById('nb-mid').textContent = midPred.toFixed(2);
-  document.getElementById('nb-high').textContent = highPred.toFixed(2);
+  setCell('f15m-mid', midPred.toFixed(2));
+  setCellHTML('f15m-range', `${lowPred.toFixed(2)} – ${highPred.toFixed(2)}<br><span style="font-size:.7rem;">±0.5 ATR (${atr.toFixed(2)})</span>`);
 
-  // Flow forecast
-  let flow = 'mixed', flowColor = 'var(--muted)', flowSub = `${recentBuy} buy / ${recentSell} sell last 5m`;
+  let flow = 'mixed', flowColor = 'var(--muted)';
   if (tapeBias > 0.30) { flow = 'buy-heavy'; flowColor = 'var(--ok)'; }
   else if (tapeBias > 0.05) { flow = 'tilt buy'; flowColor = 'var(--ok)'; }
   else if (tapeBias < -0.30) { flow = 'sell-heavy'; flowColor = 'var(--bad)'; }
   else if (tapeBias < -0.05) { flow = 'tilt sell'; flowColor = 'var(--bad)'; }
-  const flowEl = document.getElementById('nb-flow');
-  flowEl.textContent = flow;
-  flowEl.style.color = flowColor;
-  document.getElementById('nb-flow-sub').textContent = flowSub;
+  setCell('f15m-flow', `${flow} · ${recentBuy}/${recentSell}`, flowColor);
 
-  // Confidence: based on signal alignment
   const components = [
     Math.sign(drift5), Math.sign(realDelta), Math.sign(realCvdZ), Math.sign(tapeBias), Math.sign(lastBarDir),
   ].filter(s => s !== 0);
   const aligned = components.length
-    ? Math.abs(components.reduce((a, b) => a + b, 0)) / components.length
-    : 0;
-  let conf = 'low', confColor = 'var(--bad)';
-  if (aligned >= 0.8) { conf = 'high'; confColor = 'var(--ok)'; }
-  else if (aligned >= 0.5) { conf = 'medium'; confColor = 'var(--warn)'; }
-  const confEl = document.getElementById('nb-conf');
-  confEl.textContent = conf;
-  confEl.style.color = confColor;
+    ? Math.abs(components.reduce((a, b) => a + b, 0)) / components.length : 0;
+  let conf = 'low';
+  if (aligned >= 0.8) conf = 'high';
+  else if (aligned >= 0.5) conf = 'medium';
+  setCellHTML('f15m-conf', confDots(conf));
 
-  // Inputs list
-  document.getElementById('nb-inputs').innerHTML = [
-    `last 5-bar drift: ${drift5 >= 0 ? '+' : ''}${drift5.toFixed(2)}× ATR`,
-    `last bar real_delta_ratio: ${realDelta >= 0 ? '+' : ''}${(realDelta * 100).toFixed(1)}%`,
-    `last bar real cvd_z: ${realCvdZ >= 0 ? '+' : ''}${realCvdZ.toFixed(2)}`,
-    `last bar dir: ${lastBarDir > 0 ? 'green' : lastBarDir < 0 ? 'red' : 'doji'} (open ${lastOpen?.toFixed(2)} → close ${lastClose?.toFixed(2)})`,
-    `tape last 5m: ${recentBuy} buy / ${recentSell} sell (net ${tapeNet >= 0 ? '+' : ''}${tapeNet})`,
-    `composite expected drift: ${clipped >= 0 ? '+' : ''}${clipped.toFixed(2)}× ATR`,
-  ].map(s => `<li>${s}</li>`).join('');
+  FCAST.f15m = { dir: lbl.dir, label: lbl.label, conf };
+  renderConsensus();
 }
 refreshNextBar();
 setInterval(refreshNextBar, 15000);
@@ -2378,7 +2336,6 @@ async function refreshNext1m() {
   const tail14 = bars.slice(-14);
   const ranges = tail14.map(b => (b.high !== null && b.low !== null) ? (b.high - b.low) : null).filter(v => v !== null);
   const atr = ranges.length ? ranges.reduce((a, b) => a + b, 0) / ranges.length : 0;
-  document.getElementById('n1-atr').textContent = atr ? atr.toFixed(2) : '—';
 
   // 5-bar drift in ATR units
   const tail5 = bars.slice(-5);
@@ -2412,52 +2369,38 @@ async function refreshNext1m() {
   const expMag = clipped * atr * 0.5;
   const mid = last.close + expMag;
   const half = atr * 0.5;
-  document.getElementById('n1-low').textContent = (mid - half).toFixed(2);
-  document.getElementById('n1-mid').textContent = mid.toFixed(2);
-  document.getElementById('n1-high').textContent = (mid + half).toFixed(2);
+  const lbl = dirLabel(clipped);
+  setCell('f1m-dir', lbl.label, dirColor(lbl.dir));
+  setCell('f1m-dir-sub', `${expMag >= 0 ? '+' : ''}${expMag.toFixed(2)} pts`, 'var(--muted)');
 
-  // Direction
-  let dir = 'FLAT', dirSub = '', dirColor = 'var(--muted)';
-  if (clipped > 0.30) { dir = 'UP'; dirColor = 'var(--ok)'; dirSub = `+${(expMag).toFixed(2)} pts`; }
-  else if (clipped > 0.10) { dir = 'tilt UP'; dirColor = 'var(--ok)'; dirSub = `+${(expMag).toFixed(2)} pts`; }
-  else if (clipped < -0.30) { dir = 'DOWN'; dirColor = 'var(--bad)'; dirSub = `${(expMag).toFixed(2)} pts`; }
-  else if (clipped < -0.10) { dir = 'tilt DOWN'; dirColor = 'var(--bad)'; dirSub = `${(expMag).toFixed(2)} pts`; }
-  else { dirSub = `< 0.1 ATR`; }
-  const dirEl = document.getElementById('n1-dir');
-  dirEl.textContent = dir; dirEl.style.color = dirColor;
-  document.getElementById('n1-dir-sub').textContent = dirSub;
+  setCell('f1m-mid', mid.toFixed(2));
+  setCellHTML('f1m-range', `${(mid-half).toFixed(2)} – ${(mid+half).toFixed(2)}<br><span style="font-size:.7rem;">±0.5 ATR (${atr.toFixed(2)})</span>`);
 
-  // Flow (last bar)
   let flow = 'mixed', flowColor = 'var(--muted)';
   if (lastDelta > 0.20) { flow = 'buy-heavy'; flowColor = 'var(--ok)'; }
   else if (lastDelta > 0.05) { flow = 'tilt buy'; flowColor = 'var(--ok)'; }
   else if (lastDelta < -0.20) { flow = 'sell-heavy'; flowColor = 'var(--bad)'; }
   else if (lastDelta < -0.05) { flow = 'tilt sell'; flowColor = 'var(--bad)'; }
-  const flowEl = document.getElementById('n1-flow');
-  flowEl.textContent = flow; flowEl.style.color = flowColor;
-  document.getElementById('n1-flow-sub').textContent =
-    `delta ${(lastDelta*100).toFixed(1)}% · vol ${totalV.toFixed(0)} (${buyV.toFixed(0)}/${sellV.toFixed(0)})`;
+  setCell('f1m-flow', `${flow} · Δ${(lastDelta*100).toFixed(1)}%`, flowColor);
 
-  // Confidence
   const components = [
     Math.sign(drift5), Math.sign(lastDelta), Math.sign(tapeBias), Math.sign(lastDir),
   ].filter(s => s !== 0);
   const aligned = components.length
     ? Math.abs(components.reduce((a, b) => a + b, 0)) / components.length : 0;
-  let conf = 'low', confColor = 'var(--bad)';
-  if (aligned >= 0.75) { conf = 'high'; confColor = 'var(--ok)'; }
-  else if (aligned >= 0.5) { conf = 'medium'; confColor = 'var(--warn)'; }
-  const cEl = document.getElementById('n1-conf');
-  cEl.textContent = conf; cEl.style.color = confColor;
+  let conf = 'low';
+  if (aligned >= 0.75) conf = 'high';
+  else if (aligned >= 0.5) conf = 'medium';
+  setCellHTML('f1m-conf', confDots(conf));
 
-  // Time to next 1m bar close
   const now = Date.now();
   const periodMs = 60 * 1000;
   const nextEdge = Math.ceil(now / periodMs) * periodMs;
   const remSec = Math.max(0, Math.floor((nextEdge - now) / 1000));
-  document.getElementById('n1-time').textContent = `0:${remSec.toString().padStart(2, '0')}`;
-  const lastBarTs = new Date(last.ts).toISOString().substring(11, 16);
-  document.getElementById('n1-time-sub').textContent = `last bar ${lastBarTs}Z`;
+  setCell('f1m-time', `0:${remSec.toString().padStart(2, '0')}`);
+
+  FCAST.f1m = { dir: lbl.dir, label: lbl.label, conf };
+  renderConsensus();
 }
 refreshNext1m();
 setInterval(refreshNext1m, 3000);
