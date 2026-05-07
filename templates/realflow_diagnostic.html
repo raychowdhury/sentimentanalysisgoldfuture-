@@ -309,6 +309,56 @@
     <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;"></div>
   </div>
 
+  {# ── Trade Idea — derived recommendation (always visible) ──────────────#}
+  <div class="card" id="trade-idea-card" style="border-left:4px solid #38bdf8;">
+    <h2>Trade idea — next 3h horizon</h2>
+    <div style="display:grid; grid-template-columns:1.2fr 1fr 1fr 1fr; gap:1rem; align-items:start;">
+
+      <div>
+        <div class="kv-label">Recommendation</div>
+        <div id="ti2-reco" style="font-size:1.6rem; font-weight:700; line-height:1.1; margin-top:.2rem;">—</div>
+        <div id="ti2-reco-sub" style="color:var(--muted); font-size:.78rem; margin-top:.2rem;">—</div>
+      </div>
+
+      <div>
+        <div class="kv-label">Entry / Stop / Target</div>
+        <div style="font-family:ui-monospace,monospace; font-size:.85rem; margin-top:.25rem; line-height:1.6;">
+          <div>entry  <span id="ti2-entry" style="color:var(--ink); font-weight:600;">—</span></div>
+          <div>stop   <span id="ti2-stop"  style="color:var(--bad);">—</span></div>
+          <div>target <span id="ti2-target" style="color:var(--ok);">—</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="kv-label">Risk : Reward</div>
+        <div id="ti2-rr" style="font-size:1.1rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div class="kv-label" style="margin-top:.6rem;">Confidence</div>
+        <div id="ti2-conf" style="font-size:1rem; font-weight:600; margin-top:.2rem;">—</div>
+      </div>
+
+      <div>
+        <div class="kv-label">Market heading</div>
+        <div id="ti2-heading" style="font-size:.95rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div id="ti2-heading-sub" style="color:var(--muted); font-size:.75rem; margin-top:.2rem; line-height:1.4;">—</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:.8rem;">
+      <div>
+        <div class="kv-label">Reasons (for the call)</div>
+        <ul id="ti2-reasons" style="font-size:.78rem; color:var(--ok); padding-left:1rem; margin:.3rem 0 0;"></ul>
+      </div>
+      <div>
+        <div class="kv-label">Caveats (against)</div>
+        <ul id="ti2-caveats" style="font-size:.78rem; color:var(--warn); padding-left:1rem; margin:.3rem 0 0;"></ul>
+      </div>
+    </div>
+
+    <div style="color:var(--muted); font-size:.7rem; margin-top:.7rem; border-top:1px solid var(--border); padding-top:.45rem;">
+      Research read-out only. Computed from recent fires + order-flow bias + R1/R2 strength + freshness. NOT trading advice. NO auto-execution. Verify on chart before any action.
+    </div>
+  </div>
+
   {# ── Order-flow detail (collapsed drawer) ──────────────────────────────#}
   <details class="layer-wrap">
     <summary>Order-flow detail — label distribution &amp; alert pressure</summary>
@@ -1890,6 +1940,190 @@ async function refreshPending() {
 }
 refreshPending();
 setInterval(refreshPending, 30000);
+
+// ── Trade Idea — derived BUY/SELL/WAIT verdict ──────────────────────────
+async function refreshTradeIdea() {
+  const symLocal = (document.getElementById('sym')?.value || 'ESM6').trim();
+  const tfLocal = (document.getElementById('tf')?.value || '15m').trim();
+  let diag = null, alerts = [], pending = null, outcomes = null;
+  try {
+    const [r1, r2, r3, r4] = await Promise.all([
+      fetch(`/api/order-flow/realflow-diagnostic?symbol=${symLocal}&tf=${tfLocal}`, { cache: 'no-store' }),
+      fetch('/api/order-flow/alerts', { cache: 'no-store' }),
+      fetch(`/api/order-flow/pending?symbol=${symLocal}&tf=${tfLocal}`, { cache: 'no-store' }),
+      fetch(`/api/order-flow/realflow-outcomes?symbol=${symLocal}&tf=${tfLocal}&settle=1`, { cache: 'no-store' }),
+    ]);
+    if (r1.ok) diag = await r1.json();
+    if (r2.ok) alerts = await r2.json();
+    if (r3.ok) pending = await r3.json();
+    if (r4.ok) outcomes = await r4.json();
+  } catch (e) { return; }
+  if (!diag) return;
+
+  // Current price + ATR
+  let price = null, atr = null;
+  if (Array.isArray(diag.bars) && diag.bars.length) {
+    const b = diag.bars[diag.bars.length - 1];
+    price = b.close ?? b.Close ?? null;
+    const tail = diag.bars.slice(-14);
+    const ranges = tail.map(x => {
+      const h = x.high ?? x.High; const l = x.low ?? x.Low;
+      return (h !== undefined && l !== undefined) ? (h - l) : null;
+    }).filter(v => v !== null);
+    if (ranges.length) atr = ranges.reduce((a, b) => a + b, 0) / ranges.length;
+  }
+
+  // Trader summary (server-rendered)
+  const trader = {{ trader | tojson if trader else 'null' }};
+
+  // Bias from last 200 alerts
+  const recent = Array.isArray(alerts) ? alerts.slice(-200) : [];
+  let buy = 0, sell = 0;
+  recent.forEach(a => {
+    if (BUY_LABELS.has(a.label)) buy++;
+    else if (SELL_LABELS.has(a.label)) sell++;
+  });
+  const totalBS = buy + sell;
+  const biasRatio = totalBS ? (buy - sell) / totalBS : 0;
+
+  // Recent rule fires (R1 / R2) — pull from pending + last few outcomes
+  const r1r2Pending = (pending?.r1r2 || []);
+  const recentR1 = r1r2Pending.filter(f => f.rule === 'r1_buyer_down').slice(-3);
+  const recentR2 = r1r2Pending.filter(f => f.rule === 'r2_seller_up').slice(-3);
+  // Most recent fire timestamp (any rule)
+  let lastFireTs = null, lastFireRule = null, lastFireDir = 0;
+  r1r2Pending.forEach(f => {
+    const t = new Date(f.fire_ts_utc || 0).getTime();
+    if (!lastFireTs || t > lastFireTs) {
+      lastFireTs = t; lastFireRule = f.rule; lastFireDir = f.direction || 0;
+    }
+  });
+
+  // Price drift over last 8 bars (for "market heading")
+  let drift = 0;
+  if (Array.isArray(diag.bars) && diag.bars.length >= 8) {
+    const tail8 = diag.bars.slice(-8);
+    const first = tail8[0].close ?? tail8[0].Close;
+    const last = tail8[tail8.length - 1].close ?? tail8[tail8.length - 1].Close;
+    if (first && last) drift = (last - first) / (atr || 1);
+  }
+
+  // Freshness gate
+  const stale = (diag.freshness?.label === 'stale' || diag.freshness?.label === 'broken');
+  const systemBroken = trader && trader.system === 'Broken';
+
+  // Decision tree
+  let reco = 'WAIT', recoColor = 'var(--muted)', recoSub = '', side = null;
+  const reasons = [], caveats = [];
+
+  if (stale) {
+    reco = 'STAND DOWN'; recoColor = 'var(--bad)';
+    recoSub = 'data feed stale';
+    caveats.push(`feed stale (${diag.freshness?.explanation || 'unknown'})`);
+  } else if (systemBroken) {
+    reco = 'STAND DOWN'; recoColor = 'var(--bad)';
+    recoSub = 'system broken — check probes';
+    caveats.push('health probes flagging multiple unhealthy');
+  } else {
+    // Compute long/short bias from R1/R2 weights + flow bias
+    const r2Strong = (trader?.r2 === 'Strong' || trader?.r2 === 'Watching');
+    const r1Strong = (trader?.r1 === 'Strong' || trader?.r1 === 'Watching');
+    const longScore = (biasRatio > 0.05 ? 1 : 0)
+                    + (r2Strong ? 1 : 0)
+                    + (recentR2.length > 0 ? 1 : 0)
+                    + (drift > 0.5 ? 1 : 0);
+    const shortScore = (biasRatio < -0.05 ? 1 : 0)
+                     + (r1Strong ? 1 : 0)
+                     + (recentR1.length > 0 ? 1 : 0)
+                     + (drift < -0.5 ? 1 : 0);
+    if (longScore >= 2 && longScore > shortScore) {
+      reco = 'BUY'; recoColor = 'var(--ok)'; side = 'long';
+      recoSub = `${longScore}/4 long signals`;
+      if (biasRatio > 0.05) reasons.push(`order flow tilted buy ${Math.round(biasRatio*100)}%`);
+      if (r2Strong) reasons.push(`R2 (long bias) status: ${trader.r2}`);
+      if (recentR2.length) reasons.push(`R2 fired ${recentR2.length}× recently`);
+      if (drift > 0.5) reasons.push(`price drifted +${drift.toFixed(2)}× ATR last 8 bars`);
+    } else if (shortScore >= 2 && shortScore > longScore) {
+      reco = 'SELL'; recoColor = 'var(--bad)'; side = 'short';
+      recoSub = `${shortScore}/4 short signals`;
+      if (biasRatio < -0.05) reasons.push(`order flow tilted sell ${Math.round(-biasRatio*100)}%`);
+      if (r1Strong) reasons.push(`R1 (short bias) status: ${trader.r1}`);
+      if (recentR1.length) reasons.push(`R1 fired ${recentR1.length}× recently`);
+      if (drift < -0.5) reasons.push(`price drifted ${drift.toFixed(2)}× ATR last 8 bars`);
+    } else {
+      reco = 'WAIT'; recoColor = 'var(--warn)'; side = null;
+      recoSub = 'no edge — signals split or weak';
+      caveats.push(`long score ${longScore}/4, short score ${shortScore}/4 — neither clear`);
+    }
+    if (trader?.r1 === 'Weak') caveats.push('R1 marked Weak (live retention low)');
+    if (trader?.r2 === 'Weak') caveats.push('R2 marked Weak');
+    if (trader?.live_data === 'Slow') caveats.push('live data slow (reading 1m parquet trail)');
+    if (trader?.pending_n && trader.pending_n > 5) caveats.push(`${trader.pending_n} pending fires — backlog`);
+  }
+
+  // Compute entry / stop / target
+  const entryEl = document.getElementById('ti2-entry');
+  const stopEl = document.getElementById('ti2-stop');
+  const tgtEl = document.getElementById('ti2-target');
+  const rrEl = document.getElementById('ti2-rr');
+  if (price && atr && side) {
+    const entry = price;
+    const stop = side === 'long' ? entry - atr : entry + atr;
+    const target = side === 'long' ? entry + atr : entry - atr;
+    entryEl.textContent = entry.toFixed(2);
+    stopEl.textContent = `${stop.toFixed(2)} (-1 ATR)`;
+    tgtEl.textContent = `${target.toFixed(2)} (+1 ATR)`;
+    rrEl.textContent = '1 : 1';
+    rrEl.style.color = 'var(--muted)';
+  } else {
+    entryEl.textContent = price ? price.toFixed(2) : '—';
+    stopEl.textContent = '—';
+    tgtEl.textContent = '—';
+    rrEl.textContent = '—';
+  }
+
+  // Confidence
+  let conf = 'low', confColor = 'var(--muted)';
+  if (side) {
+    const score = side === 'long'
+      ? (biasRatio > 0.05 ? 1 : 0) + (trader?.r2 === 'Watching' ? 1 : 0) + (recentR2.length > 0 ? 1 : 0) + (drift > 0.5 ? 1 : 0)
+      : (biasRatio < -0.05 ? 1 : 0) + (trader?.r1 === 'Watching' ? 1 : 0) + (recentR1.length > 0 ? 1 : 0) + (drift < -0.5 ? 1 : 0);
+    if (score >= 4) { conf = 'high'; confColor = 'var(--ok)'; }
+    else if (score >= 3) { conf = 'medium'; confColor = 'var(--warn)'; }
+    else { conf = 'low'; confColor = 'var(--bad)'; }
+  }
+  const confEl = document.getElementById('ti2-conf');
+  confEl.textContent = conf;
+  confEl.style.color = confColor;
+
+  // Render reco
+  const recoEl = document.getElementById('ti2-reco');
+  recoEl.textContent = reco;
+  recoEl.style.color = recoColor;
+  document.getElementById('ti2-reco-sub').textContent = recoSub;
+
+  // Market heading text
+  let heading = 'sideways', headingSub = '', headingColor = 'var(--muted)';
+  if (drift > 1.0) { heading = 'strong up'; headingColor = 'var(--ok)'; }
+  else if (drift > 0.3) { heading = 'tilt up'; headingColor = 'var(--ok)'; }
+  else if (drift < -1.0) { heading = 'strong down'; headingColor = 'var(--bad)'; }
+  else if (drift < -0.3) { heading = 'tilt down'; headingColor = 'var(--bad)'; }
+  if (atr) headingSub = `last 8 bars drift ${drift > 0 ? '+' : ''}${drift.toFixed(2)}× ATR (~${(drift * atr).toFixed(2)} pts)`;
+  const hdEl = document.getElementById('ti2-heading');
+  hdEl.textContent = heading;
+  hdEl.style.color = headingColor;
+  document.getElementById('ti2-heading-sub').textContent = headingSub;
+
+  // Render reasons / caveats
+  document.getElementById('ti2-reasons').innerHTML = reasons.length
+    ? reasons.map(r => `<li>${r}</li>`).join('')
+    : '<li style="color:var(--muted);">no positive signals</li>';
+  document.getElementById('ti2-caveats').innerHTML = caveats.length
+    ? caveats.map(c => `<li>${c}</li>`).join('')
+    : '<li style="color:var(--muted);">none</li>';
+}
+refreshTradeIdea();
+setInterval(refreshTradeIdea, 30000);
 </script>
 </body>
 </html>
