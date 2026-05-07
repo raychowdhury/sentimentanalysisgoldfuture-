@@ -247,68 +247,6 @@
     </div>
   </div>
 
-  {# ── LAYER 1 — Checkpoints (always visible) ────────────────────────────#}
-  {% if checkpoints %}
-  <div class="card" style="border-left:4px solid #fbbf24;">
-    <h2 style="font-size:1rem; color:#fbbf24;">Checkpoints</h2>
-    <p class="muted" style="font-size:.78rem;">
-      Three checkpoints per live stream (n≥10 early · n≥15 soft · n≥30 verdict).
-      WARN if mean_r ≤ 0, retention &lt; 0.5, or hit_rate &lt; 0.45.
-      Baselines: R1=1.18 · R2=0.75 · R7 shadow=0.7135.
-    </p>
-    <div class="scroll-x"><table id="checkpointsTable">
-      <thead><tr>
-        <th>rule</th>
-        <th>n</th>
-        <th>n≥10 early</th>
-        <th>n≥15 soft</th>
-        <th>n≥30 verdict</th>
-        <th>mean_r</th>
-        <th>retention</th>
-        <th>hit_rate</th>
-      </tr></thead>
-      <tbody id="checkpointsBody">
-      {% for rule_label, rule_key in [('R1','r1_buyer_down'), ('R2','r2_seller_up'), ('R7 shadow','r7_cvd_divergence_shadow')] %}
-        {% set c10 = checkpoints | selectattr('rule','equalto',rule_key) | selectattr('level','equalto',10) | list | first %}
-        {% set c15 = checkpoints | selectattr('rule','equalto',rule_key) | selectattr('level','equalto',15) | list | first %}
-        {% set c30 = checkpoints | selectattr('rule','equalto',rule_key) | selectattr('level','equalto',30) | list | first %}
-        <tr>
-          <td>{{ rule_label }}</td>
-          <td>{{ c10.n }}</td>
-          <td class="{% if c10.status == 'OK' %}delta-pos{% elif c10.status == 'WARN' %}delta-neg{% else %}muted{% endif %}">
-            {% if c10.status == 'NOT_REACHED' %}WAITING{% else %}{{ c10.status }}{% endif %}
-          </td>
-          <td class="{% if c15.status == 'OK' %}delta-pos{% elif c15.status == 'WARN' %}delta-neg{% else %}muted{% endif %}">
-            {% if c15.status == 'NOT_REACHED' %}WAITING{% else %}{{ c15.status }}{% endif %}
-          </td>
-          <td class="{% if c30.status == 'OK' %}delta-pos{% elif c30.status == 'WARN' %}delta-neg{% else %}muted{% endif %}">
-            {% if c30.status == 'NOT_REACHED' %}WAITING{% else %}{{ c30.status }}{% endif %}
-          </td>
-          <td class="{% if c10.mean_r is not none and c10.mean_r > 0 %}delta-pos{% elif c10.mean_r is not none and c10.mean_r < 0 %}delta-neg{% endif %}">
-            {{ c10.mean_r if c10.mean_r is not none else "—" }}
-          </td>
-          <td class="{% if c10.retention is not none and c10.retention >= 0.5 %}delta-pos{% elif c10.retention is not none %}delta-neg{% endif %}">
-            {{ c10.retention if c10.retention is not none else "—" }}
-          </td>
-          <td class="{% if c10.hit_rate is not none and c10.hit_rate >= 0.55 %}delta-pos{% elif c10.hit_rate is not none and c10.hit_rate < 0.45 %}delta-neg{% endif %}">
-            {{ c10.hit_rate if c10.hit_rate is not none else "—" }}
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table></div>
-  </div>
-  {% endif %}
-
-  {# ── Pending Fires — moved up next to Checkpoints (always visible) ─────#}
-  <div class="card" style="border-left:4px solid #fbbf24;">
-    <h2>Pending fires — awaiting horizon settle</h2>
-    <div id="pending-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.5rem;">
-      loading…
-    </div>
-    <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;"></div>
-  </div>
-
   {# ── Forecast horizons — consolidated 1m / 15m / 3h (always visible) ───#}
   <div class="card" id="forecast-multi" style="border-left:4px solid #a78bfa;">
     <h2>Forecast · 1m · 15m · 3h horizons</h2>
@@ -387,6 +325,68 @@
     <div style="color:var(--muted); font-size:.7rem; margin-top:.55rem; border-top:1px solid var(--border); padding-top:.4rem;">
       Research read-out only. Naive momentum + flow extrapolation, not trained ML. Single-bar forecasts higher variance than 3h. NOT trading advice. NO auto-execution. Verify on chart.
     </div>
+  </div>
+
+  {# ── LAYER 1 — Checkpoints (always visible) ────────────────────────────#}
+  {% if checkpoints %}
+  <div class="card" style="border-left:4px solid #fbbf24;">
+    <h2 style="font-size:1rem; color:#fbbf24;">Checkpoints</h2>
+    <p class="muted" style="font-size:.78rem;">
+      Three checkpoints per live stream (n≥10 early · n≥15 soft · n≥30 verdict).
+      WARN if mean_r ≤ 0, retention &lt; 0.5, or hit_rate &lt; 0.45.
+      Baselines: R1=1.18 · R2=0.75 · R7 shadow=0.7135.
+    </p>
+    <div class="scroll-x"><table id="checkpointsTable">
+      <thead><tr>
+        <th>rule</th>
+        <th>n</th>
+        <th>n≥10 early</th>
+        <th>n≥15 soft</th>
+        <th>n≥30 verdict</th>
+        <th>mean_r</th>
+        <th>retention</th>
+        <th>hit_rate</th>
+      </tr></thead>
+      <tbody id="checkpointsBody">
+      {% for rule_label, rule_key in [('R1','r1_buyer_down'), ('R2','r2_seller_up'), ('R7 shadow','r7_cvd_divergence_shadow')] %}
+        {% set c10 = checkpoints | selectattr('rule','equalto',rule_key) | selectattr('level','equalto',10) | list | first %}
+        {% set c15 = checkpoints | selectattr('rule','equalto',rule_key) | selectattr('level','equalto',15) | list | first %}
+        {% set c30 = checkpoints | selectattr('rule','equalto',rule_key) | selectattr('level','equalto',30) | list | first %}
+        <tr>
+          <td>{{ rule_label }}</td>
+          <td>{{ c10.n }}</td>
+          <td class="{% if c10.status == 'OK' %}delta-pos{% elif c10.status == 'WARN' %}delta-neg{% else %}muted{% endif %}">
+            {% if c10.status == 'NOT_REACHED' %}WAITING{% else %}{{ c10.status }}{% endif %}
+          </td>
+          <td class="{% if c15.status == 'OK' %}delta-pos{% elif c15.status == 'WARN' %}delta-neg{% else %}muted{% endif %}">
+            {% if c15.status == 'NOT_REACHED' %}WAITING{% else %}{{ c15.status }}{% endif %}
+          </td>
+          <td class="{% if c30.status == 'OK' %}delta-pos{% elif c30.status == 'WARN' %}delta-neg{% else %}muted{% endif %}">
+            {% if c30.status == 'NOT_REACHED' %}WAITING{% else %}{{ c30.status }}{% endif %}
+          </td>
+          <td class="{% if c10.mean_r is not none and c10.mean_r > 0 %}delta-pos{% elif c10.mean_r is not none and c10.mean_r < 0 %}delta-neg{% endif %}">
+            {{ c10.mean_r if c10.mean_r is not none else "—" }}
+          </td>
+          <td class="{% if c10.retention is not none and c10.retention >= 0.5 %}delta-pos{% elif c10.retention is not none %}delta-neg{% endif %}">
+            {{ c10.retention if c10.retention is not none else "—" }}
+          </td>
+          <td class="{% if c10.hit_rate is not none and c10.hit_rate >= 0.55 %}delta-pos{% elif c10.hit_rate is not none and c10.hit_rate < 0.45 %}delta-neg{% endif %}">
+            {{ c10.hit_rate if c10.hit_rate is not none else "—" }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+  {% endif %}
+
+  {# ── Pending Fires — moved up next to Checkpoints (always visible) ─────#}
+  <div class="card" style="border-left:4px solid #fbbf24;">
+    <h2>Pending fires — awaiting horizon settle</h2>
+    <div id="pending-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.5rem;">
+      loading…
+    </div>
+    <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;"></div>
   </div>
 
   {# ── Order-flow detail (collapsed drawer) ──────────────────────────────#}
