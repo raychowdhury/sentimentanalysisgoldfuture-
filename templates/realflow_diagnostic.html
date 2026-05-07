@@ -404,6 +404,51 @@
     </div>
   </div>
 
+  {# ── Next 1m bar forecast (always visible) ─────────────────────────────#}
+  <div class="card" id="next-1m-card" style="border-left:4px solid #c084fc;">
+    <h2>Next 1m bar forecast</h2>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr 1fr; gap:.8rem; align-items:start;">
+
+      <div>
+        <div class="kv-label">Direction</div>
+        <div id="n1-dir" style="font-size:1.4rem; font-weight:700; line-height:1.1; margin-top:.2rem;">—</div>
+        <div id="n1-dir-sub" style="color:var(--muted); font-size:.72rem; margin-top:.15rem;">—</div>
+      </div>
+
+      <div>
+        <div class="kv-label">Predicted close</div>
+        <div style="font-family:ui-monospace,monospace; font-size:.82rem; margin-top:.25rem; line-height:1.5;">
+          <div>low  <span id="n1-low"  style="color:var(--bad);">—</span></div>
+          <div>mid  <span id="n1-mid"  style="color:var(--ink); font-weight:600;">—</span></div>
+          <div>high <span id="n1-high" style="color:var(--ok);">—</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="kv-label">Last bar flow</div>
+        <div id="n1-flow" style="font-size:.95rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div id="n1-flow-sub" style="color:var(--muted); font-size:.72rem; margin-top:.15rem;">—</div>
+      </div>
+
+      <div>
+        <div class="kv-label">Confidence</div>
+        <div id="n1-conf" style="font-size:1.05rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div class="kv-label" style="margin-top:.55rem;">ATR(14)</div>
+        <div id="n1-atr" style="font-family:ui-monospace,monospace; font-size:.85rem; margin-top:.15rem;">—</div>
+      </div>
+
+      <div>
+        <div class="kv-label">Bar closes in</div>
+        <div id="n1-time" style="font-size:1.4rem; font-weight:700; font-variant-numeric:tabular-nums; margin-top:.2rem;">—</div>
+        <div id="n1-time-sub" style="color:var(--muted); font-size:.72rem; margin-top:.15rem;">—</div>
+      </div>
+    </div>
+
+    <div style="color:var(--muted); font-size:.7rem; margin-top:.55rem; border-top:1px solid var(--border); padding-top:.4rem;">
+      1m forecast refreshes every 3s. Higher variance than 15m forecast. Inputs: last 5×1m close drift · last bar buy/sell vol delta · 1m ATR · tape skew last 60s.
+    </div>
+  </div>
+
   {# ── Order-flow detail (collapsed drawer) ──────────────────────────────#}
   <details class="layer-wrap">
     <summary>Order-flow detail — label distribution &amp; alert pressure</summary>
@@ -2312,6 +2357,110 @@ async function refreshNextBar() {
 }
 refreshNextBar();
 setInterval(refreshNextBar, 15000);
+
+// ── Next 1m bar forecast ────────────────────────────────────────────────
+async function refreshNext1m() {
+  const symLocal = (document.getElementById('sym')?.value || 'ESM6').trim();
+  let resp = null, alerts = [];
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch(`/api/order-flow/bars-1m?symbol=${symLocal}&n=30`, { cache:'no-store' }),
+      fetch('/api/order-flow/alerts', { cache:'no-store' }),
+    ]);
+    if (r1.ok) resp = await r1.json();
+    if (r2.ok) alerts = await r2.json();
+  } catch (e) { return; }
+  const bars = resp?.bars || [];
+  if (!bars.length) return;
+  const last = bars[bars.length - 1];
+
+  // ATR(14) on 1m high-low
+  const tail14 = bars.slice(-14);
+  const ranges = tail14.map(b => (b.high !== null && b.low !== null) ? (b.high - b.low) : null).filter(v => v !== null);
+  const atr = ranges.length ? ranges.reduce((a, b) => a + b, 0) / ranges.length : 0;
+  document.getElementById('n1-atr').textContent = atr ? atr.toFixed(2) : '—';
+
+  // 5-bar drift in ATR units
+  const tail5 = bars.slice(-5);
+  const drift5 = (atr && tail5.length >= 2 && tail5[0].close && tail5[tail5.length - 1].close)
+    ? (tail5[tail5.length - 1].close - tail5[0].close) / atr : 0;
+
+  // Last bar buy/sell vol delta
+  const buyV = last.buy_vol || 0, sellV = last.sell_vol || 0;
+  const totalV = buyV + sellV;
+  const lastDelta = totalV ? (buyV - sellV) / totalV : 0;
+
+  // Last bar dir
+  const lastDir = (last.close > last.open) ? 1 : (last.close < last.open) ? -1 : 0;
+
+  // Tape last 60s
+  const cutoff = Date.now() - 60 * 1000;
+  let tb = 0, ts = 0;
+  if (Array.isArray(alerts)) {
+    alerts.forEach(a => {
+      const t = new Date(a.timestamp_utc).getTime();
+      if (t < cutoff) return;
+      if (BUY_LABELS.has(a.label)) tb++;
+      else if (SELL_LABELS.has(a.label)) ts++;
+    });
+  }
+  const tapeBias = (tb + ts) ? (tb - ts) / (tb + ts) : 0;
+
+  // Composite
+  const exp = drift5 * 0.30 + lastDelta * 0.50 + tapeBias * 0.40 + lastDir * 0.20;
+  const clipped = Math.max(-1.5, Math.min(1.5, exp));
+  const expMag = clipped * atr * 0.5;
+  const mid = last.close + expMag;
+  const half = atr * 0.5;
+  document.getElementById('n1-low').textContent = (mid - half).toFixed(2);
+  document.getElementById('n1-mid').textContent = mid.toFixed(2);
+  document.getElementById('n1-high').textContent = (mid + half).toFixed(2);
+
+  // Direction
+  let dir = 'FLAT', dirSub = '', dirColor = 'var(--muted)';
+  if (clipped > 0.30) { dir = 'UP'; dirColor = 'var(--ok)'; dirSub = `+${(expMag).toFixed(2)} pts`; }
+  else if (clipped > 0.10) { dir = 'tilt UP'; dirColor = 'var(--ok)'; dirSub = `+${(expMag).toFixed(2)} pts`; }
+  else if (clipped < -0.30) { dir = 'DOWN'; dirColor = 'var(--bad)'; dirSub = `${(expMag).toFixed(2)} pts`; }
+  else if (clipped < -0.10) { dir = 'tilt DOWN'; dirColor = 'var(--bad)'; dirSub = `${(expMag).toFixed(2)} pts`; }
+  else { dirSub = `< 0.1 ATR`; }
+  const dirEl = document.getElementById('n1-dir');
+  dirEl.textContent = dir; dirEl.style.color = dirColor;
+  document.getElementById('n1-dir-sub').textContent = dirSub;
+
+  // Flow (last bar)
+  let flow = 'mixed', flowColor = 'var(--muted)';
+  if (lastDelta > 0.20) { flow = 'buy-heavy'; flowColor = 'var(--ok)'; }
+  else if (lastDelta > 0.05) { flow = 'tilt buy'; flowColor = 'var(--ok)'; }
+  else if (lastDelta < -0.20) { flow = 'sell-heavy'; flowColor = 'var(--bad)'; }
+  else if (lastDelta < -0.05) { flow = 'tilt sell'; flowColor = 'var(--bad)'; }
+  const flowEl = document.getElementById('n1-flow');
+  flowEl.textContent = flow; flowEl.style.color = flowColor;
+  document.getElementById('n1-flow-sub').textContent =
+    `delta ${(lastDelta*100).toFixed(1)}% · vol ${totalV.toFixed(0)} (${buyV.toFixed(0)}/${sellV.toFixed(0)})`;
+
+  // Confidence
+  const components = [
+    Math.sign(drift5), Math.sign(lastDelta), Math.sign(tapeBias), Math.sign(lastDir),
+  ].filter(s => s !== 0);
+  const aligned = components.length
+    ? Math.abs(components.reduce((a, b) => a + b, 0)) / components.length : 0;
+  let conf = 'low', confColor = 'var(--bad)';
+  if (aligned >= 0.75) { conf = 'high'; confColor = 'var(--ok)'; }
+  else if (aligned >= 0.5) { conf = 'medium'; confColor = 'var(--warn)'; }
+  const cEl = document.getElementById('n1-conf');
+  cEl.textContent = conf; cEl.style.color = confColor;
+
+  // Time to next 1m bar close
+  const now = Date.now();
+  const periodMs = 60 * 1000;
+  const nextEdge = Math.ceil(now / periodMs) * periodMs;
+  const remSec = Math.max(0, Math.floor((nextEdge - now) / 1000));
+  document.getElementById('n1-time').textContent = `0:${remSec.toString().padStart(2, '0')}`;
+  const lastBarTs = new Date(last.ts).toISOString().substring(11, 16);
+  document.getElementById('n1-time-sub').textContent = `last bar ${lastBarTs}Z`;
+}
+refreshNext1m();
+setInterval(refreshNext1m, 3000);
 </script>
 </body>
 </html>

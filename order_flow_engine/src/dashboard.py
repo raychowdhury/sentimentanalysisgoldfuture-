@@ -1274,6 +1274,43 @@ def register(app: Flask) -> None:
             return jsonify({"error": str(e), "checkpoints": []}), 500
         return jsonify({"symbol": symbol, "tf": tf, "checkpoints": cells})
 
+    @app.route("/api/order-flow/bars-1m")
+    def order_flow_bars_1m():  # pragma: no cover
+        """Read-only last N 1m bars from live parquet."""
+        from pathlib import Path
+        import pandas as pd
+        symbol = request.args.get("symbol", "ESM6")
+        try: n = int(request.args.get("n", "30"))
+        except Exception: n = 30
+        n = max(1, min(n, 500))
+        p = Path(f"order_flow_engine/data/processed/{symbol}_1m_live.parquet")
+        if not p.exists():
+            return jsonify({"symbol": symbol, "bars": [], "error": "missing"}), 404
+        try:
+            df = pd.read_parquet(p).tail(n)
+        except Exception as e:
+            return jsonify({"symbol": symbol, "bars": [], "error": str(e)[:120]}), 500
+        df = df.reset_index()
+        ts_col = df.columns[0]
+        bars = []
+        for _, row in df.iterrows():
+            ts = row[ts_col]
+            try:
+                ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+            except Exception:
+                ts_str = str(ts)
+            bars.append({
+                "ts": ts_str,
+                "open":  float(row.get("Open", 0)) if pd.notna(row.get("Open")) else None,
+                "high":  float(row.get("High", 0)) if pd.notna(row.get("High")) else None,
+                "low":   float(row.get("Low", 0))  if pd.notna(row.get("Low"))  else None,
+                "close": float(row.get("Close", 0)) if pd.notna(row.get("Close")) else None,
+                "volume": float(row.get("Volume", 0)) if pd.notna(row.get("Volume")) else None,
+                "buy_vol":  float(row.get("buy_vol_real", 0)) if pd.notna(row.get("buy_vol_real")) else None,
+                "sell_vol": float(row.get("sell_vol_real", 0)) if pd.notna(row.get("sell_vol_real")) else None,
+            })
+        return jsonify({"symbol": symbol, "tf": "1m", "n": len(bars), "bars": bars})
+
     @app.route("/api/order-flow/pending")
     def order_flow_pending():  # pragma: no cover
         """Read-only pending fires JSON: R1/R2 + R7 shadow combined."""
