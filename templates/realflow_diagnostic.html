@@ -149,6 +149,22 @@
     .badge.warn  { background:rgba(251,191,36,.15);  border:1px solid rgba(251,191,36,.4);  color:#fbbf24; }
     .badge.bad   { background:rgba(248,113,113,.15); border:1px solid rgba(248,113,113,.4); color:#f87171; }
     .badge.muted { background:rgba(148,163,184,.1);  border:1px solid rgba(148,163,184,.3); color:#94a3b8; }
+
+    /* L2/L3 polish */
+    .l23-section { margin-top:1rem; padding-top:.85rem; border-top:1px dashed var(--border); }
+    .l23-section:first-of-type { margin-top:.5rem; padding-top:0; border-top:0; }
+    .l23-h { color:var(--muted); font-size:.7rem; font-weight:600; text-transform:uppercase; letter-spacing:.08em; margin-bottom:.55rem; }
+    .l23-tile { padding:.55rem .75rem; border:1px solid var(--border); border-radius:5px; background:var(--card2); }
+    .l23-mono { font-family:ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric:tabular-nums; }
+    .l23-row-buy   { color:#34d399; }
+    .l23-row-sell  { color:#f87171; }
+    .l23-row-mid   { background:rgba(251,191,36,.10); }
+    .l23-bar-buy   { background:linear-gradient(90deg, rgba(52,211,153,.85), rgba(52,211,153,.55)); }
+    .l23-bar-sell  { background:linear-gradient(90deg, rgba(248,113,113,.55), rgba(248,113,113,.85)); }
+    .l23-bar-svp   { background:linear-gradient(90deg, rgba(167,139,250,.6), rgba(167,139,250,.85)); border:1px solid rgba(167,139,250,.5); }
+    .l23-divider   { width:100%; height:1px; background:linear-gradient(90deg, transparent, var(--border), transparent); margin:.85rem 0; }
+    .l23-legend    { display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.4rem; align-items:center; flex-wrap:wrap; }
+    .l23-legend .sw { display:inline-block; width:.7rem; height:.7rem; border-radius:1px; vertical-align:middle; margin-right:.2rem; }
   </style>
 </head>
 <body>
@@ -355,155 +371,173 @@
   <div class="card" id="l23-card" style="border-left:4px solid #fbbf24;">
     <h2>Level 2 / 3 — top of book &amp; iceberg events</h2>
 
-    <!-- Mini DOM ladder + spread/imbalance side panel -->
-    <div style="display:grid; grid-template-columns: 1.6fr 1fr; gap:1.2rem; align-items:start;">
+    <!-- DOM ladder + spread/imbalance side panel -->
+    <div class="l23-section">
+      <div class="l23-h">DOM ladder · top of book</div>
+      <div style="display:grid; grid-template-columns: 1.6fr 1fr; gap:1.4rem; align-items:start;">
 
-      <!-- DOM ladder (visual bid | price | ask with proportional bars) -->
-      <div>
-        <div class="kv-label" style="margin-bottom:.3rem;">DOM ladder (top of book)</div>
-        <div style="display:grid; grid-template-columns: 1fr 5rem 1fr; gap:.4rem; align-items:center; font-family:ui-monospace,monospace; font-size:.9rem;">
-          <!-- header -->
-          <div style="text-align:right; color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.04em;">bid size</div>
-          <div style="text-align:center; color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.04em;">price</div>
-          <div style="text-align:left; color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.04em;">ask size</div>
-          <!-- ask row (top — highest price) -->
-          <div></div>
-          <div id="l2-ask-px" style="text-align:center; color:var(--bad); font-weight:700; font-size:1.05rem;">—</div>
-          <div style="display:flex; align-items:center; gap:.4rem;">
-            <div id="l2-ask-bar" style="background:rgba(248,113,113,.35); border:1px solid var(--bad); height:1.2rem; width:0%; border-radius:0 3px 3px 0;"></div>
-            <span id="l2-ask-sz" style="color:var(--bad); font-weight:600;">—</span>
-          </div>
-          <!-- bid row (bottom — lowest price) -->
-          <div style="display:flex; align-items:center; justify-content:flex-end; gap:.4rem;">
-            <span id="l2-bid-sz" style="color:var(--ok); font-weight:600;">—</span>
-            <div id="l2-bid-bar" style="background:rgba(52,211,153,.35); border:1px solid var(--ok); height:1.2rem; width:0%; border-radius:3px 0 0 3px;"></div>
-          </div>
-          <div id="l2-bid-px" style="text-align:center; color:var(--ok); font-weight:700; font-size:1.05rem;">—</div>
-          <div></div>
-        </div>
-      </div>
+        <!-- Vertical book ladder centered around mid -->
+        <div class="l23-tile" style="padding:.85rem 1rem;">
+          <div class="l23-mono" style="display:grid; grid-template-columns: 1fr 6.5rem 1fr; gap:.5rem .9rem; align-items:center;">
+            <!-- ask row (top) -->
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:.5rem;">
+              <span style="color:var(--muted); font-size:.65rem; text-transform:uppercase;">ask sz</span>
+            </div>
+            <div></div>
+            <div></div>
 
-      <!-- Spread + imbalance compact -->
-      <div style="display:grid; grid-template-rows: 1fr 1fr; gap:.5rem;">
-        <div style="padding:.45rem .6rem; border:1px solid var(--border); border-radius:5px; background:var(--card2);">
-          <div class="kv-label">Spread</div>
-          <div style="display:flex; align-items:baseline; gap:.4rem; margin-top:.15rem;">
-            <span id="l2-spread" style="font-family:ui-monospace,monospace; font-size:1.3rem; font-weight:700;">—</span>
-            <span id="l2-spread-ticks" style="color:var(--muted); font-size:.78rem;">—</span>
+            <div></div>
+            <div id="l2-ask-px" style="text-align:center; color:var(--bad); font-weight:700; font-size:1.35rem;">—</div>
+            <div style="display:flex; align-items:center; gap:.5rem;">
+              <div id="l2-ask-bar" class="l23-bar-sell" style="height:1.4rem; width:0%; border-radius:2px;"></div>
+              <span id="l2-ask-sz" style="color:var(--bad); font-weight:700; font-size:1rem;">—</span>
+            </div>
+
+            <!-- mid divider line -->
+            <div style="grid-column: 1 / -1; height:1px; background:var(--accent); opacity:.35; margin:.15rem 0;"></div>
+
+            <!-- bid row (bottom) -->
+            <div style="display:flex; align-items:center; justify-content:flex-end; gap:.5rem;">
+              <span id="l2-bid-sz" style="color:var(--ok); font-weight:700; font-size:1rem;">—</span>
+              <div id="l2-bid-bar" class="l23-bar-buy" style="height:1.4rem; width:0%; border-radius:2px;"></div>
+            </div>
+            <div id="l2-bid-px" style="text-align:center; color:var(--ok); font-weight:700; font-size:1.35rem;">—</div>
+            <div></div>
+
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:.5rem;">
+              <span style="color:var(--muted); font-size:.65rem; text-transform:uppercase;">bid sz</span>
+            </div>
+            <div></div>
+            <div></div>
           </div>
-          <div id="l2-spread-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
         </div>
-        <div style="padding:.45rem .6rem; border:1px solid var(--border); border-radius:5px; background:var(--card2);">
-          <div class="kv-label">Book imbalance</div>
-          <div id="l2-imb" style="font-family:ui-monospace,monospace; font-size:.95rem; font-weight:600; margin-top:.15rem;">—</div>
-          <div id="l2-imb-bar" style="display:flex; height:.55rem; border:1px solid var(--border); border-radius:3px; overflow:hidden; margin-top:.3rem;">
-            <div id="l2-imb-bid" style="background:var(--ok); width:50%; transition:width .3s;"></div>
-            <div id="l2-imb-ask" style="background:var(--bad); width:50%; transition:width .3s;"></div>
+
+        <!-- Spread + imbalance compact -->
+        <div style="display:grid; grid-template-rows: 1fr 1fr; gap:.6rem;">
+          <div class="l23-tile">
+            <div class="kv-label">Spread</div>
+            <div style="display:flex; align-items:baseline; gap:.4rem; margin-top:.2rem;">
+              <span id="l2-spread" class="l23-mono" style="font-size:1.5rem; font-weight:700;">—</span>
+              <span id="l2-spread-ticks" style="color:var(--muted); font-size:.78rem;">—</span>
+            </div>
+            <div id="l2-spread-sub" style="color:var(--muted); font-size:.7rem; margin-top:.2rem;">—</div>
+          </div>
+          <div class="l23-tile">
+            <div class="kv-label">Book imbalance</div>
+            <div id="l2-imb" class="l23-mono" style="font-size:1rem; font-weight:600; margin-top:.2rem;">—</div>
+            <div id="l2-imb-bar" style="display:flex; height:.6rem; border:1px solid var(--border); border-radius:3px; overflow:hidden; margin-top:.4rem;">
+              <div id="l2-imb-bid" class="l23-bar-buy" style="width:50%; transition:width .3s;"></div>
+              <div id="l2-imb-ask" class="l23-bar-sell" style="width:50%; transition:width .3s;"></div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Row 2: derived L2 metrics + iceberg pressure -->
-    <div style="display:grid; grid-template-columns: 1.4fr 1.4fr 1fr 1fr; gap:1rem; align-items:center; margin-top:.7rem; border-top:1px solid var(--border); padding-top:.7rem;">
-      <div>
-        <div class="kv-label">Microprice (size-weighted mid)</div>
-        <div id="l2-micro" style="font-family:ui-monospace,monospace; font-size:1.1rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="l2-micro-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">vs mid —</div>
-      </div>
-      <div>
-        <div class="kv-label">Spread regime</div>
-        <div id="l2-spread-regime" style="font-size:1rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="l2-spread-regime-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
-      </div>
-      <div>
-        <div class="kv-label">Iceberg pressure (last 30m)</div>
-        <div id="l3-press" style="font-family:ui-monospace,monospace; font-size:1.05rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="l3-press-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
-      </div>
-      <div>
-        <div class="kv-label">Iceberg total size (30m)</div>
-        <div id="l3-size" style="font-family:ui-monospace,monospace; font-size:1.05rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="l3-size-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
+    <!-- Derived L2/L3 metrics row -->
+    <div class="l23-section">
+      <div class="l23-h">Derived metrics</div>
+      <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:.6rem;">
+        <div class="l23-tile">
+          <div class="kv-label">Microprice</div>
+          <div id="l2-micro" class="l23-mono" style="font-size:1.1rem; font-weight:600; margin-top:.2rem;">—</div>
+          <div id="l2-micro-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">vs mid —</div>
+        </div>
+        <div class="l23-tile">
+          <div class="kv-label">Spread regime</div>
+          <div id="l2-spread-regime" style="font-size:1rem; font-weight:600; margin-top:.2rem;">—</div>
+          <div id="l2-spread-regime-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
+        </div>
+        <div class="l23-tile">
+          <div class="kv-label">Iceberg pressure (30m)</div>
+          <div id="l3-press" class="l23-mono" style="font-size:1.05rem; font-weight:600; margin-top:.2rem;">—</div>
+          <div id="l3-press-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
+        </div>
+        <div class="l23-tile">
+          <div class="kv-label">Iceberg total (30m)</div>
+          <div id="l3-size" class="l23-mono" style="font-size:1.05rem; font-weight:600; margin-top:.2rem;">—</div>
+          <div id="l3-size-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
+        </div>
       </div>
     </div>
 
-    <!-- L2/L3 actionable signals -->
-    <div style="margin-top:.85rem; padding:.65rem .85rem; border:1px solid var(--border); border-radius:5px; background:var(--card2);">
-      <div class="kv-label" style="margin-bottom:.4rem;">L2 / L3 actionable signals</div>
-      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:.7rem; font-size:.82rem;">
-        <div>
-          <div style="color:var(--muted); font-size:.7rem;">Support (iceberg buy cluster)</div>
-          <div id="l23-sup" style="font-family:ui-monospace,monospace; font-weight:600; color:var(--ok); margin-top:.15rem;">—</div>
+    <!-- Actionable signals -->
+    <div class="l23-section">
+      <div class="l23-h">Actionable signals</div>
+      <div class="l23-tile" style="padding:.85rem 1rem;">
+        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:.85rem; font-size:.82rem;">
+          <div>
+            <div class="kv-label">Support (iceberg buy)</div>
+            <div id="l23-sup" class="l23-mono" style="font-weight:700; color:var(--ok); margin-top:.2rem; font-size:1rem;">—</div>
+          </div>
+          <div>
+            <div class="kv-label">Resistance (iceberg sell)</div>
+            <div id="l23-res" class="l23-mono" style="font-weight:700; color:var(--bad); margin-top:.2rem; font-size:1rem;">—</div>
+          </div>
+          <div>
+            <div class="kv-label">Stop hint</div>
+            <div id="l23-stop" class="l23-mono" style="font-size:.78rem; margin-top:.2rem; line-height:1.5;">—</div>
+          </div>
+          <div>
+            <div class="kv-label">Liquidity quality</div>
+            <div id="l23-liq" style="font-weight:700; margin-top:.2rem; font-size:1rem;">—</div>
+          </div>
         </div>
-        <div>
-          <div style="color:var(--muted); font-size:.7rem;">Resistance (iceberg sell cluster)</div>
-          <div id="l23-res" style="font-family:ui-monospace,monospace; font-weight:600; color:var(--bad); margin-top:.15rem;">—</div>
-        </div>
-        <div>
-          <div style="color:var(--muted); font-size:.7rem;">Stop hint</div>
-          <div id="l23-stop" style="font-family:ui-monospace,monospace; font-size:.75rem; margin-top:.15rem;">—</div>
-        </div>
-        <div>
-          <div style="color:var(--muted); font-size:.7rem;">Liquidity quality</div>
-          <div id="l23-liq" style="font-weight:600; margin-top:.15rem;">—</div>
-        </div>
-      </div>
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.7rem; margin-top:.55rem; font-size:.82rem;">
-        <div>
-          <div style="color:var(--muted); font-size:.7rem;">Best fill side (microprice lean)</div>
-          <div id="l23-fill" style="font-weight:600; margin-top:.15rem;">—</div>
-        </div>
-        <div>
-          <div style="color:var(--muted); font-size:.7rem;">L2/L3 conviction (imbalance × iceberg × sweep)</div>
-          <div id="l23-conv" style="font-weight:600; margin-top:.15rem;">—</div>
+        <div style="height:1px; background:var(--border); margin:.7rem 0;"></div>
+        <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap:.85rem;">
+          <div>
+            <div class="kv-label">Best fill side</div>
+            <div id="l23-fill" style="font-weight:700; margin-top:.2rem; font-size:.95rem;">—</div>
+          </div>
+          <div>
+            <div class="kv-label">Conviction · imbalance × iceberg × sweep</div>
+            <div id="l23-conv" style="font-weight:700; margin-top:.2rem; font-size:.95rem;">—</div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- Bookmap-style combined: heatmap (left) + price ladder profile (right) -->
-    <div style="margin-top:.85rem;">
-      <div class="kv-label">Bookmap-style — heatmap (price × time) · profile (per-level metrics, shared price axis)</div>
-      <div style="display:grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap:.7rem; margin-top:.4rem; align-items:flex-start;">
-        <div id="l3-heatmap" style="overflow-x:auto;">loading…</div>
-        <div id="l3-profile-side" style="overflow-x:auto;">loading…</div>
+    <div class="l23-section">
+      <div class="l23-h">Heatmap · price × time   ·   profile · per-level metrics</div>
+      <div style="display:grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap:1rem; align-items:flex-start;">
+        <div id="l3-heatmap" class="l23-tile" style="padding:.7rem; overflow-x:auto;">loading…</div>
+        <div id="l3-profile-side" class="l23-tile" style="padding:.7rem; overflow-x:auto;">loading…</div>
       </div>
-      <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.35rem; align-items:center; flex-wrap:wrap;">
-        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(52,211,153,.7); border-radius:1px; vertical-align:middle;"></span> iceberg buy</span>
-        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(248,113,113,.7); border-radius:1px; vertical-align:middle;"></span> iceberg sell</span>
-        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(56,189,248,.9); border-radius:50%; vertical-align:middle;"></span> sweep</span>
-        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(248,113,113,1); border:1px solid #fff; border-radius:50%; vertical-align:middle;"></span> block</span>
-        <span><span style="display:inline-block; width:1.2rem; height:.15rem; background:var(--accent); vertical-align:middle;"></span> spot mid</span>
-        <span><b>+/-</b> net iceberg Δ · <b>COB</b> ▮buy ▮sell · <b>SVP</b> 1m vol</span>
-      </div>
-    </div>
-
-    <!-- Iceberg price clusters (table) -->
-    <div style="margin-top:.85rem;">
-      <div class="kv-label">Iceberg price clusters (last 30m, top 8 by total)</div>
-      <div id="l3-clusters" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
-    </div>
-
-    <!-- Tape timeline strip (visual horizontal of last 30 events) -->
-    <div style="margin-top:.85rem;">
-      <div class="kv-label">Tape timeline — last 30 events (oldest → newest)</div>
-      <div id="l3-tape-strip" style="display:flex; gap:2px; margin-top:.4rem; height:1.4rem; align-items:stretch;"></div>
-      <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.25rem;">
-        <span><span style="display:inline-block; width:.6rem; height:.6rem; background:#fbbf24; border-radius:1px; vertical-align:middle;"></span> iceberg</span>
-        <span><span style="display:inline-block; width:.6rem; height:.6rem; background:#38bdf8; border-radius:1px; vertical-align:middle;"></span> sweep</span>
-        <span><span style="display:inline-block; width:.6rem; height:.6rem; background:#f87171; border-radius:1px; vertical-align:middle;"></span> block</span>
-        <span style="margin-left:auto;">tall = buy · short = sell</span>
+      <div class="l23-legend">
+        <span><span class="sw" style="background:rgba(52,211,153,.75);"></span>iceberg buy</span>
+        <span><span class="sw" style="background:rgba(248,113,113,.75);"></span>iceberg sell</span>
+        <span><span class="sw" style="background:#38bdf8; border-radius:50%;"></span>sweep</span>
+        <span><span class="sw" style="background:#f87171; border:1px solid #fff; border-radius:50%;"></span>block</span>
+        <span><span class="sw" style="width:1.2rem; height:.18rem; background:var(--accent);"></span>spot mid</span>
+        <span style="margin-left:auto;"><b>+/-</b> net iceberg Δ · <b>COB</b> buy ▮ sell · <b>SVP</b> 1m vol</span>
       </div>
     </div>
 
-    <!-- Combined tape patterns feed (table) -->
-    <div style="margin-top:.85rem;">
-      <div class="kv-label">Tape patterns (sweep / block / iceberg) — last 12</div>
-      <div id="l3-tape" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
+    <!-- Tape timeline strip + clusters + table -->
+    <div class="l23-section">
+      <div class="l23-h">Tape timeline · last 30 events (oldest → newest)</div>
+      <div id="l3-tape-strip" style="display:flex; gap:2px; height:1.8rem; align-items:stretch; padding:.3rem; background:var(--card2); border:1px solid var(--border); border-radius:5px;"></div>
+      <div class="l23-legend">
+        <span><span class="sw" style="background:#fbbf24;"></span>iceberg</span>
+        <span><span class="sw" style="background:#38bdf8;"></span>sweep</span>
+        <span><span class="sw" style="background:#f87171;"></span>block</span>
+        <span style="margin-left:auto;">tall bar = buy · short bar = sell</span>
+      </div>
     </div>
 
-    <div style="color:var(--muted); font-size:.7rem; margin-top:.55rem; border-top:1px solid var(--border); padding-top:.4rem;">
-      Source: Databento MBP-1 (top-of-book passive bid/ask) + tape pattern detection in Live SDK. DOM depth=1 only — full L2 depth requires MBP-10 (out of scope). Microprice = (bid_sz·ask + ask_sz·bid)/(bid_sz+ask_sz) — leans toward side with thinner book. Iceberg pressure tracks side imbalance of hidden-liquidity prints.
+    <div class="l23-section">
+      <div class="l23-h">Iceberg price clusters · last 30m · top 8 by total</div>
+      <div id="l3-clusters" class="l23-tile l23-mono" style="font-size:.78rem; padding:.7rem;">loading…</div>
+    </div>
+
+    <div class="l23-section">
+      <div class="l23-h">Tape patterns · sweep / block / iceberg · last 12</div>
+      <div id="l3-tape" class="l23-tile l23-mono" style="font-size:.78rem; padding:.7rem;">loading…</div>
+    </div>
+
+    <div style="color:var(--muted); font-size:.68rem; margin-top:.95rem; padding-top:.55rem; border-top:1px dashed var(--border); line-height:1.5;">
+      Source: Databento MBP-1 top of book + Live SDK tape pattern detection. DOM depth = 1 (MBP-10 out of scope). Microprice = size-weighted mid. Iceberg pressure = buy/sell imbalance of hidden-liquidity prints.
     </div>
   </div>
 
