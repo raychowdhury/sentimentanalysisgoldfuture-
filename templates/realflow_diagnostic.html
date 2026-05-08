@@ -2832,32 +2832,8 @@ async function refreshL23() {
     document.getElementById('l2-ask-bar').style.width = '0%';
   }
 
-  // L3 iceberg events
-  const tbl = document.getElementById('l3-iceberg');
-  if (!ev || !ev.length) {
-    tbl.innerHTML = '<div style="color:var(--muted);">No iceberg events yet.</div>';
-  } else {
-    const now = Date.now();
-    tbl.innerHTML = `
-      <div style="display:grid; grid-template-columns:7rem 5rem 5rem 6rem 6rem; gap:.2rem .55rem; color:var(--muted); font-size:.7rem; margin-bottom:.2rem;">
-        <div>time NY</div><div>side</div><div>price</div><div>count</div><div>age</div>
-      </div>
-      ` + ev.slice(-10).reverse().map(e => {
-        const ts = e.ts ? new Date(e.ts) : null;
-        const tNy = ts ? ts.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour12:false }) : '—';
-        const ageS = ts ? Math.floor((now - ts.getTime()) / 1000) : 0;
-        const ageDisp = ageS < 60 ? `${ageS}s` : ageS < 3600 ? `${Math.floor(ageS/60)}m` : `${Math.floor(ageS/3600)}h`;
-        const sideCls = e.side === 'buy' ? 'delta-pos' : 'delta-neg';
-        const cnt = e.metrics?.count || '—';
-        return `<div style="display:grid; grid-template-columns:7rem 5rem 5rem 6rem 6rem; gap:.2rem .55rem;">
-          <div>${tNy}</div>
-          <div class="${sideCls}">${e.side.toUpperCase()}</div>
-          <div>${e.price ?? '—'}</div>
-          <div>${cnt}</div>
-          <div style="color:var(--muted);">${ageDisp}</div>
-        </div>`;
-      }).join('');
-  }
+  // L3 iceberg events feed — element removed (combined heatmap replaces it).
+  // Skip rendering; data still consumed by refreshL23Extras for heatmap.
 }
 refreshL23();
 setInterval(refreshL23, 2000);
