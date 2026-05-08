@@ -3272,33 +3272,34 @@ async function refreshL23Extras() {
         const ice = iceByPrice[px] || { buy:0, sell:0 };
         const total = ice.buy + ice.sell;
         const delta = ice.buy - ice.sell;
+        const hasActivity = total > 0;
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
         const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
 
-        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${rowBg};">`;
+        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${rowBg};${isMid ? ' border-top:1px solid var(--accent); border-bottom:1px solid var(--accent);' : ''}">`;
 
-        // COB split (mirror — buy LEFT, sell RIGHT, with center divider)
+        // COB split bar (saturated, full-bleed; only render bar segments when activity)
         const buyW = total ? (ice.buy / maxIce) * (cobW / 2 - 2) : 0;
         const sellW = total ? (ice.sell / maxIce) * (cobW / 2 - 2) : 0;
         html += `<div style="display:flex; align-items:center; width:${cobW}px;">
           <div style="display:flex; justify-content:flex-end; width:${cobW/2}px;">
-            <div title="buy ${ice.buy}" class="l23-bar-buy" style="height:9px; width:${buyW}px; border-radius:1px 0 0 1px;"></div>
+            ${ice.buy ? `<div title="buy ${ice.buy}" style="background:#10b981; height:11px; width:${buyW}px; border-radius:1px 0 0 1px;"></div>` : ''}
           </div>
-          <div style="width:1px; background:var(--border); height:11px;"></div>
+          <div style="width:1px; background:${hasActivity ? 'var(--ink)' : 'transparent'}; height:13px;"></div>
           <div style="display:flex; width:${cobW/2}px;">
-            <div title="sell ${ice.sell}" class="l23-bar-sell" style="height:9px; width:${sellW}px; border-radius:0 1px 1px 0;"></div>
+            ${ice.sell ? `<div title="sell ${ice.sell}" style="background:#ef4444; height:11px; width:${sellW}px; border-radius:0 1px 1px 0;"></div>` : ''}
           </div>
         </div>`;
 
-        // Delta
-        const dColor = delta > 0 ? 'var(--ok)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
-        const dTxt = delta === 0 ? '·' : (delta > 0 ? '+' + delta : String(delta));
-        html += `<div style="width:${deltaW}px; text-align:center; color:${dColor}; font-weight:600; font-size:.7rem;">${dTxt}</div>`;
+        // Delta — blank when no activity (bookmap style)
+        const dColor = delta > 0 ? '#10b981' : delta < 0 ? '#ef4444' : 'var(--muted)';
+        const dTxt = !hasActivity ? '' : (delta === 0 ? '0' : (delta > 0 ? '+' + delta : String(delta)));
+        html += `<div style="width:${deltaW}px; text-align:center; color:${dColor}; font-weight:700; font-size:.78rem;">${dTxt}</div>`;
 
         // Price label
-        const pxColor = isMid ? 'var(--accent)' : 'var(--muted)';
-        const pxWeight = isMid ? '700' : '500';
-        html += `<div class="hm-pxlabel" style="width:${pxW}px; text-align:right; font-size:.62rem; color:${pxColor}; font-weight:${pxWeight};">${px.toFixed(2)}${isMid ? ' →' : ''}</div>`;
+        const pxColor = isMid ? 'var(--accent)' : (hasActivity ? 'var(--ink)' : 'var(--muted)');
+        const pxWeight = isMid ? '700' : (hasActivity ? '600' : '400');
+        html += `<div class="hm-pxlabel" style="width:${pxW}px; text-align:right; font-size:.7rem; color:${pxColor}; font-weight:${pxWeight};">${px.toFixed(2)}${isMid ? ' →' : ''}</div>`;
 
         html += `</div>`;
       });
@@ -3350,19 +3351,20 @@ async function refreshL23Extras() {
 
       sharedPrices.forEach(px => {
         const svp = svpByPrice[px] || 0;
+        const hasVol = svp > 0;
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
         const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
 
-        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${rowBg};">`;
+        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${rowBg};${isMid ? ' border-top:1px solid var(--accent); border-bottom:1px solid var(--accent);' : ''}">`;
 
         // Price label
-        const pxColor = isMid ? 'var(--accent)' : 'var(--muted)';
-        const pxWeight = isMid ? '700' : '500';
-        html += `<div class="hm-pxlabel" style="width:${pxW}px; text-align:left; font-size:.62rem; color:${pxColor}; font-weight:${pxWeight};">${isMid ? '← ' : ''}${px.toFixed(2)}</div>`;
+        const pxColor = isMid ? 'var(--accent)' : (hasVol ? 'var(--ink)' : 'var(--muted)');
+        const pxWeight = isMid ? '700' : (hasVol ? '600' : '400');
+        html += `<div class="hm-pxlabel" style="width:${pxW}px; text-align:left; font-size:.7rem; color:${pxColor}; font-weight:${pxWeight};">${isMid ? '← ' : ''}${px.toFixed(2)}</div>`;
 
         // SVP with POC ★ and VA ● markers
         const sw = svp ? (svp / maxSvp) * (svpW - 50) : 0;
-        const sTxt = svp ? svp.toFixed(0) : '·';
+        const sTxt = svp ? svp.toFixed(0) : '';
         const isPOC = pocPx !== null && Math.abs(px - pocPx) < 0.001;
         const isVAH = valHigh !== null && Math.abs(px - valHigh) < 0.001;
         const isVAL = valLow !== null && Math.abs(px - valLow) < 0.001;
