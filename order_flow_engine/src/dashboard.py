@@ -1274,6 +1274,48 @@ def register(app: Flask) -> None:
             return jsonify({"error": str(e), "checkpoints": []}), 500
         return jsonify({"symbol": symbol, "tf": tf, "checkpoints": cells})
 
+    @app.route("/api/order-flow/l2-quote")
+    def order_flow_l2_quote():  # pragma: no cover
+        """Read-only best bid/ask + sizes from in-memory MBP-1 state."""
+        from order_flow_engine.src import realtime_databento_live as rtdl
+        symbol = request.args.get("symbol", "ESM6")
+        q = rtdl.get_best_quote(symbol)
+        return jsonify({"symbol": symbol, "quote": q or None})
+
+    @app.route("/api/order-flow/iceberg-events")
+    def order_flow_iceberg_events():  # pragma: no cover
+        """Read-only recent iceberg alert events from alerts.jsonl."""
+        from pathlib import Path
+        symbol = request.args.get("symbol", "ESM6")
+        try: n = int(request.args.get("n", "20"))
+        except Exception: n = 20
+        n = max(1, min(n, 200))
+        p = Path("outputs/order_flow/alerts.jsonl")
+        if not p.exists():
+            return jsonify({"symbol": symbol, "events": []})
+        events: list[dict] = []
+        with p.open() as f:
+            for line in f:
+                try:
+                    a = json.loads(line)
+                except Exception:
+                    continue
+                lbl = (a.get("label") or "")
+                if not lbl.startswith("iceberg"):
+                    continue
+                if a.get("symbol") != symbol:
+                    continue
+                events.append({
+                    "ts": a.get("timestamp_utc"),
+                    "label": lbl,
+                    "side": "buy" if lbl.endswith("_buy") else "sell",
+                    "price": a.get("price"),
+                    "atr": a.get("atr"),
+                    "metrics": a.get("metrics") or {},
+                })
+        return jsonify({"symbol": symbol, "n": min(n, len(events)),
+                        "events": events[-n:]})
+
     @app.route("/api/order-flow/bars-1m")
     def order_flow_bars_1m():  # pragma: no cover
         """Read-only last N 1m bars. Prefer in-memory tail (live, every

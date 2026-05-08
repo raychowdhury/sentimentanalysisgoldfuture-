@@ -351,6 +351,49 @@
     </div>
   </div>
 
+  {# ── Level 2 / Level 3 — order book + iceberg events (always visible) ─#}
+  <div class="card" id="l23-card" style="border-left:4px solid #fbbf24;">
+    <h2>Level 2 / 3 — top of book &amp; iceberg events</h2>
+    <div style="display:grid; grid-template-columns: 1.4fr 1.4fr 1fr 1fr; gap:1rem; align-items:center;">
+      <div>
+        <div class="kv-label">Best bid (Level 2)</div>
+        <div style="font-family:ui-monospace,monospace; margin-top:.25rem;">
+          <span id="l2-bid-px" style="color:var(--ok); font-size:1.4rem; font-weight:700;">—</span>
+          <span id="l2-bid-sz" style="color:var(--muted); font-size:.85rem; margin-left:.4rem;">×—</span>
+        </div>
+      </div>
+      <div>
+        <div class="kv-label">Best ask (Level 2)</div>
+        <div style="font-family:ui-monospace,monospace; margin-top:.25rem;">
+          <span id="l2-ask-px" style="color:var(--bad); font-size:1.4rem; font-weight:700;">—</span>
+          <span id="l2-ask-sz" style="color:var(--muted); font-size:.85rem; margin-left:.4rem;">×—</span>
+        </div>
+      </div>
+      <div>
+        <div class="kv-label">Spread</div>
+        <div id="l2-spread" style="font-family:ui-monospace,monospace; font-size:1.1rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div id="l2-spread-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
+      </div>
+      <div>
+        <div class="kv-label">Imbalance (bid/ask sz)</div>
+        <div id="l2-imb" style="font-family:ui-monospace,monospace; font-size:1.05rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div id="l2-imb-bar" style="display:flex; height:.6rem; border:1px solid var(--border); border-radius:3px; overflow:hidden; margin-top:.3rem;">
+          <div id="l2-imb-bid" style="background:var(--ok); width:50%;"></div>
+          <div id="l2-imb-ask" style="background:var(--bad); width:50%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:.85rem;">
+      <div class="kv-label">Iceberg events (Level 3) — last 10</div>
+      <div id="l3-iceberg" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
+    </div>
+
+    <div style="color:var(--muted); font-size:.7rem; margin-top:.55rem; border-top:1px solid var(--border); padding-top:.4rem;">
+      Source: Databento MBP-1 (top-of-book passive bid/ask). DOM depth=1 only — full L2 depth requires MBP-10 schema (out of scope). Iceberg detection runs in Live SDK (10s window, ≥5 prints, ≤20s gap).
+    </div>
+  </div>
+
   {# ── LAYER 1 — Checkpoints (always visible) ────────────────────────────#}
   {% if checkpoints %}
   <div class="card" style="border-left:4px solid #fbbf24;">
@@ -2624,6 +2667,79 @@ async function refreshNext1m() {
 }
 refreshNext1m();
 setInterval(refreshNext1m, 3000);
+
+// ── Level 2 / Level 3 — top of book + iceberg events ─────────────────────
+async function refreshL23() {
+  const symLocal = (document.getElementById('sym')?.value || 'ESM6').trim();
+  let q = null, ev = null;
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch(`/api/order-flow/l2-quote?symbol=${symLocal}`, { cache:'no-store' }),
+      fetch(`/api/order-flow/iceberg-events?symbol=${symLocal}&n=10`, { cache:'no-store' }),
+    ]);
+    if (r1.ok) q = (await r1.json()).quote;
+    if (r2.ok) ev = (await r2.json()).events;
+  } catch (e) { return; }
+
+  // L2
+  if (q && q.bid && q.ask) {
+    setCell('l2-bid-px', q.bid.toFixed(2));
+    setCell('l2-bid-sz', `×${q.bid_sz}`);
+    setCell('l2-ask-px', q.ask.toFixed(2));
+    setCell('l2-ask-sz', `×${q.ask_sz}`);
+    setCell('l2-spread', q.spread.toFixed(2));
+    const ageS = q.ts ? Math.floor((Date.now() - new Date(q.ts).getTime()) / 1000) : null;
+    setCell('l2-spread-sub', ageS !== null ? `quote ${ageS}s old` : '—');
+
+    const bsz = q.bid_sz || 0, asz = q.ask_sz || 0;
+    const tot = bsz + asz;
+    if (tot) {
+      const bidPct = (bsz / tot * 100);
+      const askPct = (asz / tot * 100);
+      const ratio = bsz / Math.max(1, asz);
+      const tilt = ratio > 1.5 ? 'bid-heavy' : ratio < 0.67 ? 'ask-heavy' : 'balanced';
+      const tiltColor = ratio > 1.5 ? 'var(--ok)' : ratio < 0.67 ? 'var(--bad)' : 'var(--muted)';
+      const imbEl = document.getElementById('l2-imb');
+      imbEl.innerHTML = `<span style="color:${tiltColor};">${bsz} / ${asz}</span> <span style="color:var(--muted); font-size:.72rem;">${tilt}</span>`;
+      document.getElementById('l2-imb-bid').style.width = `${bidPct}%`;
+      document.getElementById('l2-imb-ask').style.width = `${askPct}%`;
+    }
+  } else {
+    setCell('l2-bid-px', '—'); setCell('l2-bid-sz', '×—');
+    setCell('l2-ask-px', '—'); setCell('l2-ask-sz', '×—');
+    setCell('l2-spread', '—'); setCell('l2-spread-sub', 'no quote yet');
+    setCellHTML('l2-imb', '<span style="color:var(--muted);">—</span>');
+  }
+
+  // L3 iceberg events
+  const tbl = document.getElementById('l3-iceberg');
+  if (!ev || !ev.length) {
+    tbl.innerHTML = '<div style="color:var(--muted);">No iceberg events yet.</div>';
+  } else {
+    const now = Date.now();
+    tbl.innerHTML = `
+      <div style="display:grid; grid-template-columns:7rem 5rem 5rem 6rem 6rem; gap:.2rem .55rem; color:var(--muted); font-size:.7rem; margin-bottom:.2rem;">
+        <div>time NY</div><div>side</div><div>price</div><div>count</div><div>age</div>
+      </div>
+      ` + ev.slice(-10).reverse().map(e => {
+        const ts = e.ts ? new Date(e.ts) : null;
+        const tNy = ts ? ts.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour12:false }) : '—';
+        const ageS = ts ? Math.floor((now - ts.getTime()) / 1000) : 0;
+        const ageDisp = ageS < 60 ? `${ageS}s` : ageS < 3600 ? `${Math.floor(ageS/60)}m` : `${Math.floor(ageS/3600)}h`;
+        const sideCls = e.side === 'buy' ? 'delta-pos' : 'delta-neg';
+        const cnt = e.metrics?.count || '—';
+        return `<div style="display:grid; grid-template-columns:7rem 5rem 5rem 6rem 6rem; gap:.2rem .55rem;">
+          <div>${tNy}</div>
+          <div class="${sideCls}">${e.side.toUpperCase()}</div>
+          <div>${e.price ?? '—'}</div>
+          <div>${cnt}</div>
+          <div style="color:var(--muted);">${ageDisp}</div>
+        </div>`;
+      }).join('');
+  }
+}
+refreshL23();
+setInterval(refreshL23, 2000);
 </script>
 </body>
 </html>
