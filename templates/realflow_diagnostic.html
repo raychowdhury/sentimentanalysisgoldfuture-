@@ -408,6 +408,39 @@
       </div>
     </div>
 
+    <!-- L2/L3 actionable signals -->
+    <div style="margin-top:.85rem; padding:.65rem .85rem; border:1px solid var(--border); border-radius:5px; background:var(--card2);">
+      <div class="kv-label" style="margin-bottom:.4rem;">L2 / L3 actionable signals</div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:.7rem; font-size:.82rem;">
+        <div>
+          <div style="color:var(--muted); font-size:.7rem;">Support (iceberg buy cluster)</div>
+          <div id="l23-sup" style="font-family:ui-monospace,monospace; font-weight:600; color:var(--ok); margin-top:.15rem;">—</div>
+        </div>
+        <div>
+          <div style="color:var(--muted); font-size:.7rem;">Resistance (iceberg sell cluster)</div>
+          <div id="l23-res" style="font-family:ui-monospace,monospace; font-weight:600; color:var(--bad); margin-top:.15rem;">—</div>
+        </div>
+        <div>
+          <div style="color:var(--muted); font-size:.7rem;">Stop hint</div>
+          <div id="l23-stop" style="font-family:ui-monospace,monospace; font-size:.75rem; margin-top:.15rem;">—</div>
+        </div>
+        <div>
+          <div style="color:var(--muted); font-size:.7rem;">Liquidity quality</div>
+          <div id="l23-liq" style="font-weight:600; margin-top:.15rem;">—</div>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.7rem; margin-top:.55rem; font-size:.82rem;">
+        <div>
+          <div style="color:var(--muted); font-size:.7rem;">Best fill side (microprice lean)</div>
+          <div id="l23-fill" style="font-weight:600; margin-top:.15rem;">—</div>
+        </div>
+        <div>
+          <div style="color:var(--muted); font-size:.7rem;">L2/L3 conviction (imbalance × iceberg × sweep)</div>
+          <div id="l23-conv" style="font-weight:600; margin-top:.15rem;">—</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Iceberg price clusters -->
     <div style="margin-top:.85rem;">
       <div class="kv-label">Iceberg price clusters (last 30m, top 5)</div>
@@ -2879,6 +2912,84 @@ async function refreshL23Extras() {
         </div>`;
       }).join('');
   }
+
+  // ── Actionable signals ─────────────────────────────────────────────
+  // Support = top buy-iceberg cluster price; Resistance = top sell-iceberg
+  const buyClusters = {}, sellClusters = {};
+  recentIce.forEach(e => {
+    if (e.price == null) return;
+    const k = Math.round(e.price / 0.25) * 0.25;
+    const map = e.side === 'buy' ? buyClusters : sellClusters;
+    map[k] = (map[k] || 0) + 1;
+  });
+  const topBuy = Object.entries(buyClusters).sort((a, b) => b[1] - a[1])[0];
+  const topSell = Object.entries(sellClusters).sort((a, b) => b[1] - a[1])[0];
+  const supPx = topBuy ? Number(topBuy[0]) : null;
+  const resPx = topSell ? Number(topSell[0]) : null;
+  setCell('l23-sup', supPx !== null ? `${supPx.toFixed(2)} (${topBuy[1]}×)` : '—');
+  setCell('l23-res', resPx !== null ? `${resPx.toFixed(2)} (${topSell[1]}×)` : '—');
+
+  // Stop hint — 1 tick beyond cluster
+  const tickSize = 0.25;
+  if (supPx !== null || resPx !== null) {
+    const longStop = supPx !== null ? `long: ${(supPx - tickSize).toFixed(2)} (sup −1t)` : null;
+    const shortStop = resPx !== null ? `short: ${(resPx + tickSize).toFixed(2)} (res +1t)` : null;
+    setCellHTML('l23-stop',
+      [longStop, shortStop].filter(Boolean).map(s =>
+        `<div>${s}</div>`).join(''));
+  } else {
+    setCell('l23-stop', '—');
+  }
+
+  // Liquidity quality
+  let liq = '—', liqColor = 'var(--muted)';
+  if (q && q.bid_sz != null && q.ask_sz != null && q.spread != null) {
+    const minSz = Math.min(q.bid_sz, q.ask_sz);
+    const ticks = q.spread / tickSize;
+    if (ticks > 4) { liq = 'WIDE — avoid market'; liqColor = 'var(--bad)'; }
+    else if (minSz < 5) { liq = 'thin — risky'; liqColor = 'var(--bad)'; }
+    else if (ticks > 2 || minSz < 15) { liq = 'fair'; liqColor = 'var(--warn)'; }
+    else if (ticks <= 1 && minSz >= 20) { liq = 'good'; liqColor = 'var(--ok)'; }
+    else { liq = 'normal'; liqColor = 'var(--ok)'; }
+  }
+  setCell('l23-liq', liq, liqColor);
+
+  // Best fill side
+  let fill = '—', fillColor = 'var(--muted)', fillSub = '';
+  if (q && q.bid && q.ask && (q.bid_sz + q.ask_sz)) {
+    const bsz = q.bid_sz, asz = q.ask_sz;
+    const micro = (bsz * q.ask + asz * q.bid) / (bsz + asz);
+    const mid = (q.bid + q.ask) / 2;
+    const lean = micro - mid;
+    if (lean > 0.02) { fill = 'BUY (sellers thin)'; fillColor = 'var(--ok)'; fillSub = 'price drifting up'; }
+    else if (lean < -0.02) { fill = 'SELL (buyers thin)'; fillColor = 'var(--bad)'; fillSub = 'price drifting down'; }
+    else { fill = 'either side OK'; fillColor = 'var(--muted)'; fillSub = 'balanced book'; }
+  }
+  setCellHTML('l23-fill', `<span style="color:${fillColor};">${fill}</span> <span style="color:var(--muted); font-size:.72rem; margin-left:.3rem;">${fillSub}</span>`);
+
+  // Conviction: combine imbalance + iceberg pressure + recent sweep direction
+  const iceTotal = buyIce.length + sellIce.length;
+  const iceRatio = iceTotal ? (buyIce.length - sellIce.length) / iceTotal : 0;
+  const sizeImb = (q && (q.bid_sz + q.ask_sz)) ? (q.bid_sz - q.ask_sz) / (q.bid_sz + q.ask_sz) : 0;
+  const recentSweeps = tape.filter(e => e.pattern === 'sweep' &&
+    new Date(e.ts).getTime() >= now - 5 * 60 * 1000);
+  const sweepBuy = recentSweeps.filter(e => e.side === 'buy').length;
+  const sweepSell = recentSweeps.filter(e => e.side === 'sell').length;
+  const sweepNet = sweepBuy + sweepSell ? (sweepBuy - sweepSell) / (sweepBuy + sweepSell) : 0;
+
+  const sLong = (sizeImb > 0.20 ? 1 : 0)
+              + (iceRatio > 0.10 ? 1 : 0)
+              + (sweepNet > 0.10 ? 1 : 0);
+  const sShort = (sizeImb < -0.20 ? 1 : 0)
+               + (iceRatio < -0.10 ? 1 : 0)
+               + (sweepNet < -0.10 ? 1 : 0);
+  let conv = 'mixed', convColor = 'var(--muted)', convSub = '';
+  if (sLong >= 2 && sLong > sShort) { conv = `LONG conviction ${sLong}/3`; convColor = 'var(--ok)'; }
+  else if (sShort >= 2 && sShort > sLong) { conv = `SHORT conviction ${sShort}/3`; convColor = 'var(--bad)'; }
+  else if (sLong + sShort === 0) { conv = 'no signal'; convColor = 'var(--muted)'; }
+  else { conv = 'split — wait'; convColor = 'var(--warn)'; }
+  convSub = `imb ${sizeImb >= 0 ? '+' : ''}${(sizeImb*100).toFixed(0)}% · ice ${iceRatio >= 0 ? '+' : ''}${(iceRatio*100).toFixed(0)}% · sweep ${sweepNet >= 0 ? '+' : ''}${(sweepNet*100).toFixed(0)}%`;
+  setCellHTML('l23-conv', `<span style="color:${convColor};">${conv}</span><div style="color:var(--muted); font-size:.7rem; margin-top:.1rem;">${convSub}</div>`);
 
   // Combined tape feed (last 12 across patterns)
   const tEl = document.getElementById('l3-tape');
