@@ -565,10 +565,12 @@
     <!-- Bookmap-style combined: heatmap (left) + price ladder profile (right) -->
     <div class="l23-section">
       <div class="l23-h">Profile L · Heatmap (price × time) · Profile R</div>
-      <div style="display:grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.7fr) minmax(0, 0.85fr); gap:.6rem; align-items:flex-start;">
-        <div id="l3-profile-left" class="l23-tile" style="padding:.7rem; overflow-x:auto;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
-        <div id="l3-heatmap" class="l23-tile" style="padding:.7rem; overflow-x:auto;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
-        <div id="l3-profile-side" class="l23-tile" style="padding:.7rem; overflow-x:auto;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
+      <div class="l23-tile" style="padding:.7rem;">
+        <div style="display:grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.7fr) minmax(0, 0.85fr); gap:0; align-items:flex-start; overflow-x:auto;">
+          <div id="l3-profile-left"  style="overflow:hidden;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
+          <div id="l3-heatmap"       style="overflow:hidden; border-left:1px solid var(--border); border-right:1px solid var(--border); padding:0 .5rem;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
+          <div id="l3-profile-side"  style="overflow:hidden; padding-left:.5rem;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
+        </div>
       </div>
       <div class="l23-legend">
         <span><span class="sw" style="background:rgba(52,211,153,.75);"></span>iceberg buy</span>
