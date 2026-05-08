@@ -652,9 +652,11 @@
   <div class="card" style="border-left:4px solid #fbbf24;">
     <h2>Pending fires — awaiting horizon settle</h2>
     <div id="pending-meta" style="color:var(--muted); font-size:.78rem; margin-bottom:.5rem;">
-      loading…
+      <span class="skeleton" style="width:14rem;"></span>
     </div>
-    <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;"></div>
+    <div id="pending-table" style="font-family:ui-monospace,monospace; font-size:.78rem;">
+      <span class="skeleton" style="width:60%; height:3rem; display:block;"></span>
+    </div>
   </div>
 
   {# ── Order-flow detail (collapsed drawer) ──────────────────────────────#}
