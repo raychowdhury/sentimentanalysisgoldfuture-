@@ -150,6 +150,58 @@
     .badge.bad   { background:rgba(248,113,113,.15); border:1px solid rgba(248,113,113,.4); color:#f87171; }
     .badge.muted { background:rgba(148,163,184,.1);  border:1px solid rgba(148,163,184,.3); color:#94a3b8; }
 
+    /* Pro polish — global */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      background: rgba(15, 23, 42, .85);
+    }
+    .live-dot {
+      display:inline-block; width:.55rem; height:.55rem; border-radius:50%;
+      background:#34d399; box-shadow:0 0 8px #34d399;
+      animation: pulse 1.5s ease-in-out infinite;
+      vertical-align: middle; margin-right: .35rem;
+    }
+    .live-dot.stale { background:#f87171; box-shadow:0 0 8px #f87171; }
+    .live-dot.warn  { background:#fbbf24; box-shadow:0 0 8px #fbbf24; }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%     { opacity: .55; transform: scale(.85); }
+    }
+    .clock {
+      font-family: ui-monospace, monospace; font-size:.75rem;
+      color: var(--muted); margin-left: .5rem;
+    }
+
+    /* Skeleton loaders */
+    .skeleton {
+      display:inline-block; height:.85rem; width:6rem;
+      background: linear-gradient(90deg, var(--card2) 0%, var(--border2) 50%, var(--card2) 100%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s linear infinite;
+      border-radius: 3px; vertical-align: middle;
+    }
+    @keyframes shimmer {
+      0%   { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+
+    /* Value-change flash */
+    @keyframes flashUp   { 0% { background:rgba(52,211,153,.30); }   100% { background:transparent; } }
+    @keyframes flashDown { 0% { background:rgba(248,113,113,.30); }  100% { background:transparent; } }
+    .flash-up   { animation: flashUp   .9s ease-out; }
+    .flash-down { animation: flashDown .9s ease-out; }
+
+    /* Drawer summary count badges */
+    .layer-wrap > summary .badge-count {
+      display:inline-block; margin-left:.55rem; padding:.05rem .45rem;
+      border-radius:9px; font-size:.62rem; font-weight:600;
+      background:rgba(251,191,36,.18); color:var(--accent);
+      vertical-align: middle;
+    }
+    .layer-wrap > summary .badge-count.ok   { background:rgba(52,211,153,.18); color:var(--ok); }
+    .layer-wrap > summary .badge-count.bad  { background:rgba(248,113,113,.18); color:var(--bad); }
+
     /* L2/L3 polish */
     .l23-section { margin-top:1rem; padding-top:.85rem; border-top:1px dashed var(--border); }
     .l23-section:first-of-type { margin-top:.5rem; padding-top:0; border-top:0; }
@@ -170,7 +222,9 @@
 <body>
 <header>
   <span class="logo">Real-flow Diagnostic</span>
-  <span class="logo-sub">{{ symbol }} · {{ tf }} · proxy vs real comparison</span>
+  <span class="logo-sub">{{ symbol }} · {{ tf }}</span>
+  <span style="margin-left:1rem;"><span id="live-dot" class="live-dot" title="live data feed status"></span><span id="live-status" style="font-size:.78rem; color:var(--muted);">connecting…</span></span>
+  <span class="clock"><span id="clock-utc">—</span> UTC · <span id="clock-ny">—</span> NY</span>
 </header>
 
 <main>
@@ -501,8 +555,8 @@
     <div class="l23-section">
       <div class="l23-h">Heatmap · price × time   ·   profile · per-level metrics</div>
       <div style="display:grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap:1rem; align-items:flex-start;">
-        <div id="l3-heatmap" class="l23-tile" style="padding:.7rem; overflow-x:auto;">loading…</div>
-        <div id="l3-profile-side" class="l23-tile" style="padding:.7rem; overflow-x:auto;">loading…</div>
+        <div id="l3-heatmap" class="l23-tile" style="padding:.7rem; overflow-x:auto;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
+        <div id="l3-profile-side" class="l23-tile" style="padding:.7rem; overflow-x:auto;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
       </div>
       <div class="l23-legend">
         <span><span class="sw" style="background:rgba(52,211,153,.75);"></span>iceberg buy</span>
@@ -528,12 +582,12 @@
 
     <div class="l23-section">
       <div class="l23-h">Iceberg price clusters · last 30m · top 8 by total</div>
-      <div id="l3-clusters" class="l23-tile l23-mono" style="font-size:.78rem; padding:.7rem;">loading…</div>
+      <div id="l3-clusters" class="l23-tile l23-mono" style="font-size:.78rem; padding:.7rem;"><span class="skeleton" style="width:60%;"></span></div>
     </div>
 
     <div class="l23-section">
       <div class="l23-h">Tape patterns · sweep / block / iceberg · last 12</div>
-      <div id="l3-tape" class="l23-tile l23-mono" style="font-size:.78rem; padding:.7rem;">loading…</div>
+      <div id="l3-tape" class="l23-tile l23-mono" style="font-size:.78rem; padding:.7rem;"><span class="skeleton" style="width:60%;"></span></div>
     </div>
 
     <div style="color:var(--muted); font-size:.68rem; margin-top:.95rem; padding-top:.55rem; border-top:1px dashed var(--border); line-height:1.5;">
@@ -3340,6 +3394,107 @@ async function refreshL23Extras() {
 }
 refreshL23Extras();
 setInterval(refreshL23Extras, 3000);
+
+// ── Pro polish: clock + live dot status sync + value-change flash ───────
+function tickClock() {
+  const now = new Date();
+  const utc = now.toISOString().substring(11, 19);
+  const ny = now.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour12:false });
+  const u = document.getElementById('clock-utc'); if (u) u.textContent = utc;
+  const n = document.getElementById('clock-ny'); if (n) n.textContent = ny;
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+async function syncLiveDot() {
+  try {
+    const r = await fetch('/api/order-flow/l2-quote?symbol=ESM6', { cache:'no-store' });
+    if (!r.ok) throw new Error('no quote');
+    const j = await r.json();
+    const q = j.quote;
+    const dot = document.getElementById('live-dot');
+    const lbl = document.getElementById('live-status');
+    if (!q || !q.ts) {
+      if (dot) { dot.classList.remove('warn'); dot.classList.add('stale'); }
+      if (lbl) lbl.textContent = 'no quote';
+      return;
+    }
+    const ageS = Math.floor((Date.now() - new Date(q.ts).getTime()) / 1000);
+    if (dot) {
+      dot.classList.remove('stale', 'warn');
+      if (ageS > 30) dot.classList.add('stale');
+      else if (ageS > 5) dot.classList.add('warn');
+    }
+    if (lbl) lbl.textContent = `live · quote ${ageS}s ago`;
+  } catch (e) {
+    const dot = document.getElementById('live-dot');
+    const lbl = document.getElementById('live-status');
+    if (dot) dot.classList.add('stale');
+    if (lbl) lbl.textContent = 'feed offline';
+  }
+}
+syncLiveDot();
+setInterval(syncLiveDot, 5000);
+
+// Flash helper — call setCellFlash(id, newValue) to flash green/red on change
+window._lastVals = {};
+function setCellFlash(id, newText, isNumeric) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const prev = window._lastVals[id];
+  const txt = String(newText);
+  if (prev !== undefined && prev !== txt) {
+    let cls = '';
+    if (isNumeric) {
+      const a = parseFloat(prev), b = parseFloat(txt);
+      if (!isNaN(a) && !isNaN(b)) cls = b > a ? 'flash-up' : b < a ? 'flash-down' : '';
+    }
+    if (cls) {
+      el.classList.remove('flash-up', 'flash-down');
+      // force reflow to restart animation
+      void el.offsetWidth;
+      el.classList.add(cls);
+    }
+  }
+  window._lastVals[id] = txt;
+  el.textContent = txt;
+}
+// expose for use in existing render code (optional gradual adoption)
+window.setCellFlash = setCellFlash;
+
+// Drawer badges — count fires/alerts, show on collapsed details
+async function syncDrawerBadges() {
+  try {
+    const cp = await fetch('/api/order-flow/checkpoints?symbol=ESM6&tf=15m', { cache:'no-store' });
+    if (!cp.ok) return;
+    const data = (await cp.json()).checkpoints || [];
+    const warnCount = data.filter(c => c.status === 'WARN').length;
+    const okCount   = data.filter(c => c.status === 'OK').length;
+    // Find Analyst drawer summary — first details > summary inside main
+    const drawers = document.querySelectorAll('.layer-wrap > summary');
+    if (drawers.length) {
+      // Tag analyst drawer with WARN/OK counts
+      const analyst = Array.from(drawers).find(s => s.textContent.includes('Analyst'));
+      if (analyst) {
+        analyst.querySelectorAll('.badge-count').forEach(n => n.remove());
+        if (warnCount) {
+          const b = document.createElement('span');
+          b.className = 'badge-count bad';
+          b.textContent = `${warnCount} WARN`;
+          analyst.appendChild(b);
+        }
+        if (okCount) {
+          const b = document.createElement('span');
+          b.className = 'badge-count ok';
+          b.textContent = `${okCount} OK`;
+          analyst.appendChild(b);
+        }
+      }
+    }
+  } catch (e) { /* silent */ }
+}
+syncDrawerBadges();
+setInterval(syncDrawerBadges, 30000);
 </script>
 </body>
 </html>
