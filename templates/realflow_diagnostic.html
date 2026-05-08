@@ -217,6 +217,17 @@
     .l23-divider   { width:100%; height:1px; background:linear-gradient(90deg, transparent, var(--border), transparent); margin:.85rem 0; }
     .l23-legend    { display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.4rem; align-items:center; flex-wrap:wrap; }
     .l23-legend .sw { display:inline-block; width:.7rem; height:.7rem; border-radius:1px; vertical-align:middle; margin-right:.2rem; }
+
+    /* Heatmap row hover crosshair */
+    .hm-row:hover { background:rgba(251,191,36,.06) !important; }
+    .hm-row:hover .hm-pxlabel { color:var(--accent); font-weight:700; }
+    /* 5-min vertical gridline */
+    .hm-cell.gridline { border-right:1px solid rgba(251,191,36,.15); }
+    /* POC marker */
+    .poc-star::after { content:"★"; color:var(--accent); margin-left:.2rem; font-size:.85rem; }
+    .va-high::before, .va-low::before { content:""; display:inline-block; width:.4rem; height:.4rem; border-radius:50%; background:var(--accent); margin-right:.3rem; vertical-align:middle; }
+    /* Aggressive flow strip cells */
+    .agg-cell { height:.7rem; border-radius:1px; }
   </style>
 </head>
 <body>
@@ -3134,8 +3145,20 @@ async function refreshL23Extras() {
       const cellH = ROW_H;
       const labelW = 60;
 
+      // Aggressive flow strip — per-minute net sweep direction
+      const aggBuckets = new Array(bucketCount).fill(null).map(() => ({ buy:0, sell:0 }));
+      tape.forEach(e => {
+        if (e.pattern !== 'sweep' || e.price == null) return;
+        const t = new Date(e.ts).getTime();
+        if (t < cutoff) return;
+        const idx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
+        if (e.side === 'buy') aggBuckets[idx].buy++;
+        else aggBuckets[idx].sell++;
+      });
+
       let html = `<div style="position:relative; display:inline-block; min-width:${labelW + bucketCount * (cellW + 1)}px; font-family:ui-monospace,monospace;">`;
 
+      // Time labels header
       html += `<div style="display:flex; gap:1px; margin-left:${labelW}px; height:${HEADER_H}px; align-items:center; font-size:.58rem; color:var(--muted);">`;
       for (let i = 0; i < bucketCount; i++) {
         const minsAgo = bucketCount - i;
@@ -3145,14 +3168,34 @@ async function refreshL23Extras() {
       }
       html += `</div>`;
 
+      // Aggressive flow strip (sweep buy vs sell per minute)
+      html += `<div style="display:flex; gap:1px; align-items:center; height:.9rem; margin-left:${labelW}px; margin-bottom:2px;">`;
+      const maxAgg = Math.max(1, ...aggBuckets.map(b => b.buy + b.sell));
+      for (let i = 0; i < bucketCount; i++) {
+        const ab = aggBuckets[i];
+        const tot = ab.buy + ab.sell;
+        let bg = 'rgba(255,255,255,0.02)';
+        if (tot > 0) {
+          const a = 0.30 + Math.min(1, tot / maxAgg) * 0.65;
+          const net = ab.buy - ab.sell;
+          if (net > 0) bg = `rgba(56,189,248,${a})`;
+          else if (net < 0) bg = `rgba(14,165,233,${a})`;
+          else bg = `rgba(148,163,184,${a})`;
+        }
+        const minsAgo = bucketCount - i;
+        const isGridline = (minsAgo % 5 === 0);
+        html += `<div title="t-${minsAgo}m · sweep buy=${ab.buy} sell=${ab.sell}" class="agg-cell${isGridline ? ' gridline' : ''}" style="width:${cellW}px; background:${bg};"></div>`;
+      }
+      html += `</div>`;
+      // Heatmap rows
       sharedPrices.forEach(px => {
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
         const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
         const labelColor = isMid ? 'var(--accent)' : 'var(--muted)';
         const labelWeight = isMid ? '700' : '500';
 
-        html += `<div style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};">`;
-        html += `<div style="width:${labelW}px; text-align:right; padding-right:.3rem; font-size:.62rem; color:${labelColor}; font-weight:${labelWeight};">${px.toFixed(2)}${isMid ? ' ←' : ''}</div>`;
+        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};">`;
+        html += `<div class="hm-pxlabel" style="width:${labelW}px; text-align:right; padding-right:.3rem; font-size:.62rem; color:${labelColor}; font-weight:${labelWeight};">${px.toFixed(2)}${isMid ? ' ←' : ''}</div>`;
 
         for (let i = 0; i < bucketCount; i++) {
           const cnt = (grid[px] && grid[px][i]) || 0;
@@ -3166,7 +3209,9 @@ async function refreshL23Extras() {
             else bg = `rgba(251,191,36,${alpha})`;
             title += ` · iceberg buy=${sides.buy} sell=${sides.sell}`;
           }
-          html += `<div title="${title}" style="width:${cellW}px; height:${cellH}px; background:${bg}; border-radius:1px;"></div>`;
+          const minsAgo = bucketCount - i;
+          const isGridline = (minsAgo % 5 === 0);
+          html += `<div title="${title}" class="hm-cell${isGridline ? ' gridline' : ''}" style="width:${cellW}px; height:${cellH}px; background:${bg}; border-radius:1px;"></div>`;
         }
         html += `</div>`;
       });
@@ -3208,16 +3253,40 @@ async function refreshL23Extras() {
     } else {
       const maxIce = Math.max(1, ...Object.values(iceByPrice).map(v => v.buy + v.sell));
       const maxSvp = Math.max(1, ...Object.values(svpByPrice));
-      const cobW = 90;   // px
-      const svpW = 120;  // px
-      const deltaW = 36; // px
+
+      // POC + VAH/VAL — Point Of Control & Value Area (70% of volume)
+      const totalVol = Object.values(svpByPrice).reduce((a, b) => a + b, 0);
+      const sortedByVol = [...sharedPrices]
+        .map(px => [px, svpByPrice[px] || 0])
+        .sort((a, b) => b[1] - a[1]);
+      const pocPx = sortedByVol.length && sortedByVol[0][1] > 0 ? sortedByVol[0][0] : null;
+      let valArea = new Set();
+      if (totalVol > 0) {
+        const target = totalVol * 0.70;
+        let cum = 0;
+        for (const [px, v] of sortedByVol) {
+          if (v <= 0) break;
+          valArea.add(px);
+          cum += v;
+          if (cum >= target) break;
+        }
+      }
+      const valPrices = Array.from(valArea).sort((a, b) => a - b);
+      const valLow = valPrices.length ? valPrices[0] : null;
+      const valHigh = valPrices.length ? valPrices[valPrices.length - 1] : null;
+
+      const cobW = 90;
+      const svpW = 120;
+      const deltaW = 36;
       let html = `<div style="font-family:ui-monospace,monospace;">`;
-      // Header (matches heatmap header height)
+      // Two-row header to match heatmap (time labels + agg strip = 32px)
       html += `<div style="display:flex; gap:.3rem; height:${HEADER_H}px; align-items:center; font-size:.58rem; color:var(--muted);">`;
       html += `<div style="width:${deltaW}px; text-align:center;">+/-</div>`;
       html += `<div style="width:${cobW}px; text-align:center;">COB</div>`;
-      html += `<div style="width:${svpW}px; text-align:center;">SVP</div>`;
+      html += `<div style="width:${svpW}px; text-align:center;">SVP · ★POC ●VA</div>`;
       html += `</div>`;
+      // Filler matching heatmap aggressive strip
+      html += `<div style="height:18px;"></div>`;
 
       sharedPrices.forEach(px => {
         const ice = iceByPrice[px] || { buy:0, sell:0 };
@@ -3227,7 +3296,7 @@ async function refreshL23Extras() {
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
         const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
 
-        html += `<div style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${rowBg};">`;
+        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${rowBg};">`;
 
         // Delta
         const dColor = delta > 0 ? 'var(--ok)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
@@ -3247,12 +3316,20 @@ async function refreshL23Extras() {
           </div>
         </div>`;
 
-        // SVP
-        const sw = svp ? (svp / maxSvp) * (svpW - 32) : 0;
+        // SVP with POC ★ and VA ● markers
+        const sw = svp ? (svp / maxSvp) * (svpW - 50) : 0;
         const sTxt = svp ? svp.toFixed(0) : '·';
+        const isPOC = pocPx !== null && Math.abs(px - pocPx) < 0.001;
+        const isVAH = valHigh !== null && Math.abs(px - valHigh) < 0.001;
+        const isVAL = valLow !== null && Math.abs(px - valLow) < 0.001;
+        const inVA = valArea.has(px);
+        const barColor = isPOC ? 'rgba(251,191,36,.55)' : (inVA ? 'rgba(167,139,250,.55)' : 'rgba(167,139,250,.30)');
+        const barBorder = isPOC ? 'var(--accent)' : '#a78bfa';
+        const marker = isPOC ? '<span style="color:var(--accent);">★</span>' : (isVAH ? '<span style="color:var(--accent);">▲</span>' : (isVAL ? '<span style="color:var(--accent);">▼</span>' : ''));
         html += `<div style="display:flex; align-items:center; gap:.25rem; width:${svpW}px;">
-          <div title="vol ${svp.toFixed(0)}" style="background:rgba(167,139,250,.4); border:1px solid #a78bfa; height:9px; width:${sw}px; border-radius:1px;"></div>
+          <div title="vol ${svp.toFixed(0)}${isPOC ? ' · POC' : ''}${isVAH ? ' · VAH' : ''}${isVAL ? ' · VAL' : ''}" style="background:${barColor}; border:1px solid ${barBorder}; height:9px; width:${sw}px; border-radius:1px;"></div>
           <span style="color:${svp ? 'var(--ink)' : 'var(--muted)'}; font-size:.6rem;">${sTxt}</span>
+          <span style="font-size:.7rem; line-height:1;">${marker}</span>
         </div>`;
 
         html += `</div>`;
