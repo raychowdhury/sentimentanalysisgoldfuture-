@@ -461,15 +461,17 @@
       </div>
     </div>
 
-    <!-- Iceberg heatmap (price × time) -->
+    <!-- Bookmap-style heatmap (price × time, 1-min × 1-tick) -->
     <div style="margin-top:.85rem;">
-      <div class="kv-label">Iceberg heatmap — price × time (last 30m, 5-min buckets)</div>
-      <div id="l3-heatmap" style="margin-top:.4rem;">loading…</div>
-      <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.35rem; align-items:center;">
-        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:var(--ok); border-radius:1px; vertical-align:middle;"></span> buy-dominant</span>
-        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:var(--bad); border-radius:1px; vertical-align:middle;"></span> sell-dominant</span>
-        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:#fbbf24; border-radius:1px; vertical-align:middle;"></span> mixed</span>
-        <span style="margin-left:auto;">opacity = relative intensity · ← marks current spot</span>
+      <div class="kv-label">Bookmap-style heatmap — last 30m · price (1 tick) × time (1 min)</div>
+      <div id="l3-heatmap" style="margin-top:.4rem; overflow-x:auto;">loading…</div>
+      <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.35rem; align-items:center; flex-wrap:wrap;">
+        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(52,211,153,.7); border-radius:1px; vertical-align:middle;"></span> iceberg buy</span>
+        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(248,113,113,.7); border-radius:1px; vertical-align:middle;"></span> iceberg sell</span>
+        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(56,189,248,.9); border-radius:50%; vertical-align:middle;"></span> sweep</span>
+        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(248,113,113,1); border:1px solid #fff; border-radius:50%; vertical-align:middle;"></span> block</span>
+        <span><span style="display:inline-block; width:1.2rem; height:.15rem; background:var(--accent); vertical-align:middle;"></span> spot mid</span>
+        <span style="margin-left:auto;">cell opacity ∝ event count · hover for details</span>
       </div>
     </div>
 
@@ -2971,19 +2973,36 @@ async function refreshL23Extras() {
       }).join('');
   }
 
-  // ── Iceberg price × time heatmap (last 30m, 5-min buckets) ──
+  // ── Bookmap-style heatmap (price × time, 1-min × 1-tick) ──
   const hmEl = document.getElementById('l3-heatmap');
   if (hmEl) {
-    if (!recentIce.length) {
-      hmEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No iceberg events yet.</div>';
+    const bucketCount = 30;       // 30 × 1-min buckets = 30m window
+    const bucketMs = 60 * 1000;
+    const cutoff = now - bucketCount * bucketMs;
+
+    // All tape events in window for overlay markers (sweep + block)
+    const overlayEvents = tape.filter(e => {
+      const t = new Date(e.ts).getTime();
+      return t >= cutoff;
+    });
+
+    if (!overlayEvents.length && !recentIce.length) {
+      hmEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No tape events yet.</div>';
     } else {
-      const bucketCount = 6;
-      const bucketMs = 5 * 60 * 1000;
-      const cutoff = now - bucketCount * bucketMs;
-      // Bucket index 0 = oldest (30-25m), 5 = newest (5-now)
-      const grid = {};   // {price: [bucket0, bucket1, ...]}
-      const sideGrid = {}; // {price: [{buy, sell}, ...]}
+      // Aggregate iceberg events by (price, bucket) — heat cells
+      const grid = {};        // price -> [bucket counts]
+      const sideGrid = {};    // price -> [{buy,sell}]
       let maxCell = 0;
+      let minPx = Infinity, maxPx = -Infinity;
+
+      // Include both iceberg (heat) and overlay (sweep/block) prices in axis
+      overlayEvents.forEach(e => {
+        if (e.price == null) return;
+        const px = Math.round(e.price / 0.25) * 0.25;
+        if (px < minPx) minPx = px;
+        if (px > maxPx) maxPx = px;
+      });
+
       recentIce.forEach(e => {
         if (e.price == null) return;
         const t = new Date(e.ts).getTime();
@@ -2999,48 +3018,98 @@ async function refreshL23Extras() {
         else sideGrid[px][idx].sell++;
         if (grid[px][idx] > maxCell) maxCell = grid[px][idx];
       });
-      const prices = Object.keys(grid).map(Number).sort((a, b) => b - a);
-      if (!prices.length) {
-        hmEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No iceberg events in last 30m.</div>';
+
+      if (!isFinite(minPx) || !isFinite(maxPx)) {
+        hmEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No price data in window.</div>';
       } else {
-        const mid = q ? (q.bid + q.ask) / 2 : null;
-        // Header row labels
-        const bucketLabels = [];
-        for (let i = 0; i < bucketCount; i++) {
-          const start = bucketCount - i;
-          const end = start - 1;
-          const label = end === 0 ? `${start * 5}-now` : `${start * 5}-${end * 5}m`;
-          bucketLabels.push(label);
+        // Pad axis ±2 ticks
+        minPx -= 0.50; maxPx += 0.50;
+        // Build full price ladder (every tick, descending)
+        const tickSize = 0.25;
+        const prices = [];
+        for (let p = maxPx; p >= minPx - 0.001; p -= tickSize) {
+          prices.push(Math.round(p / tickSize) * tickSize);
         }
-        const cellW = '2.6rem';
-        let html = `<div style="display:grid; grid-template-columns: 5.5rem repeat(${bucketCount}, ${cellW}); gap:2px; font-family:ui-monospace,monospace; font-size:.7rem;">`;
-        // Header
-        html += `<div style="color:var(--muted); padding:.15rem .35rem;">price ↓</div>`;
-        bucketLabels.forEach(lbl => {
-          html += `<div style="color:var(--muted); text-align:center; padding:.15rem 0; font-size:.62rem;">${lbl}</div>`;
-        });
-        // Data rows
+
+        const mid = q ? (q.bid + q.ask) / 2 : null;
+        const midPx = mid !== null ? Math.round(mid / tickSize) * tickSize : null;
+
+        const cellW = 14; // px per minute column
+        const cellH = 14; // px per tick row
+        const labelW = 64;
+
+        let html = `<div style="position:relative; display:inline-block; min-width:${labelW + bucketCount * (cellW + 1)}px; font-family:ui-monospace,monospace;">`;
+
+        // Header row (time labels — every 5 minutes)
+        html += `<div style="display:flex; gap:1px; margin-left:${labelW}px; margin-bottom:2px; font-size:.6rem; color:var(--muted);">`;
+        for (let i = 0; i < bucketCount; i++) {
+          const minsAgo = bucketCount - i;
+          const showLabel = (minsAgo % 5 === 0) || (i === bucketCount - 1);
+          const txt = i === bucketCount - 1 ? 'now' : (showLabel ? `-${minsAgo}m` : '');
+          html += `<div style="width:${cellW}px; text-align:center; overflow:visible; white-space:nowrap;">${txt}</div>`;
+        }
+        html += `</div>`;
+
+        // Grid rows (descending price)
         prices.forEach(px => {
-          const isLevel = mid !== null && Math.abs(px - mid) < 0.5;
-          html += `<div style="text-align:right; padding:.15rem .35rem; font-weight:600; ${isLevel ? 'color:var(--accent);' : ''}">${px.toFixed(2)}${isLevel ? ' ←' : ''}</div>`;
+          const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
+          const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
+          const labelColor = isMid ? 'var(--accent)' : 'var(--muted)';
+          const labelWeight = isMid ? '700' : '500';
+
+          html += `<div style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};">`;
+          html += `<div style="width:${labelW}px; text-align:right; padding-right:.35rem; font-size:.65rem; color:${labelColor}; font-weight:${labelWeight};">${px.toFixed(2)}${isMid ? ' ←' : ''}</div>`;
+
           for (let i = 0; i < bucketCount; i++) {
-            const cnt = grid[px][i];
-            const sides = sideGrid[px][i];
-            let bg = 'transparent';
-            let label = '';
+            const cnt = (grid[px] && grid[px][i]) || 0;
+            const sides = (sideGrid[px] && sideGrid[px][i]) || { buy:0, sell:0 };
+            let bg = 'rgba(255,255,255,0.02)';
+            let title = `${px.toFixed(2)} · t-${bucketCount - i}m`;
             if (cnt > 0) {
-              const intensity = Math.min(1, cnt / Math.max(1, maxCell));
-              const alpha = 0.25 + intensity * 0.65;
-              let baseColor;
-              if (sides.buy > sides.sell) baseColor = `rgba(52,211,153,${alpha})`;
-              else if (sides.sell > sides.buy) baseColor = `rgba(248,113,113,${alpha})`;
-              else baseColor = `rgba(251,191,36,${alpha})`;
-              bg = baseColor;
-              label = String(cnt);
+              const alpha = 0.20 + Math.min(1, cnt / Math.max(1, maxCell)) * 0.70;
+              if (sides.buy > sides.sell) bg = `rgba(52,211,153,${alpha})`;
+              else if (sides.sell > sides.buy) bg = `rgba(248,113,113,${alpha})`;
+              else bg = `rgba(251,191,36,${alpha})`;
+              title += ` · iceberg buy=${sides.buy} sell=${sides.sell}`;
             }
-            html += `<div title="price ${px.toFixed(2)} bucket ${bucketLabels[i]} · buy=${sides.buy} sell=${sides.sell}" style="background:${bg}; border:1px solid var(--border); border-radius:2px; height:1.2rem; text-align:center; line-height:1.2rem; font-size:.7rem; color:#fff;">${label}</div>`;
+            html += `<div title="${title}" style="width:${cellW}px; height:${cellH}px; background:${bg}; border-radius:1px;"></div>`;
           }
+          html += `</div>`;
         });
+
+        // Spot mid line (horizontal accent line at midPx row)
+        if (midPx !== null) {
+          // Placeholder — already highlighted via row background. Add bottom border via JS — simpler: keep highlight only.
+        }
+
+        // Overlay markers for sweep + block (positioned absolutely on top)
+        // Compute origin: header height (~12px) + index in prices array * cellH
+        const headerH = 14;
+        overlayEvents.forEach(e => {
+          if (e.pattern === 'iceberg') return; // already in heat grid
+          if (e.price == null) return;
+          const px = Math.round(e.price / tickSize) * tickSize;
+          const rowIdx = prices.findIndex(p => Math.abs(p - px) < 0.001);
+          if (rowIdx < 0) return;
+          const t = new Date(e.ts).getTime();
+          const colIdx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
+          const x = labelW + colIdx * (cellW + 1) + cellW / 2 - 4;
+          const y = headerH + rowIdx * cellH + cellH / 2 - 4;
+
+          let style = 'border-radius:50%;';
+          if (e.pattern === 'sweep') {
+            const c = e.side === 'buy' ? '#38bdf8' : '#0ea5e9';
+            style += `background:${c}; width:8px; height:8px;`;
+          } else if (e.pattern === 'block') {
+            const c = e.side === 'buy' ? '#86efac' : '#f87171';
+            style += `background:${c}; width:10px; height:10px; border:1px solid #fff;`;
+          }
+          const m = e.metrics || {};
+          const sizeDisp = m.size != null ? m.size : (m.count != null ? `c${m.count}` : '—');
+          const tip = `${e.pattern} ${e.side.toUpperCase()} @ ${e.price.toFixed(2)} · sz/cnt=${sizeDisp}`;
+          html += `<div title="${tip}" style="position:absolute; left:${x}px; top:${y}px; ${style} z-index:10; pointer-events:auto;"></div>`;
+        });
+
         html += `</div>`;
         hmEl.innerHTML = html;
       }
