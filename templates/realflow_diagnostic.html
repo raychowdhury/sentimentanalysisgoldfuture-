@@ -306,6 +306,24 @@
       <div id="f15m-wr" style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem;">—</div>
       <div id="f3h-wr"  style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem;">—</div>
 
+      <!-- Edge per trade (R) -->
+      <div class="kv-label" style="align-self:center;">Edge (R/trade)</div>
+      <div id="f1m-edge"  style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem;">—</div>
+      <div id="f15m-edge" style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem;">—</div>
+      <div id="f3h-edge"  style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem;">—</div>
+
+      <!-- Streak last 10 -->
+      <div class="kv-label" style="align-self:center;">Streak (last 10)</div>
+      <div id="f1m-streak"  style="text-align:center; font-size:.85rem; letter-spacing:.1em;">—</div>
+      <div id="f15m-streak" style="text-align:center; font-size:.85rem; letter-spacing:.1em;">—</div>
+      <div id="f3h-streak"  style="text-align:center; font-size:.85rem; letter-spacing:.1em;">—</div>
+
+      <!-- Vol regime -->
+      <div class="kv-label" style="align-self:center;">Vol regime</div>
+      <div id="f1m-vol"  style="text-align:center; font-size:.78rem;">—</div>
+      <div id="f15m-vol" style="text-align:center; font-size:.78rem;">—</div>
+      <div id="f3h-vol"  style="text-align:center; font-size:.78rem;">—</div>
+
       <!-- Closes in -->
       <div class="kv-label" style="align-self:center;">Bar closes in</div>
       <div id="f1m-time"  style="text-align:center; font-family:ui-monospace,monospace; font-weight:600; font-variant-numeric:tabular-nums;">—</div>
@@ -2036,6 +2054,7 @@ function backtest1m(bars, lookback = 50) {
   if (!bars || bars.length < 20) return null;
   const start = Math.max(15, bars.length - lookback - 1);
   let wins = 0, losses = 0, flats = 0;
+  const outcomes = [];
   for (let i = start; i < bars.length - 1; i++) {
     const b = bars[i];
     const next = bars[i + 1];
@@ -2052,14 +2071,14 @@ function backtest1m(bars, lookback = 50) {
     let pred = 0;
     if (clipped > 0.10) pred = 1;
     else if (clipped < -0.10) pred = -1;
-    if (pred === 0) { flats++; continue; }
+    if (pred === 0) { flats++; outcomes.push('F'); continue; }
     const actualSign = next.close > b.close ? 1 : next.close < b.close ? -1 : 0;
-    if (actualSign === pred) wins++;
-    else if (actualSign !== 0) losses++;
-    else flats++;
+    if (actualSign === pred) { wins++; outcomes.push('W'); }
+    else if (actualSign !== 0) { losses++; outcomes.push('L'); }
+    else { flats++; outcomes.push('F'); }
   }
   const decided = wins + losses;
-  return { wins, losses, flats, decided, rate: decided ? wins / decided : null };
+  return { wins, losses, flats, decided, rate: decided ? wins / decided : null, outcomes };
 }
 
 // Backtest 15m: same logic adapted to bar dict shape (Open/High/Low/Close +
@@ -2068,6 +2087,7 @@ function backtest15m(bars, lookback = 50) {
   if (!bars || bars.length < 20) return null;
   const start = Math.max(15, bars.length - lookback - 1);
   let wins = 0, losses = 0, flats = 0;
+  const outcomes = [];
   for (let i = start; i < bars.length - 1; i++) {
     const b = bars[i];
     const next = bars[i + 1];
@@ -2087,15 +2107,15 @@ function backtest15m(bars, lookback = 50) {
     let pred = 0;
     if (clipped > 0.10) pred = 1;
     else if (clipped < -0.10) pred = -1;
-    if (pred === 0) { flats++; continue; }
+    if (pred === 0) { flats++; outcomes.push('F'); continue; }
     const nc = next.close ?? next.Close;
     const actualSign = nc > c0 ? 1 : nc < c0 ? -1 : 0;
-    if (actualSign === pred) wins++;
-    else if (actualSign !== 0) losses++;
-    else flats++;
+    if (actualSign === pred) { wins++; outcomes.push('W'); }
+    else if (actualSign !== 0) { losses++; outcomes.push('L'); }
+    else { flats++; outcomes.push('F'); }
   }
   const decided = wins + losses;
-  return { wins, losses, flats, decided, rate: decided ? wins / decided : null };
+  return { wins, losses, flats, decided, rate: decided ? wins / decided : null, outcomes };
 }
 
 // Backtest 3h: 12-bar forward drift on 15m bars
@@ -2103,6 +2123,7 @@ function backtest3h(bars, lookback = 50, horizon = 12) {
   if (!bars || bars.length < 20 + horizon) return null;
   const start = Math.max(15, bars.length - lookback - horizon - 1);
   let wins = 0, losses = 0, flats = 0;
+  const outcomes = [];
   for (let i = start; i < bars.length - horizon; i++) {
     const b = bars[i];
     const fwd = bars[i + horizon];
@@ -2116,15 +2137,15 @@ function backtest3h(bars, lookback = 50, horizon = 12) {
     let pred = 0;
     if (drift > 0.5) pred = 1;
     else if (drift < -0.5) pred = -1;
-    if (pred === 0) { flats++; continue; }
+    if (pred === 0) { flats++; outcomes.push('F'); continue; }
     const fc = fwd.close ?? fwd.Close;
     const actualSign = fc > c0 ? 1 : fc < c0 ? -1 : 0;
-    if (actualSign === pred) wins++;
-    else if (actualSign !== 0) losses++;
-    else flats++;
+    if (actualSign === pred) { wins++; outcomes.push('W'); }
+    else if (actualSign !== 0) { losses++; outcomes.push('L'); }
+    else { flats++; outcomes.push('F'); }
   }
   const decided = wins + losses;
-  return { wins, losses, flats, decided, rate: decided ? wins / decided : null };
+  return { wins, losses, flats, decided, rate: decided ? wins / decided : null, outcomes };
 }
 
 function fmtWR(stats) {
@@ -2133,6 +2154,37 @@ function fmtWR(stats) {
   const color = stats.rate >= 0.55 ? 'var(--ok)'
               : stats.rate >= 0.45 ? 'var(--warn)' : 'var(--bad)';
   return `<span style="color:${color}; font-weight:600;">${pct}%</span> <span style="color:var(--muted); font-size:.7rem;">(${stats.wins}/${stats.decided})</span>`;
+}
+
+function fmtEdge(stats) {
+  // Edge per trade in R, assuming 1:1 stop/target: 2*wr - 1
+  if (!stats || stats.rate === null) return '—';
+  const edge = 2 * stats.rate - 1;
+  const color = edge > 0.05 ? 'var(--ok)'
+              : edge < -0.05 ? 'var(--bad)' : 'var(--warn)';
+  const sign = edge >= 0 ? '+' : '';
+  return `<span style="color:${color}; font-weight:600;">${sign}${edge.toFixed(2)}R</span>`;
+}
+
+function fmtStreak(stats) {
+  // Last 10 outcomes as colored dots
+  if (!stats || !stats.outcomes || !stats.outcomes.length) return '<span style="color:var(--muted);">—</span>';
+  const last10 = stats.outcomes.slice(-10);
+  return last10.map(o => {
+    const c = o === 'W' ? 'var(--ok)' : o === 'L' ? 'var(--bad)' : 'var(--muted)';
+    return `<span style="color:${c};">${o === 'W' ? '●' : o === 'L' ? '●' : '○'}</span>`;
+  }).join('');
+}
+
+function fmtVol(atr14, atr50) {
+  if (!atr14 || !atr50) return '<span style="color:var(--muted);">—</span>';
+  const ratio = atr14 / atr50;
+  let label = 'normal', color = 'var(--muted)';
+  if (ratio > 1.30) { label = 'expanding ↑'; color = 'var(--bad)'; }
+  else if (ratio > 1.10) { label = 'tilt up'; color = 'var(--warn)'; }
+  else if (ratio < 0.70) { label = 'contracting ↓'; color = 'var(--warn)'; }
+  else if (ratio < 0.90) { label = 'tilt down'; color = 'var(--muted)'; }
+  return `<span style="color:${color}; font-weight:600;">${label}</span> <span style="color:var(--muted); font-size:.7rem;">${ratio.toFixed(2)}×</span>`;
 }
 
 function renderConsensus() {
@@ -2318,6 +2370,20 @@ async function refreshTradeIdea() {
 
   const wr = backtest3h(diag.bars || [], 50, 12);
   setCellHTML('f3h-wr', fmtWR(wr));
+  setCellHTML('f3h-edge', fmtEdge(wr));
+  setCellHTML('f3h-streak', fmtStreak(wr));
+
+  const atr50_3h = (() => {
+    const allBars = diag.bars || [];
+    if (allBars.length < 50) return 0;
+    const tail50 = allBars.slice(-50);
+    const r = tail50.map(b => {
+      const h = b.high ?? b.High; const l = b.low ?? b.Low;
+      return (h !== undefined && l !== undefined) ? (h - l) : 0;
+    }).filter(v => v);
+    return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 0;
+  })();
+  setCellHTML('f3h-vol', fmtVol(atr, atr50_3h));
 
   FCAST.f3h = { dir: dirSigned, label: reco, conf };
   renderConsensus();
@@ -2437,6 +2503,19 @@ async function refreshNextBar() {
 
   const wr = backtest15m(bars, 50);
   setCellHTML('f15m-wr', fmtWR(wr));
+  setCellHTML('f15m-edge', fmtEdge(wr));
+  setCellHTML('f15m-streak', fmtStreak(wr));
+
+  const atr50_15m = (() => {
+    if (bars.length < 50) return 0;
+    const tail50 = bars.slice(-50);
+    const r = tail50.map(b => {
+      const h = b.high ?? b.High; const l = b.low ?? b.Low;
+      return (h !== undefined && l !== undefined) ? (h - l) : 0;
+    }).filter(v => v);
+    return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 0;
+  })();
+  setCellHTML('f15m-vol', fmtVol(atr, atr50_15m));
 
   FCAST.f15m = { dir: lbl.dir, label: lbl.label, conf };
   renderConsensus();
@@ -2523,6 +2602,16 @@ async function refreshNext1m() {
 
   const wr = backtest1m(bars, 50);
   setCellHTML('f1m-wr', fmtWR(wr));
+  setCellHTML('f1m-edge', fmtEdge(wr));
+  setCellHTML('f1m-streak', fmtStreak(wr));
+
+  const atr50_1m = (() => {
+    if (bars.length < 50) return 0;
+    const tail50 = bars.slice(-50);
+    const r = tail50.map(b => (b.high && b.low) ? (b.high - b.low) : 0).filter(v => v);
+    return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 0;
+  })();
+  setCellHTML('f1m-vol', fmtVol(atr, atr50_1m));
 
   const now = Date.now();
   const periodMs = 60 * 1000;
