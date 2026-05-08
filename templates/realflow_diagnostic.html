@@ -461,29 +461,20 @@
       </div>
     </div>
 
-    <!-- Bookmap-style heatmap (price × time, 1-min × 1-tick) -->
+    <!-- Bookmap-style combined: heatmap (left) + price ladder profile (right) -->
     <div style="margin-top:.85rem;">
-      <div class="kv-label">Bookmap-style heatmap — last 30m · price (1 tick) × time (1 min)</div>
-      <div id="l3-heatmap" style="margin-top:.4rem; overflow-x:auto;">loading…</div>
+      <div class="kv-label">Bookmap-style — heatmap (price × time) · profile (per-level metrics, shared price axis)</div>
+      <div style="display:grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap:.7rem; margin-top:.4rem; align-items:flex-start;">
+        <div id="l3-heatmap" style="overflow-x:auto;">loading…</div>
+        <div id="l3-profile-side" style="overflow-x:auto;">loading…</div>
+      </div>
       <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.35rem; align-items:center; flex-wrap:wrap;">
         <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(52,211,153,.7); border-radius:1px; vertical-align:middle;"></span> iceberg buy</span>
         <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(248,113,113,.7); border-radius:1px; vertical-align:middle;"></span> iceberg sell</span>
         <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(56,189,248,.9); border-radius:50%; vertical-align:middle;"></span> sweep</span>
         <span><span style="display:inline-block; width:.7rem; height:.7rem; background:rgba(248,113,113,1); border:1px solid #fff; border-radius:50%; vertical-align:middle;"></span> block</span>
         <span><span style="display:inline-block; width:1.2rem; height:.15rem; background:var(--accent); vertical-align:middle;"></span> spot mid</span>
-        <span style="margin-left:auto;">cell opacity ∝ event count · hover for details</span>
-      </div>
-    </div>
-
-    <!-- Bookmap-style vertical price-ladder profile -->
-    <div style="margin-top:.85rem;">
-      <div class="kv-label">Price ladder profile — +/- net Δ · COB · SVP (last 30m)</div>
-      <div id="l3-profile" style="margin-top:.4rem; overflow:auto; max-height:420px;">loading…</div>
-      <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.3rem; flex-wrap:wrap;">
-        <span><b>+/-</b> = iceberg buy count − sell count at price (last 30m)</span>
-        <span><b>COB</b> = cumulative iceberg activity bar (buy left ▮ sell right)</span>
-        <span><b>SVP</b> = session volume profile from 1m bars (volume at close price)</span>
-        <span style="margin-left:auto;">← = current spot</span>
+        <span><b>+/-</b> net iceberg Δ · <b>COB</b> ▮buy ▮sell · <b>SVP</b> 1m vol</span>
       </div>
     </div>
 
@@ -2987,42 +2978,82 @@ async function refreshL23Extras() {
       }).join('');
   }
 
+  // ── Compute SHARED price range across heatmap + profile ───────────
+  const tickSize = 0.25;
+  const ROW_H = 16; // matched row height in px for both views
+  const HEADER_H = 16;
+  const cutoff30 = now - 30 * 60 * 1000;
+
+  const overlayEvents = tape.filter(e => {
+    if (e.price == null) return false;
+    return new Date(e.ts).getTime() >= cutoff30;
+  });
+  const sharedIce = recentIce; // already 30m iceberg only
+
+  // Aggregate iceberg per-price counts
+  const iceByPrice = {};
+  sharedIce.forEach(e => {
+    if (e.price == null) return;
+    const px = Math.round(e.price / tickSize) * tickSize;
+    if (!iceByPrice[px]) iceByPrice[px] = { buy:0, sell:0 };
+    if (e.side === 'buy') iceByPrice[px].buy++; else iceByPrice[px].sell++;
+  });
+  // SVP from 1m bars
+  const svpByPrice = {};
+  bars1m.forEach(b => {
+    if (b.close == null || b.volume == null) return;
+    const px = Math.round(b.close / tickSize) * tickSize;
+    svpByPrice[px] = (svpByPrice[px] || 0) + b.volume;
+  });
+
+  // Combined min/max
+  let sharedMin = Infinity, sharedMax = -Infinity;
+  overlayEvents.forEach(e => {
+    const px = Math.round(e.price / tickSize) * tickSize;
+    if (px < sharedMin) sharedMin = px;
+    if (px > sharedMax) sharedMax = px;
+  });
+  Object.keys(svpByPrice).forEach(p => {
+    const v = Number(p);
+    if (v < sharedMin) sharedMin = v;
+    if (v > sharedMax) sharedMax = v;
+  });
+  if (q) {
+    const mid = (q.bid + q.ask) / 2;
+    if (mid < sharedMin) sharedMin = mid;
+    if (mid > sharedMax) sharedMax = mid;
+  }
+
+  let sharedPrices = [];
+  if (isFinite(sharedMin) && isFinite(sharedMax)) {
+    sharedMin -= 0.50; sharedMax += 0.50;
+    for (let p = sharedMax; p >= sharedMin - 0.001; p -= tickSize) {
+      sharedPrices.push(Math.round(p / tickSize) * tickSize);
+    }
+  }
+
+  const mid = q ? (q.bid + q.ask) / 2 : null;
+  const midPx = mid !== null ? Math.round(mid / tickSize) * tickSize : null;
+
   // ── Bookmap-style heatmap (price × time, 1-min × 1-tick) ──
   const hmEl = document.getElementById('l3-heatmap');
   if (hmEl) {
-    const bucketCount = 30;       // 30 × 1-min buckets = 30m window
+    const bucketCount = 30;
     const bucketMs = 60 * 1000;
     const cutoff = now - bucketCount * bucketMs;
 
-    // All tape events in window for overlay markers (sweep + block)
-    const overlayEvents = tape.filter(e => {
-      const t = new Date(e.ts).getTime();
-      return t >= cutoff;
-    });
-
-    if (!overlayEvents.length && !recentIce.length) {
+    if (!sharedPrices.length) {
       hmEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No tape events yet.</div>';
     } else {
-      // Aggregate iceberg events by (price, bucket) — heat cells
-      const grid = {};        // price -> [bucket counts]
-      const sideGrid = {};    // price -> [{buy,sell}]
+      // Aggregate iceberg events by (price, bucket)
+      const grid = {}, sideGrid = {};
       let maxCell = 0;
-      let minPx = Infinity, maxPx = -Infinity;
-
-      // Include both iceberg (heat) and overlay (sweep/block) prices in axis
-      overlayEvents.forEach(e => {
-        if (e.price == null) return;
-        const px = Math.round(e.price / 0.25) * 0.25;
-        if (px < minPx) minPx = px;
-        if (px > maxPx) maxPx = px;
-      });
-
-      recentIce.forEach(e => {
+      sharedIce.forEach(e => {
         if (e.price == null) return;
         const t = new Date(e.ts).getTime();
         if (t < cutoff) return;
         const idx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
-        const px = Math.round(e.price / 0.25) * 0.25;
+        const px = Math.round(e.price / tickSize) * tickSize;
         if (!grid[px]) {
           grid[px] = new Array(bucketCount).fill(0);
           sideGrid[px] = new Array(bucketCount).fill(null).map(() => ({ buy:0, sell:0 }));
@@ -3033,156 +3064,96 @@ async function refreshL23Extras() {
         if (grid[px][idx] > maxCell) maxCell = grid[px][idx];
       });
 
-      if (!isFinite(minPx) || !isFinite(maxPx)) {
-        hmEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No price data in window.</div>';
-      } else {
-        // Pad axis ±2 ticks
-        minPx -= 0.50; maxPx += 0.50;
-        // Build full price ladder (every tick, descending)
-        const tickSize = 0.25;
-        const prices = [];
-        for (let p = maxPx; p >= minPx - 0.001; p -= tickSize) {
-          prices.push(Math.round(p / tickSize) * tickSize);
-        }
+      const cellW = 12;
+      const cellH = ROW_H;
+      const labelW = 60;
 
-        const mid = q ? (q.bid + q.ask) / 2 : null;
-        const midPx = mid !== null ? Math.round(mid / tickSize) * tickSize : null;
+      let html = `<div style="position:relative; display:inline-block; min-width:${labelW + bucketCount * (cellW + 1)}px; font-family:ui-monospace,monospace;">`;
 
-        const cellW = 14; // px per minute column
-        const cellH = 14; // px per tick row
-        const labelW = 64;
-
-        let html = `<div style="position:relative; display:inline-block; min-width:${labelW + bucketCount * (cellW + 1)}px; font-family:ui-monospace,monospace;">`;
-
-        // Header row (time labels — every 5 minutes)
-        html += `<div style="display:flex; gap:1px; margin-left:${labelW}px; margin-bottom:2px; font-size:.6rem; color:var(--muted);">`;
-        for (let i = 0; i < bucketCount; i++) {
-          const minsAgo = bucketCount - i;
-          const showLabel = (minsAgo % 5 === 0) || (i === bucketCount - 1);
-          const txt = i === bucketCount - 1 ? 'now' : (showLabel ? `-${minsAgo}m` : '');
-          html += `<div style="width:${cellW}px; text-align:center; overflow:visible; white-space:nowrap;">${txt}</div>`;
-        }
-        html += `</div>`;
-
-        // Grid rows (descending price)
-        prices.forEach(px => {
-          const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
-          const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
-          const labelColor = isMid ? 'var(--accent)' : 'var(--muted)';
-          const labelWeight = isMid ? '700' : '500';
-
-          html += `<div style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};">`;
-          html += `<div style="width:${labelW}px; text-align:right; padding-right:.35rem; font-size:.65rem; color:${labelColor}; font-weight:${labelWeight};">${px.toFixed(2)}${isMid ? ' ←' : ''}</div>`;
-
-          for (let i = 0; i < bucketCount; i++) {
-            const cnt = (grid[px] && grid[px][i]) || 0;
-            const sides = (sideGrid[px] && sideGrid[px][i]) || { buy:0, sell:0 };
-            let bg = 'rgba(255,255,255,0.02)';
-            let title = `${px.toFixed(2)} · t-${bucketCount - i}m`;
-            if (cnt > 0) {
-              const alpha = 0.20 + Math.min(1, cnt / Math.max(1, maxCell)) * 0.70;
-              if (sides.buy > sides.sell) bg = `rgba(52,211,153,${alpha})`;
-              else if (sides.sell > sides.buy) bg = `rgba(248,113,113,${alpha})`;
-              else bg = `rgba(251,191,36,${alpha})`;
-              title += ` · iceberg buy=${sides.buy} sell=${sides.sell}`;
-            }
-            html += `<div title="${title}" style="width:${cellW}px; height:${cellH}px; background:${bg}; border-radius:1px;"></div>`;
-          }
-          html += `</div>`;
-        });
-
-        // Spot mid line (horizontal accent line at midPx row)
-        if (midPx !== null) {
-          // Placeholder — already highlighted via row background. Add bottom border via JS — simpler: keep highlight only.
-        }
-
-        // Overlay markers for sweep + block (positioned absolutely on top)
-        // Compute origin: header height (~12px) + index in prices array * cellH
-        const headerH = 14;
-        overlayEvents.forEach(e => {
-          if (e.pattern === 'iceberg') return; // already in heat grid
-          if (e.price == null) return;
-          const px = Math.round(e.price / tickSize) * tickSize;
-          const rowIdx = prices.findIndex(p => Math.abs(p - px) < 0.001);
-          if (rowIdx < 0) return;
-          const t = new Date(e.ts).getTime();
-          const colIdx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
-          const x = labelW + colIdx * (cellW + 1) + cellW / 2 - 4;
-          const y = headerH + rowIdx * cellH + cellH / 2 - 4;
-
-          let style = 'border-radius:50%;';
-          if (e.pattern === 'sweep') {
-            const c = e.side === 'buy' ? '#38bdf8' : '#0ea5e9';
-            style += `background:${c}; width:8px; height:8px;`;
-          } else if (e.pattern === 'block') {
-            const c = e.side === 'buy' ? '#86efac' : '#f87171';
-            style += `background:${c}; width:10px; height:10px; border:1px solid #fff;`;
-          }
-          const m = e.metrics || {};
-          const sizeDisp = m.size != null ? m.size : (m.count != null ? `c${m.count}` : '—');
-          const tip = `${e.pattern} ${e.side.toUpperCase()} @ ${e.price.toFixed(2)} · sz/cnt=${sizeDisp}`;
-          html += `<div title="${tip}" style="position:absolute; left:${x}px; top:${y}px; ${style} z-index:10; pointer-events:auto;"></div>`;
-        });
-
-        html += `</div>`;
-        hmEl.innerHTML = html;
+      html += `<div style="display:flex; gap:1px; margin-left:${labelW}px; height:${HEADER_H}px; align-items:center; font-size:.58rem; color:var(--muted);">`;
+      for (let i = 0; i < bucketCount; i++) {
+        const minsAgo = bucketCount - i;
+        const showLabel = (minsAgo % 5 === 0) || (i === bucketCount - 1);
+        const txt = i === bucketCount - 1 ? 'now' : (showLabel ? `-${minsAgo}m` : '');
+        html += `<div style="width:${cellW}px; text-align:center; overflow:visible; white-space:nowrap;">${txt}</div>`;
       }
+      html += `</div>`;
+
+      sharedPrices.forEach(px => {
+        const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
+        const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
+        const labelColor = isMid ? 'var(--accent)' : 'var(--muted)';
+        const labelWeight = isMid ? '700' : '500';
+
+        html += `<div style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};">`;
+        html += `<div style="width:${labelW}px; text-align:right; padding-right:.3rem; font-size:.62rem; color:${labelColor}; font-weight:${labelWeight};">${px.toFixed(2)}${isMid ? ' ←' : ''}</div>`;
+
+        for (let i = 0; i < bucketCount; i++) {
+          const cnt = (grid[px] && grid[px][i]) || 0;
+          const sides = (sideGrid[px] && sideGrid[px][i]) || { buy:0, sell:0 };
+          let bg = 'rgba(255,255,255,0.02)';
+          let title = `${px.toFixed(2)} · t-${bucketCount - i}m`;
+          if (cnt > 0) {
+            const alpha = 0.20 + Math.min(1, cnt / Math.max(1, maxCell)) * 0.70;
+            if (sides.buy > sides.sell) bg = `rgba(52,211,153,${alpha})`;
+            else if (sides.sell > sides.buy) bg = `rgba(248,113,113,${alpha})`;
+            else bg = `rgba(251,191,36,${alpha})`;
+            title += ` · iceberg buy=${sides.buy} sell=${sides.sell}`;
+          }
+          html += `<div title="${title}" style="width:${cellW}px; height:${cellH}px; background:${bg}; border-radius:1px;"></div>`;
+        }
+        html += `</div>`;
+      });
+
+      // Overlay markers (sweep + block)
+      overlayEvents.forEach(e => {
+        if (e.pattern === 'iceberg') return;
+        const px = Math.round(e.price / tickSize) * tickSize;
+        const rowIdx = sharedPrices.findIndex(p => Math.abs(p - px) < 0.001);
+        if (rowIdx < 0) return;
+        const t = new Date(e.ts).getTime();
+        const colIdx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
+        const x = labelW + colIdx * (cellW + 1) + cellW / 2 - 4;
+        const y = HEADER_H + rowIdx * cellH + cellH / 2 - 4;
+        let style = 'border-radius:50%;';
+        if (e.pattern === 'sweep') {
+          const c = e.side === 'buy' ? '#38bdf8' : '#0ea5e9';
+          style += `background:${c}; width:8px; height:8px;`;
+        } else if (e.pattern === 'block') {
+          const c = e.side === 'buy' ? '#86efac' : '#f87171';
+          style += `background:${c}; width:10px; height:10px; border:1px solid #fff;`;
+        }
+        const m = e.metrics || {};
+        const sizeDisp = m.size != null ? m.size : (m.count != null ? `c${m.count}` : '—');
+        const tip = `${e.pattern} ${e.side.toUpperCase()} @ ${e.price.toFixed(2)} · sz/cnt=${sizeDisp}`;
+        html += `<div title="${tip}" style="position:absolute; left:${x}px; top:${y}px; ${style} z-index:10; pointer-events:auto;"></div>`;
+      });
+
+      html += `</div>`;
+      hmEl.innerHTML = html;
     }
   }
 
-  // ── Price ladder profile (Bookmap-style vertical) ──
-  const profEl = document.getElementById('l3-profile');
-  if (profEl) {
-    const tickSize = 0.25;
-    // Aggregate iceberg per-price counts (last 30m)
-    const iceByPrice = {}; // price -> {buy, sell}
-    recentIce.forEach(e => {
-      if (e.price == null) return;
-      const px = Math.round(e.price / tickSize) * tickSize;
-      if (!iceByPrice[px]) iceByPrice[px] = { buy:0, sell:0 };
-      if (e.side === 'buy') iceByPrice[px].buy++;
-      else iceByPrice[px].sell++;
-    });
-    // Aggregate SVP from last 30 × 1m bars (volume at close price)
-    const svpByPrice = {}; // price -> total volume
-    bars1m.forEach(b => {
-      if (b.close == null || b.volume == null) return;
-      const px = Math.round(b.close / tickSize) * tickSize;
-      svpByPrice[px] = (svpByPrice[px] || 0) + b.volume;
-    });
-
-    // Determine price range (combine iceberg + 1m close prices)
-    let minPx = Infinity, maxPx = -Infinity;
-    Object.keys(iceByPrice).forEach(p => { const v = Number(p); if (v < minPx) minPx = v; if (v > maxPx) maxPx = v; });
-    Object.keys(svpByPrice).forEach(p => { const v = Number(p); if (v < minPx) minPx = v; if (v > maxPx) maxPx = v; });
-    if (q) {
-      const mid = (q.bid + q.ask) / 2;
-      if (mid < minPx) minPx = mid;
-      if (mid > maxPx) maxPx = mid;
-    }
-    if (!isFinite(minPx) || !isFinite(maxPx)) {
-      profEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No price-level data yet.</div>';
+  // ── Side-by-side profile (shared price axis with heatmap) ──
+  const profSideEl = document.getElementById('l3-profile-side');
+  if (profSideEl) {
+    if (!sharedPrices.length) {
+      profSideEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No price-level data yet.</div>';
     } else {
-      minPx -= 0.50; maxPx += 0.50;
-      const prices = [];
-      for (let p = maxPx; p >= minPx - 0.001; p -= tickSize) {
-        prices.push(Math.round(p / tickSize) * tickSize);
-      }
-      // Normalize widths
       const maxIce = Math.max(1, ...Object.values(iceByPrice).map(v => v.buy + v.sell));
       const maxSvp = Math.max(1, ...Object.values(svpByPrice));
-      const mid = q ? (q.bid + q.ask) / 2 : null;
-      const midPx = mid !== null ? Math.round(mid / tickSize) * tickSize : null;
+      const cobW = 90;   // px
+      const svpW = 120;  // px
+      const deltaW = 36; // px
+      let html = `<div style="font-family:ui-monospace,monospace;">`;
+      // Header (matches heatmap header height)
+      html += `<div style="display:flex; gap:.3rem; height:${HEADER_H}px; align-items:center; font-size:.58rem; color:var(--muted);">`;
+      html += `<div style="width:${deltaW}px; text-align:center;">+/-</div>`;
+      html += `<div style="width:${cobW}px; text-align:center;">COB</div>`;
+      html += `<div style="width:${svpW}px; text-align:center;">SVP</div>`;
+      html += `</div>`;
 
-      const colW = { px:'5.5rem', delta:'3.2rem', cob:'1fr', svp:'8rem' };
-      let html = `<div style="display:grid; grid-template-columns: ${colW.px} ${colW.delta} ${colW.cob} ${colW.svp}; gap:.4rem .55rem; font-family:ui-monospace,monospace; font-size:.7rem;">`;
-      // Header
-      html += `<div style="color:var(--muted); text-align:right;">price</div>`;
-      html += `<div style="color:var(--muted); text-align:center;">+/-</div>`;
-      html += `<div style="color:var(--muted); text-align:center;">COB · iceberg activity</div>`;
-      html += `<div style="color:var(--muted); text-align:center;">SVP · 1m volume</div>`;
-
-      prices.forEach(px => {
+      sharedPrices.forEach(px => {
         const ice = iceByPrice[px] || { buy:0, sell:0 };
         const total = ice.buy + ice.sell;
         const delta = ice.buy - ice.sell;
@@ -3190,39 +3161,38 @@ async function refreshL23Extras() {
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
         const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
 
-        // Price column
-        const pxColor = isMid ? 'var(--accent)' : (q && Math.abs(px - q.bid) < 0.001 ? 'var(--ok)' : (q && Math.abs(px - q.ask) < 0.001 ? 'var(--bad)' : 'var(--ink)'));
-        const pxWeight = isMid ? '700' : '500';
-        html += `<div style="text-align:right; padding:.18rem .25rem; background:${rowBg}; color:${pxColor}; font-weight:${pxWeight};">${px.toFixed(2)}${isMid ? ' ←' : ''}</div>`;
+        html += `<div style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${rowBg};">`;
 
-        // Delta column (signed integer)
-        const deltaColor = delta > 0 ? 'var(--ok)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
-        const deltaTxt = delta === 0 ? '·' : (delta > 0 ? '+' + delta : String(delta));
-        html += `<div style="text-align:center; padding:.18rem .25rem; background:${rowBg}; color:${deltaColor}; font-weight:600;">${deltaTxt}</div>`;
+        // Delta
+        const dColor = delta > 0 ? 'var(--ok)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
+        const dTxt = delta === 0 ? '·' : (delta > 0 ? '+' + delta : String(delta));
+        html += `<div style="width:${deltaW}px; text-align:center; color:${dColor}; font-weight:600; font-size:.7rem;">${dTxt}</div>`;
 
-        // COB bar (split: buy left, sell right; widths proportional to maxIce)
-        const buyW = total ? (ice.buy / maxIce) * 50 : 0;
-        const sellW = total ? (ice.sell / maxIce) * 50 : 0;
-        html += `<div style="display:flex; align-items:center; height:1rem; background:${rowBg}; padding:0 .25rem;">
-          <div style="display:flex; align-items:center; justify-content:flex-end; width:50%;">
-            <div title="buy ${ice.buy}" style="background:var(--ok); height:.7rem; width:${buyW}%; border-radius:2px 0 0 2px;"></div>
+        // COB split
+        const buyW = total ? (ice.buy / maxIce) * (cobW / 2 - 2) : 0;
+        const sellW = total ? (ice.sell / maxIce) * (cobW / 2 - 2) : 0;
+        html += `<div style="display:flex; align-items:center; width:${cobW}px;">
+          <div style="display:flex; justify-content:flex-end; width:${cobW/2}px;">
+            <div title="buy ${ice.buy}" style="background:var(--ok); height:9px; width:${buyW}px; border-radius:1px 0 0 1px;"></div>
           </div>
-          <div style="width:1px; background:var(--border); height:.9rem;"></div>
-          <div style="display:flex; align-items:center; width:50%;">
-            <div title="sell ${ice.sell}" style="background:var(--bad); height:.7rem; width:${sellW}%; border-radius:0 2px 2px 0;"></div>
+          <div style="width:1px; background:var(--border); height:11px;"></div>
+          <div style="display:flex; width:${cobW/2}px;">
+            <div title="sell ${ice.sell}" style="background:var(--bad); height:9px; width:${sellW}px; border-radius:0 1px 1px 0;"></div>
           </div>
         </div>`;
 
-        // SVP bar
-        const svpW = svp ? (svp / maxSvp) * 100 : 0;
-        const svpTxt = svp ? svp.toFixed(0) : '·';
-        html += `<div style="display:flex; align-items:center; gap:.3rem; padding:.18rem .25rem; background:${rowBg};">
-          <div style="background:#a78bfa55; border:1px solid #a78bfa; height:.7rem; width:${svpW}%; border-radius:2px;"></div>
-          <span style="color:${svp ? 'var(--ink)' : 'var(--muted)'}; font-size:.65rem;">${svpTxt}</span>
+        // SVP
+        const sw = svp ? (svp / maxSvp) * (svpW - 32) : 0;
+        const sTxt = svp ? svp.toFixed(0) : '·';
+        html += `<div style="display:flex; align-items:center; gap:.25rem; width:${svpW}px;">
+          <div title="vol ${svp.toFixed(0)}" style="background:rgba(167,139,250,.4); border:1px solid #a78bfa; height:9px; width:${sw}px; border-radius:1px;"></div>
+          <span style="color:${svp ? 'var(--ink)' : 'var(--muted)'}; font-size:.6rem;">${sTxt}</span>
         </div>`;
+
+        html += `</div>`;
       });
       html += `</div>`;
-      profEl.innerHTML = html;
+      profSideEl.innerHTML = html;
     }
   }
 
