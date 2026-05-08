@@ -3083,28 +3083,27 @@ async function refreshL23Extras() {
     svpByPrice[px] = (svpByPrice[px] || 0) + b.volume;
   });
 
-  // Combined min/max
-  let sharedMin = Infinity, sharedMax = -Infinity;
+  // Active-only price set: keep prices with iceberg/sweep/block OR SVP > 0
+  const activePxs = new Set();
   overlayEvents.forEach(e => {
     const px = Math.round(e.price / TICK_SZ) * TICK_SZ;
-    if (px < sharedMin) sharedMin = px;
-    if (px > sharedMax) sharedMax = px;
+    activePxs.add(px);
   });
   Object.keys(svpByPrice).forEach(p => {
-    const v = Number(p);
-    if (v < sharedMin) sharedMin = v;
-    if (v > sharedMax) sharedMax = v;
+    if ((svpByPrice[p] || 0) > 0) activePxs.add(Number(p));
   });
   if (q) {
-    const midQ = (q.bid + q.ask) / 2;
-    if (midQ < sharedMin) sharedMin = midQ;
-    if (midQ > sharedMax) sharedMax = midQ;
+    activePxs.add(Math.round(q.bid / TICK_SZ) * TICK_SZ);
+    activePxs.add(Math.round(q.ask / TICK_SZ) * TICK_SZ);
   }
 
+  // Build contiguous ladder from min to max active price + small pad
   let sharedPrices = [];
-  if (isFinite(sharedMin) && isFinite(sharedMax)) {
-    sharedMin -= 0.50; sharedMax += 0.50;
-    for (let p = sharedMax; p >= sharedMin - 0.001; p -= TICK_SZ) {
+  if (activePxs.size) {
+    const arr = Array.from(activePxs).sort((a, b) => a - b);
+    const lo = arr[0] - TICK_SZ;          // 1 tick pad below
+    const hi = arr[arr.length - 1] + TICK_SZ; // 1 tick pad above
+    for (let p = hi; p >= lo - 0.001; p -= TICK_SZ) {
       sharedPrices.push(Math.round(p / TICK_SZ) * TICK_SZ);
     }
   }
@@ -3141,7 +3140,7 @@ async function refreshL23Extras() {
         if (grid[px][idx] > maxCell) maxCell = grid[px][idx];
       });
 
-      const cellW = 12;
+      const cellW = 16;
       const cellH = ROW_H;
       const labelW = 60;
 
@@ -3224,15 +3223,18 @@ async function refreshL23Extras() {
         if (rowIdx < 0) return;
         const t = new Date(e.ts).getTime();
         const colIdx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
-        const x = labelW + colIdx * (cellW + 1) + cellW / 2 - 4;
-        const y = HEADER_H + rowIdx * cellH + cellH / 2 - 4;
+        const markerSz = e.pattern === 'block' ? 12 : 10;
+        // Heatmap header: time labels (HEADER_H) + agg strip (~16px) + 2px margin
+        const heatmapHeadOffset = HEADER_H + 18;
+        const x = labelW + colIdx * (cellW + 1) + cellW / 2 - markerSz / 2;
+        const y = heatmapHeadOffset + rowIdx * cellH + cellH / 2 - markerSz / 2;
         let style = 'border-radius:50%;';
         if (e.pattern === 'sweep') {
           const c = e.side === 'buy' ? '#38bdf8' : '#0ea5e9';
-          style += `background:${c}; width:8px; height:8px;`;
+          style += `background:${c}; width:10px; height:10px; box-shadow:0 0 4px ${c}aa;`;
         } else if (e.pattern === 'block') {
           const c = e.side === 'buy' ? '#86efac' : '#f87171';
-          style += `background:${c}; width:10px; height:10px; border:1px solid #fff;`;
+          style += `background:${c}; width:12px; height:12px; border:1.5px solid #fff; box-shadow:0 0 6px ${c}cc;`;
         }
         const m = e.metrics || {};
         const sizeDisp = m.size != null ? m.size : (m.count != null ? `c${m.count}` : '—');
