@@ -300,6 +300,12 @@
       <div id="f15m-conf" style="text-align:center; font-size:.85rem;">—</div>
       <div id="f3h-conf"  style="text-align:center; font-size:.85rem;">—</div>
 
+      <!-- Win rate (backtest) -->
+      <div class="kv-label" style="align-self:center;">Win rate (backtest)</div>
+      <div id="f1m-wr"  style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem;">—</div>
+      <div id="f15m-wr" style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem;">—</div>
+      <div id="f3h-wr"  style="text-align:center; font-family:ui-monospace,monospace; font-size:.78rem;">—</div>
+
       <!-- Closes in -->
       <div class="kv-label" style="align-self:center;">Bar closes in</div>
       <div id="f1m-time"  style="text-align:center; font-family:ui-monospace,monospace; font-weight:600; font-variant-numeric:tabular-nums;">—</div>
@@ -2013,6 +2019,122 @@ function setCellHTML(id, html) {
   const el = document.getElementById(id); if (el) el.innerHTML = html;
 }
 
+// ── Backtest helpers (replay forecast on bar history) ─────────────────────
+function atrAt(bars, idx, n = 14) {
+  if (idx < n) return 0;
+  let s = 0, c = 0;
+  for (let i = idx - n + 1; i <= idx; i++) {
+    const h = bars[i].high ?? bars[i].High;
+    const l = bars[i].low ?? bars[i].Low;
+    if (h !== undefined && l !== undefined) { s += (h - l); c++; }
+  }
+  return c ? s / c : 0;
+}
+
+// Backtest 1m forecast: predict next-bar direction using past-only inputs
+function backtest1m(bars, lookback = 50) {
+  if (!bars || bars.length < 20) return null;
+  const start = Math.max(15, bars.length - lookback - 1);
+  let wins = 0, losses = 0, flats = 0;
+  for (let i = start; i < bars.length - 1; i++) {
+    const b = bars[i];
+    const next = bars[i + 1];
+    const atr = atrAt(bars, i);
+    if (!atr) continue;
+    const c5 = bars[i - 4]?.close;
+    const c0 = b.close;
+    const drift5 = (c0 - c5) / atr;
+    const bv = b.buy_vol || 0, sv = b.sell_vol || 0;
+    const lastDelta = (bv + sv) ? (bv - sv) / (bv + sv) : 0;
+    const lastDir = b.close > b.open ? 1 : b.close < b.open ? -1 : 0;
+    const exp = drift5 * 0.30 + lastDelta * 0.50 + lastDir * 0.20;
+    const clipped = Math.max(-1.5, Math.min(1.5, exp));
+    let pred = 0;
+    if (clipped > 0.10) pred = 1;
+    else if (clipped < -0.10) pred = -1;
+    if (pred === 0) { flats++; continue; }
+    const actualSign = next.close > b.close ? 1 : next.close < b.close ? -1 : 0;
+    if (actualSign === pred) wins++;
+    else if (actualSign !== 0) losses++;
+    else flats++;
+  }
+  const decided = wins + losses;
+  return { wins, losses, flats, decided, rate: decided ? wins / decided : null };
+}
+
+// Backtest 15m: same logic adapted to bar dict shape (Open/High/Low/Close +
+// real_delta_ratio / real_cvd_z fields).
+function backtest15m(bars, lookback = 50) {
+  if (!bars || bars.length < 20) return null;
+  const start = Math.max(15, bars.length - lookback - 1);
+  let wins = 0, losses = 0, flats = 0;
+  for (let i = start; i < bars.length - 1; i++) {
+    const b = bars[i];
+    const next = bars[i + 1];
+    const atr = atrAt(bars, i);
+    if (!atr) continue;
+    const c5 = bars[i - 4]?.close ?? bars[i - 4]?.Close;
+    const c0 = b.close ?? b.Close;
+    if (c5 === undefined || c0 === undefined) continue;
+    const drift5 = (c0 - c5) / atr;
+    const realDelta = b.real_delta_ratio ?? 0;
+    const realCvd = b.real_cvd_z ?? 0;
+    const lastClose = b.close ?? b.Close;
+    const lastOpen = b.open ?? b.Open;
+    const lastDir = lastClose > lastOpen ? 1 : lastClose < lastOpen ? -1 : 0;
+    const exp = drift5 * 0.30 + realDelta * 0.50 + Math.tanh(realCvd / 2) * 0.40 + lastDir * 0.15;
+    const clipped = Math.max(-1.5, Math.min(1.5, exp));
+    let pred = 0;
+    if (clipped > 0.10) pred = 1;
+    else if (clipped < -0.10) pred = -1;
+    if (pred === 0) { flats++; continue; }
+    const nc = next.close ?? next.Close;
+    const actualSign = nc > c0 ? 1 : nc < c0 ? -1 : 0;
+    if (actualSign === pred) wins++;
+    else if (actualSign !== 0) losses++;
+    else flats++;
+  }
+  const decided = wins + losses;
+  return { wins, losses, flats, decided, rate: decided ? wins / decided : null };
+}
+
+// Backtest 3h: 12-bar forward drift on 15m bars
+function backtest3h(bars, lookback = 50, horizon = 12) {
+  if (!bars || bars.length < 20 + horizon) return null;
+  const start = Math.max(15, bars.length - lookback - horizon - 1);
+  let wins = 0, losses = 0, flats = 0;
+  for (let i = start; i < bars.length - horizon; i++) {
+    const b = bars[i];
+    const fwd = bars[i + horizon];
+    const atr = atrAt(bars, i);
+    if (!atr) continue;
+    const tail8Start = bars[Math.max(0, i - 7)];
+    const c0 = b.close ?? b.Close;
+    const c8 = tail8Start.close ?? tail8Start.Close;
+    if (c0 === undefined || c8 === undefined) continue;
+    const drift = (c0 - c8) / atr;
+    let pred = 0;
+    if (drift > 0.5) pred = 1;
+    else if (drift < -0.5) pred = -1;
+    if (pred === 0) { flats++; continue; }
+    const fc = fwd.close ?? fwd.Close;
+    const actualSign = fc > c0 ? 1 : fc < c0 ? -1 : 0;
+    if (actualSign === pred) wins++;
+    else if (actualSign !== 0) losses++;
+    else flats++;
+  }
+  const decided = wins + losses;
+  return { wins, losses, flats, decided, rate: decided ? wins / decided : null };
+}
+
+function fmtWR(stats) {
+  if (!stats || stats.rate === null) return '—';
+  const pct = (stats.rate * 100).toFixed(0);
+  const color = stats.rate >= 0.55 ? 'var(--ok)'
+              : stats.rate >= 0.45 ? 'var(--warn)' : 'var(--bad)';
+  return `<span style="color:${color}; font-weight:600;">${pct}%</span> <span style="color:var(--muted); font-size:.7rem;">(${stats.wins}/${stats.decided})</span>`;
+}
+
 function renderConsensus() {
   const dirs = [FCAST.f1m, FCAST.f15m, FCAST.f3h]
     .filter(x => x !== null)
@@ -2194,6 +2316,9 @@ async function refreshTradeIdea() {
   else if (drift < -0.3) { heading = 'tilt down'; headingColor = 'var(--bad)'; }
   setCell('f3h-flow', `${heading} · drift ${drift >= 0 ? '+' : ''}${drift.toFixed(2)}× ATR`, headingColor);
 
+  const wr = backtest3h(diag.bars || [], 50, 12);
+  setCellHTML('f3h-wr', fmtWR(wr));
+
   FCAST.f3h = { dir: dirSigned, label: reco, conf };
   renderConsensus();
 }
@@ -2310,6 +2435,9 @@ async function refreshNextBar() {
   else if (aligned >= 0.5) conf = 'medium';
   setCellHTML('f15m-conf', confDots(conf));
 
+  const wr = backtest15m(bars, 50);
+  setCellHTML('f15m-wr', fmtWR(wr));
+
   FCAST.f15m = { dir: lbl.dir, label: lbl.label, conf };
   renderConsensus();
 }
@@ -2392,6 +2520,9 @@ async function refreshNext1m() {
   if (aligned >= 0.75) conf = 'high';
   else if (aligned >= 0.5) conf = 'medium';
   setCellHTML('f1m-conf', confDots(conf));
+
+  const wr = backtest1m(bars, 50);
+  setCellHTML('f1m-wr', fmtWR(wr));
 
   const now = Date.now();
   const periodMs = 60 * 1000;
