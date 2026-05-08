@@ -461,9 +461,21 @@
       </div>
     </div>
 
-    <!-- Iceberg price clusters -->
+    <!-- Iceberg heatmap (price × time) -->
     <div style="margin-top:.85rem;">
-      <div class="kv-label">Iceberg price clusters (last 30m, top 5)</div>
+      <div class="kv-label">Iceberg heatmap — price × time (last 30m, 5-min buckets)</div>
+      <div id="l3-heatmap" style="margin-top:.4rem;">loading…</div>
+      <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.35rem; align-items:center;">
+        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:var(--ok); border-radius:1px; vertical-align:middle;"></span> buy-dominant</span>
+        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:var(--bad); border-radius:1px; vertical-align:middle;"></span> sell-dominant</span>
+        <span><span style="display:inline-block; width:.7rem; height:.7rem; background:#fbbf24; border-radius:1px; vertical-align:middle;"></span> mixed</span>
+        <span style="margin-left:auto;">opacity = relative intensity · ← marks current spot</span>
+      </div>
+    </div>
+
+    <!-- Iceberg price clusters (table) -->
+    <div style="margin-top:.85rem;">
+      <div class="kv-label">Iceberg price clusters (last 30m, top 8 by total)</div>
       <div id="l3-clusters" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
     </div>
 
@@ -2957,6 +2969,82 @@ async function refreshL23Extras() {
           </div>
         </div>`;
       }).join('');
+  }
+
+  // ── Iceberg price × time heatmap (last 30m, 5-min buckets) ──
+  const hmEl = document.getElementById('l3-heatmap');
+  if (hmEl) {
+    if (!recentIce.length) {
+      hmEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No iceberg events yet.</div>';
+    } else {
+      const bucketCount = 6;
+      const bucketMs = 5 * 60 * 1000;
+      const cutoff = now - bucketCount * bucketMs;
+      // Bucket index 0 = oldest (30-25m), 5 = newest (5-now)
+      const grid = {};   // {price: [bucket0, bucket1, ...]}
+      const sideGrid = {}; // {price: [{buy, sell}, ...]}
+      let maxCell = 0;
+      recentIce.forEach(e => {
+        if (e.price == null) return;
+        const t = new Date(e.ts).getTime();
+        if (t < cutoff) return;
+        const idx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
+        const px = Math.round(e.price / 0.25) * 0.25;
+        if (!grid[px]) {
+          grid[px] = new Array(bucketCount).fill(0);
+          sideGrid[px] = new Array(bucketCount).fill(null).map(() => ({ buy:0, sell:0 }));
+        }
+        grid[px][idx] += 1;
+        if (e.side === 'buy') sideGrid[px][idx].buy++;
+        else sideGrid[px][idx].sell++;
+        if (grid[px][idx] > maxCell) maxCell = grid[px][idx];
+      });
+      const prices = Object.keys(grid).map(Number).sort((a, b) => b - a);
+      if (!prices.length) {
+        hmEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No iceberg events in last 30m.</div>';
+      } else {
+        const mid = q ? (q.bid + q.ask) / 2 : null;
+        // Header row labels
+        const bucketLabels = [];
+        for (let i = 0; i < bucketCount; i++) {
+          const start = bucketCount - i;
+          const end = start - 1;
+          const label = end === 0 ? `${start * 5}-now` : `${start * 5}-${end * 5}m`;
+          bucketLabels.push(label);
+        }
+        const cellW = '2.6rem';
+        let html = `<div style="display:grid; grid-template-columns: 5.5rem repeat(${bucketCount}, ${cellW}); gap:2px; font-family:ui-monospace,monospace; font-size:.7rem;">`;
+        // Header
+        html += `<div style="color:var(--muted); padding:.15rem .35rem;">price ↓</div>`;
+        bucketLabels.forEach(lbl => {
+          html += `<div style="color:var(--muted); text-align:center; padding:.15rem 0; font-size:.62rem;">${lbl}</div>`;
+        });
+        // Data rows
+        prices.forEach(px => {
+          const isLevel = mid !== null && Math.abs(px - mid) < 0.5;
+          html += `<div style="text-align:right; padding:.15rem .35rem; font-weight:600; ${isLevel ? 'color:var(--accent);' : ''}">${px.toFixed(2)}${isLevel ? ' ←' : ''}</div>`;
+          for (let i = 0; i < bucketCount; i++) {
+            const cnt = grid[px][i];
+            const sides = sideGrid[px][i];
+            let bg = 'transparent';
+            let label = '';
+            if (cnt > 0) {
+              const intensity = Math.min(1, cnt / Math.max(1, maxCell));
+              const alpha = 0.25 + intensity * 0.65;
+              let baseColor;
+              if (sides.buy > sides.sell) baseColor = `rgba(52,211,153,${alpha})`;
+              else if (sides.sell > sides.buy) baseColor = `rgba(248,113,113,${alpha})`;
+              else baseColor = `rgba(251,191,36,${alpha})`;
+              bg = baseColor;
+              label = String(cnt);
+            }
+            html += `<div title="price ${px.toFixed(2)} bucket ${bucketLabels[i]} · buy=${sides.buy} sell=${sides.sell}" style="background:${bg}; border:1px solid var(--border); border-radius:2px; height:1.2rem; text-align:center; line-height:1.2rem; font-size:.7rem; color:#fff;">${label}</div>`;
+          }
+        });
+        html += `</div>`;
+        hmEl.innerHTML = html;
+      }
+    }
   }
 
   // Tape timeline strip (last 30 events as colored squares)
