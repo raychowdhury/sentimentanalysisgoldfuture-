@@ -3197,11 +3197,14 @@ async function refreshL23Extras() {
       // Heatmap rows
       sharedPrices.forEach(px => {
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
-        const rowBg = isMid ? 'rgba(251,191,36,0.18)' : 'transparent';
-        const labelColor = isMid ? '#0f172a' : 'var(--muted)';
+        // Heatmap row keeps transparent bg so iceberg cells remain visible.
+        // Spot mark for heatmap is the outline border via box-shadow.
+        const rowBg = 'transparent';
+        const rowExtra = isMid ? 'box-shadow:inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent);' : '';
+        const labelColor = isMid ? 'var(--accent)' : 'var(--muted)';
         const labelWeight = isMid ? '700' : '500';
 
-        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};">`;
+        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};${rowExtra}">`;
 
         for (let i = 0; i < bucketCount; i++) {
           const cnt = (grid[px] && grid[px][i]) || 0;
@@ -3279,9 +3282,9 @@ async function refreshL23Extras() {
         const delta = ice.buy - ice.sell;
         const hasActivity = total > 0;
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
-        const rowBg = isMid ? 'rgba(251,191,36,0.18)' : 'transparent';
+        const rowBg = isMid ? 'var(--accent)' : 'transparent';
 
-        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${isMid ? 'rgba(251,191,36,0.18)' : rowBg};">`;
+        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${isMid ? 'var(--accent)' : rowBg};">`;
 
         // COB split bar (saturated, full-bleed; only render bar segments when activity)
         const buyW = total ? (ice.buy / maxIce) * (cobW / 2 - 2) : 0;
@@ -3358,9 +3361,9 @@ async function refreshL23Extras() {
         const svp = svpByPrice[px] || 0;
         const hasVol = svp > 0;
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
-        const rowBg = isMid ? 'rgba(251,191,36,0.18)' : 'transparent';
+        const rowBg = isMid ? 'var(--accent)' : 'transparent';
 
-        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${isMid ? 'rgba(251,191,36,0.18)' : rowBg};">`;
+        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${isMid ? 'var(--accent)' : rowBg};">`;
 
         // Price label
         const pxColor = isMid ? '#0f172a' : (hasVol ? 'var(--ink)' : 'var(--muted)');
