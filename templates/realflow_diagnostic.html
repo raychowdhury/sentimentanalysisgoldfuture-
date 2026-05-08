@@ -3086,7 +3086,7 @@ async function refreshL23Extras() {
     svpByPrice[px] = (svpByPrice[px] || 0) + b.volume;
   });
 
-  // Active-only price set: keep prices with iceberg/sweep/block OR SVP > 0
+  // Active price set: iceberg/sweep/block + SVP>0 + bid + ask
   const activePxs = new Set();
   overlayEvents.forEach(e => {
     const px = Math.round(e.price / TICK_SZ) * TICK_SZ;
@@ -3100,16 +3100,16 @@ async function refreshL23Extras() {
     activePxs.add(Math.round(q.ask / TICK_SZ) * TICK_SZ);
   }
 
-  // Build contiguous ladder from min to max active price + small pad
-  let sharedPrices = [];
-  if (activePxs.size) {
-    const arr = Array.from(activePxs).sort((a, b) => a - b);
-    const lo = arr[0] - TICK_SZ;          // 1 tick pad below
-    const hi = arr[arr.length - 1] + TICK_SZ; // 1 tick pad above
-    for (let p = hi; p >= lo - 0.001; p -= TICK_SZ) {
-      sharedPrices.push(Math.round(p / TICK_SZ) * TICK_SZ);
-    }
-  }
+  // Render set: every active price + ±1 tick neighbors. Skip pure-empty
+  // gaps in middle of the ladder so display stays compact and dense.
+  const renderPxs = new Set();
+  activePxs.forEach(px => {
+    renderPxs.add(px);
+    renderPxs.add(Math.round((px + TICK_SZ) / TICK_SZ) * TICK_SZ);
+    renderPxs.add(Math.round((px - TICK_SZ) / TICK_SZ) * TICK_SZ);
+  });
+
+  let sharedPrices = Array.from(renderPxs).sort((a, b) => b - a);
 
   const sharedMid = q ? (q.bid + q.ask) / 2 : null;
   const midPx = sharedMid !== null ? Math.round(sharedMid / TICK_SZ) * TICK_SZ : null;
