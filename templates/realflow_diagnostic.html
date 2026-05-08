@@ -475,6 +475,18 @@
       </div>
     </div>
 
+    <!-- Bookmap-style vertical price-ladder profile -->
+    <div style="margin-top:.85rem;">
+      <div class="kv-label">Price ladder profile — +/- net Δ · COB · SVP (last 30m)</div>
+      <div id="l3-profile" style="margin-top:.4rem; overflow:auto; max-height:420px;">loading…</div>
+      <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.3rem; flex-wrap:wrap;">
+        <span><b>+/-</b> = iceberg buy count − sell count at price (last 30m)</span>
+        <span><b>COB</b> = cumulative iceberg activity bar (buy left ▮ sell right)</span>
+        <span><b>SVP</b> = session volume profile from 1m bars (volume at close price)</span>
+        <span style="margin-left:auto;">← = current spot</span>
+      </div>
+    </div>
+
     <!-- Iceberg price clusters (table) -->
     <div style="margin-top:.85rem;">
       <div class="kv-label">Iceberg price clusters (last 30m, top 8 by total)</div>
@@ -2862,14 +2874,16 @@ setInterval(refreshL23, 2000);
 // ── L2/L3 extras: microprice + iceberg pressure + clusters + tape feed ──
 async function refreshL23Extras() {
   const symLocal = (document.getElementById('sym')?.value || 'ESM6').trim();
-  let q = null, tape = [];
+  let q = null, tape = [], bars1m = [];
   try {
-    const [r1, r2] = await Promise.all([
+    const [r1, r2, r3] = await Promise.all([
       fetch(`/api/order-flow/l2-quote?symbol=${symLocal}`, { cache:'no-store' }),
       fetch(`/api/order-flow/tape-events?symbol=${symLocal}&n=200&patterns=iceberg,sweep,block`, { cache:'no-store' }),
+      fetch(`/api/order-flow/bars-1m?symbol=${symLocal}&n=30`, { cache:'no-store' }),
     ]);
     if (r1.ok) q = (await r1.json()).quote;
     if (r2.ok) tape = (await r2.json()).events || [];
+    if (r3.ok) bars1m = (await r3.json()).bars || [];
   } catch (e) { return; }
 
   // Microprice
@@ -3113,6 +3127,102 @@ async function refreshL23Extras() {
         html += `</div>`;
         hmEl.innerHTML = html;
       }
+    }
+  }
+
+  // ── Price ladder profile (Bookmap-style vertical) ──
+  const profEl = document.getElementById('l3-profile');
+  if (profEl) {
+    const tickSize = 0.25;
+    // Aggregate iceberg per-price counts (last 30m)
+    const iceByPrice = {}; // price -> {buy, sell}
+    recentIce.forEach(e => {
+      if (e.price == null) return;
+      const px = Math.round(e.price / tickSize) * tickSize;
+      if (!iceByPrice[px]) iceByPrice[px] = { buy:0, sell:0 };
+      if (e.side === 'buy') iceByPrice[px].buy++;
+      else iceByPrice[px].sell++;
+    });
+    // Aggregate SVP from last 30 × 1m bars (volume at close price)
+    const svpByPrice = {}; // price -> total volume
+    bars1m.forEach(b => {
+      if (b.close == null || b.volume == null) return;
+      const px = Math.round(b.close / tickSize) * tickSize;
+      svpByPrice[px] = (svpByPrice[px] || 0) + b.volume;
+    });
+
+    // Determine price range (combine iceberg + 1m close prices)
+    let minPx = Infinity, maxPx = -Infinity;
+    Object.keys(iceByPrice).forEach(p => { const v = Number(p); if (v < minPx) minPx = v; if (v > maxPx) maxPx = v; });
+    Object.keys(svpByPrice).forEach(p => { const v = Number(p); if (v < minPx) minPx = v; if (v > maxPx) maxPx = v; });
+    if (q) {
+      const mid = (q.bid + q.ask) / 2;
+      if (mid < minPx) minPx = mid;
+      if (mid > maxPx) maxPx = mid;
+    }
+    if (!isFinite(minPx) || !isFinite(maxPx)) {
+      profEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No price-level data yet.</div>';
+    } else {
+      minPx -= 0.50; maxPx += 0.50;
+      const prices = [];
+      for (let p = maxPx; p >= minPx - 0.001; p -= tickSize) {
+        prices.push(Math.round(p / tickSize) * tickSize);
+      }
+      // Normalize widths
+      const maxIce = Math.max(1, ...Object.values(iceByPrice).map(v => v.buy + v.sell));
+      const maxSvp = Math.max(1, ...Object.values(svpByPrice));
+      const mid = q ? (q.bid + q.ask) / 2 : null;
+      const midPx = mid !== null ? Math.round(mid / tickSize) * tickSize : null;
+
+      const colW = { px:'5.5rem', delta:'3.2rem', cob:'1fr', svp:'8rem' };
+      let html = `<div style="display:grid; grid-template-columns: ${colW.px} ${colW.delta} ${colW.cob} ${colW.svp}; gap:.4rem .55rem; font-family:ui-monospace,monospace; font-size:.7rem;">`;
+      // Header
+      html += `<div style="color:var(--muted); text-align:right;">price</div>`;
+      html += `<div style="color:var(--muted); text-align:center;">+/-</div>`;
+      html += `<div style="color:var(--muted); text-align:center;">COB · iceberg activity</div>`;
+      html += `<div style="color:var(--muted); text-align:center;">SVP · 1m volume</div>`;
+
+      prices.forEach(px => {
+        const ice = iceByPrice[px] || { buy:0, sell:0 };
+        const total = ice.buy + ice.sell;
+        const delta = ice.buy - ice.sell;
+        const svp = svpByPrice[px] || 0;
+        const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
+        const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
+
+        // Price column
+        const pxColor = isMid ? 'var(--accent)' : (q && Math.abs(px - q.bid) < 0.001 ? 'var(--ok)' : (q && Math.abs(px - q.ask) < 0.001 ? 'var(--bad)' : 'var(--ink)'));
+        const pxWeight = isMid ? '700' : '500';
+        html += `<div style="text-align:right; padding:.18rem .25rem; background:${rowBg}; color:${pxColor}; font-weight:${pxWeight};">${px.toFixed(2)}${isMid ? ' ←' : ''}</div>`;
+
+        // Delta column (signed integer)
+        const deltaColor = delta > 0 ? 'var(--ok)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
+        const deltaTxt = delta === 0 ? '·' : (delta > 0 ? '+' + delta : String(delta));
+        html += `<div style="text-align:center; padding:.18rem .25rem; background:${rowBg}; color:${deltaColor}; font-weight:600;">${deltaTxt}</div>`;
+
+        // COB bar (split: buy left, sell right; widths proportional to maxIce)
+        const buyW = total ? (ice.buy / maxIce) * 50 : 0;
+        const sellW = total ? (ice.sell / maxIce) * 50 : 0;
+        html += `<div style="display:flex; align-items:center; height:1rem; background:${rowBg}; padding:0 .25rem;">
+          <div style="display:flex; align-items:center; justify-content:flex-end; width:50%;">
+            <div title="buy ${ice.buy}" style="background:var(--ok); height:.7rem; width:${buyW}%; border-radius:2px 0 0 2px;"></div>
+          </div>
+          <div style="width:1px; background:var(--border); height:.9rem;"></div>
+          <div style="display:flex; align-items:center; width:50%;">
+            <div title="sell ${ice.sell}" style="background:var(--bad); height:.7rem; width:${sellW}%; border-radius:0 2px 2px 0;"></div>
+          </div>
+        </div>`;
+
+        // SVP bar
+        const svpW = svp ? (svp / maxSvp) * 100 : 0;
+        const svpTxt = svp ? svp.toFixed(0) : '·';
+        html += `<div style="display:flex; align-items:center; gap:.3rem; padding:.18rem .25rem; background:${rowBg};">
+          <div style="background:#a78bfa55; border:1px solid #a78bfa; height:.7rem; width:${svpW}%; border-radius:2px;"></div>
+          <span style="color:${svp ? 'var(--ink)' : 'var(--muted)'}; font-size:.65rem;">${svpTxt}</span>
+        </div>`;
+      });
+      html += `</div>`;
+      profEl.innerHTML = html;
     }
   }
 
