@@ -2955,7 +2955,7 @@ async function refreshL23Extras() {
   }
 
   // ── Compute SHARED price range across heatmap + profile ───────────
-  const tickSize = 0.25;
+  const TICK_SZ = 0.25;
   const ROW_H = 16; // matched row height in px for both views
   const HEADER_H = 16;
   const cutoff30 = now - 30 * 60 * 1000;
@@ -2970,7 +2970,7 @@ async function refreshL23Extras() {
   const iceByPrice = {};
   sharedIce.forEach(e => {
     if (e.price == null) return;
-    const px = Math.round(e.price / tickSize) * tickSize;
+    const px = Math.round(e.price / TICK_SZ) * TICK_SZ;
     if (!iceByPrice[px]) iceByPrice[px] = { buy:0, sell:0 };
     if (e.side === 'buy') iceByPrice[px].buy++; else iceByPrice[px].sell++;
   });
@@ -2978,14 +2978,14 @@ async function refreshL23Extras() {
   const svpByPrice = {};
   bars1m.forEach(b => {
     if (b.close == null || b.volume == null) return;
-    const px = Math.round(b.close / tickSize) * tickSize;
+    const px = Math.round(b.close / TICK_SZ) * TICK_SZ;
     svpByPrice[px] = (svpByPrice[px] || 0) + b.volume;
   });
 
   // Combined min/max
   let sharedMin = Infinity, sharedMax = -Infinity;
   overlayEvents.forEach(e => {
-    const px = Math.round(e.price / tickSize) * tickSize;
+    const px = Math.round(e.price / TICK_SZ) * TICK_SZ;
     if (px < sharedMin) sharedMin = px;
     if (px > sharedMax) sharedMax = px;
   });
@@ -2995,21 +2995,21 @@ async function refreshL23Extras() {
     if (v > sharedMax) sharedMax = v;
   });
   if (q) {
-    const mid = (q.bid + q.ask) / 2;
-    if (mid < sharedMin) sharedMin = mid;
-    if (mid > sharedMax) sharedMax = mid;
+    const midQ = (q.bid + q.ask) / 2;
+    if (midQ < sharedMin) sharedMin = midQ;
+    if (midQ > sharedMax) sharedMax = midQ;
   }
 
   let sharedPrices = [];
   if (isFinite(sharedMin) && isFinite(sharedMax)) {
     sharedMin -= 0.50; sharedMax += 0.50;
-    for (let p = sharedMax; p >= sharedMin - 0.001; p -= tickSize) {
-      sharedPrices.push(Math.round(p / tickSize) * tickSize);
+    for (let p = sharedMax; p >= sharedMin - 0.001; p -= TICK_SZ) {
+      sharedPrices.push(Math.round(p / TICK_SZ) * TICK_SZ);
     }
   }
 
-  const mid = q ? (q.bid + q.ask) / 2 : null;
-  const midPx = mid !== null ? Math.round(mid / tickSize) * tickSize : null;
+  const sharedMid = q ? (q.bid + q.ask) / 2 : null;
+  const midPx = sharedMid !== null ? Math.round(sharedMid / TICK_SZ) * TICK_SZ : null;
 
   // ── Bookmap-style heatmap (price × time, 1-min × 1-tick) ──
   const hmEl = document.getElementById('l3-heatmap');
