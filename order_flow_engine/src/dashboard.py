@@ -1282,6 +1282,47 @@ def register(app: Flask) -> None:
         q = rtdl.get_best_quote(symbol)
         return jsonify({"symbol": symbol, "quote": q or None})
 
+    @app.route("/api/order-flow/tape-events")
+    def order_flow_tape_events():  # pragma: no cover
+        """Read-only recent tape pattern events (iceberg / sweep / block)
+        from alerts.jsonl. Optional ?patterns=iceberg,sweep,block filter."""
+        from pathlib import Path
+        symbol = request.args.get("symbol", "ESM6")
+        try: n = int(request.args.get("n", "30"))
+        except Exception: n = 30
+        n = max(1, min(n, 500))
+        patterns = (request.args.get("patterns", "iceberg,sweep,block")
+                    .lower().split(","))
+        patterns = [p.strip() for p in patterns if p.strip()]
+        p = Path("outputs/order_flow/alerts.jsonl")
+        if not p.exists():
+            return jsonify({"symbol": symbol, "events": []})
+        events: list[dict] = []
+        with p.open() as f:
+            for line in f:
+                try:
+                    a = json.loads(line)
+                except Exception:
+                    continue
+                lbl = (a.get("label") or "")
+                if not any(lbl.startswith(pat + "_") for pat in patterns):
+                    continue
+                if a.get("symbol") != symbol:
+                    continue
+                pat = lbl.split("_", 1)[0]
+                side = "buy" if lbl.endswith("_buy") else "sell"
+                events.append({
+                    "ts": a.get("timestamp_utc"),
+                    "label": lbl,
+                    "pattern": pat,
+                    "side": side,
+                    "price": a.get("price"),
+                    "atr": a.get("atr"),
+                    "metrics": a.get("metrics") or {},
+                })
+        return jsonify({"symbol": symbol, "n": min(n, len(events)),
+                        "patterns": patterns, "events": events[-n:]})
+
     @app.route("/api/order-flow/iceberg-events")
     def order_flow_iceberg_events():  # pragma: no cover
         """Read-only recent iceberg alert events from alerts.jsonl."""

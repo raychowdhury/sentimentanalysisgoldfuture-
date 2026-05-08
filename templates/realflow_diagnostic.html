@@ -384,13 +384,44 @@
       </div>
     </div>
 
+    <!-- Row 2: derived L2 metrics + iceberg pressure -->
+    <div style="display:grid; grid-template-columns: 1.4fr 1.4fr 1fr 1fr; gap:1rem; align-items:center; margin-top:.7rem; border-top:1px solid var(--border); padding-top:.7rem;">
+      <div>
+        <div class="kv-label">Microprice (size-weighted mid)</div>
+        <div id="l2-micro" style="font-family:ui-monospace,monospace; font-size:1.1rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div id="l2-micro-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">vs mid —</div>
+      </div>
+      <div>
+        <div class="kv-label">Spread regime</div>
+        <div id="l2-spread-regime" style="font-size:1rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div id="l2-spread-regime-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
+      </div>
+      <div>
+        <div class="kv-label">Iceberg pressure (last 30m)</div>
+        <div id="l3-press" style="font-family:ui-monospace,monospace; font-size:1.05rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div id="l3-press-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
+      </div>
+      <div>
+        <div class="kv-label">Iceberg total size (30m)</div>
+        <div id="l3-size" style="font-family:ui-monospace,monospace; font-size:1.05rem; font-weight:600; margin-top:.25rem;">—</div>
+        <div id="l3-size-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
+      </div>
+    </div>
+
+    <!-- Iceberg price clusters -->
     <div style="margin-top:.85rem;">
-      <div class="kv-label">Iceberg events (Level 3) — last 10</div>
-      <div id="l3-iceberg" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
+      <div class="kv-label">Iceberg price clusters (last 30m, top 5)</div>
+      <div id="l3-clusters" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
+    </div>
+
+    <!-- Combined tape patterns feed -->
+    <div style="margin-top:.85rem;">
+      <div class="kv-label">Tape patterns (sweep / block / iceberg) — last 12</div>
+      <div id="l3-tape" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
     </div>
 
     <div style="color:var(--muted); font-size:.7rem; margin-top:.55rem; border-top:1px solid var(--border); padding-top:.4rem;">
-      Source: Databento MBP-1 (top-of-book passive bid/ask). DOM depth=1 only — full L2 depth requires MBP-10 schema (out of scope). Iceberg detection runs in Live SDK (10s window, ≥5 prints, ≤20s gap).
+      Source: Databento MBP-1 (top-of-book passive bid/ask) + tape pattern detection in Live SDK. DOM depth=1 only — full L2 depth requires MBP-10 (out of scope). Microprice = (bid_sz·ask + ask_sz·bid)/(bid_sz+ask_sz) — leans toward side with thinner book. Iceberg pressure tracks side imbalance of hidden-liquidity prints.
     </div>
   </div>
 
@@ -2740,6 +2771,146 @@ async function refreshL23() {
 }
 refreshL23();
 setInterval(refreshL23, 2000);
+
+// ── L2/L3 extras: microprice + iceberg pressure + clusters + tape feed ──
+async function refreshL23Extras() {
+  const symLocal = (document.getElementById('sym')?.value || 'ESM6').trim();
+  let q = null, tape = [];
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch(`/api/order-flow/l2-quote?symbol=${symLocal}`, { cache:'no-store' }),
+      fetch(`/api/order-flow/tape-events?symbol=${symLocal}&n=200&patterns=iceberg,sweep,block`, { cache:'no-store' }),
+    ]);
+    if (r1.ok) q = (await r1.json()).quote;
+    if (r2.ok) tape = (await r2.json()).events || [];
+  } catch (e) { return; }
+
+  // Microprice
+  if (q && q.bid && q.ask && (q.bid_sz + q.ask_sz)) {
+    const bsz = q.bid_sz, asz = q.ask_sz;
+    const micro = (bsz * q.ask + asz * q.bid) / (bsz + asz);
+    const mid = (q.bid + q.ask) / 2;
+    const lean = micro - mid;
+    const leanColor = lean > 0.02 ? 'var(--ok)' : lean < -0.02 ? 'var(--bad)' : 'var(--muted)';
+    setCell('l2-micro', micro.toFixed(3));
+    setCellHTML('l2-micro-sub',
+      `<span style="color:${leanColor};">${lean >= 0 ? '+' : ''}${lean.toFixed(3)}</span> <span style="color:var(--muted);">vs mid ${mid.toFixed(2)}</span>`);
+
+    // Spread regime — ESM6 1 tick = 0.25
+    const tickSize = 0.25;
+    const ticks = q.spread / tickSize;
+    let regime = 'normal', regColor = 'var(--ok)';
+    if (ticks > 4) { regime = 'WIDE — risk'; regColor = 'var(--bad)'; }
+    else if (ticks > 2) { regime = 'wider'; regColor = 'var(--warn)'; }
+    else if (ticks <= 1) { regime = 'tight (1 tick)'; regColor = 'var(--ok)'; }
+    setCell('l2-spread-regime', regime, regColor);
+    setCell('l2-spread-regime-sub', `${ticks.toFixed(1)} ticks · 1 tick = $${tickSize}`);
+  } else {
+    setCell('l2-micro', '—'); setCell('l2-micro-sub', '—');
+    setCell('l2-spread-regime', '—'); setCell('l2-spread-regime-sub', '—');
+  }
+
+  // Filter to last 30m and only iceberg for pressure metrics
+  const now = Date.now();
+  const cutoff30m = now - 30 * 60 * 1000;
+  const recentIce = tape.filter(e => e.pattern === 'iceberg' &&
+    new Date(e.ts).getTime() >= cutoff30m);
+  const buyIce = recentIce.filter(e => e.side === 'buy');
+  const sellIce = recentIce.filter(e => e.side === 'sell');
+
+  // Pressure
+  const totIce = buyIce.length + sellIce.length;
+  if (totIce === 0) {
+    setCellHTML('l3-press', '<span style="color:var(--muted);">no events</span>');
+    setCell('l3-press-sub', 'last 30m');
+  } else {
+    const ratio = (buyIce.length - sellIce.length) / totIce;
+    let label = 'balanced', color = 'var(--muted)';
+    if (ratio > 0.30) { label = 'bullish'; color = 'var(--ok)'; }
+    else if (ratio > 0.10) { label = 'tilt buy'; color = 'var(--ok)'; }
+    else if (ratio < -0.30) { label = 'bearish'; color = 'var(--bad)'; }
+    else if (ratio < -0.10) { label = 'tilt sell'; color = 'var(--bad)'; }
+    setCellHTML('l3-press',
+      `<span style="color:${color};">${label}</span> <span style="color:var(--muted); font-size:.78rem;">${buyIce.length}↑ / ${sellIce.length}↓</span>`);
+    setCell('l3-press-sub', `net ${(ratio >= 0 ? '+' : '') + (ratio*100).toFixed(0)}% · ${totIce} events`);
+  }
+
+  // Total size = sum of metric.count (× metric.size which is usually 1)
+  let totalCount = 0;
+  recentIce.forEach(e => {
+    const m = e.metrics || {};
+    totalCount += (m.count || 0) * (m.size || 1);
+  });
+  setCell('l3-size', `${totalCount.toFixed(0)} prints`);
+  setCell('l3-size-sub', recentIce.length ? `avg ${(totalCount/recentIce.length).toFixed(1)}/event` : '—');
+
+  // Price clusters: aggregate by price (rounded to tick)
+  const clusterMap = {};
+  recentIce.forEach(e => {
+    const px = e.price;
+    if (px == null) return;
+    const key = Math.round(px / 0.25) * 0.25;
+    if (!clusterMap[key]) clusterMap[key] = { price: key, buy: 0, sell: 0, total: 0 };
+    if (e.side === 'buy') clusterMap[key].buy++;
+    else clusterMap[key].sell++;
+    clusterMap[key].total++;
+  });
+  const clusters = Object.values(clusterMap).sort((a, b) => b.total - a.total).slice(0, 5);
+  const cEl = document.getElementById('l3-clusters');
+  if (!clusters.length) {
+    cEl.innerHTML = '<div style="color:var(--muted);">No iceberg clusters yet.</div>';
+  } else {
+    cEl.innerHTML = `
+      <div style="display:grid; grid-template-columns:7rem 4rem 4rem 4rem 1fr; gap:.2rem .55rem; color:var(--muted); font-size:.7rem; margin-bottom:.2rem;">
+        <div>price</div><div>buy</div><div>sell</div><div>total</div><div>distribution</div>
+      </div>
+      ` + clusters.map(c => {
+        const buyPct = c.total ? c.buy / c.total * 100 : 0;
+        const sellPct = c.total ? c.sell / c.total * 100 : 0;
+        return `<div style="display:grid; grid-template-columns:7rem 4rem 4rem 4rem 1fr; gap:.2rem .55rem; align-items:center;">
+          <div style="font-weight:600;">${c.price.toFixed(2)}</div>
+          <div class="delta-pos">${c.buy}</div>
+          <div class="delta-neg">${c.sell}</div>
+          <div>${c.total}</div>
+          <div style="display:flex; height:.5rem; border:1px solid var(--border); border-radius:2px; overflow:hidden;">
+            <div style="background:var(--ok); width:${buyPct}%;"></div>
+            <div style="background:var(--bad); width:${sellPct}%;"></div>
+          </div>
+        </div>`;
+      }).join('');
+  }
+
+  // Combined tape feed (last 12 across patterns)
+  const tEl = document.getElementById('l3-tape');
+  if (!tape.length) {
+    tEl.innerHTML = '<div style="color:var(--muted);">No tape events yet.</div>';
+  } else {
+    tEl.innerHTML = `
+      <div style="display:grid; grid-template-columns:7rem 5rem 5rem 5rem 5rem 1fr; gap:.2rem .55rem; color:var(--muted); font-size:.7rem; margin-bottom:.2rem;">
+        <div>time NY</div><div>pattern</div><div>side</div><div>price</div><div>size/cnt</div><div>age</div>
+      </div>
+      ` + tape.slice(-12).reverse().map(e => {
+        const ts = e.ts ? new Date(e.ts) : null;
+        const tNy = ts ? ts.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour12:false }) : '—';
+        const ageS = ts ? Math.floor((now - ts.getTime()) / 1000) : 0;
+        const ageDisp = ageS < 60 ? `${ageS}s` : ageS < 3600 ? `${Math.floor(ageS/60)}m` : `${Math.floor(ageS/3600)}h`;
+        const sideCls = e.side === 'buy' ? 'delta-pos' : 'delta-neg';
+        const m = e.metrics || {};
+        const sizeDisp = m.size != null ? m.size : (m.count != null ? `c${m.count}` : '—');
+        const patColor = e.pattern === 'iceberg' ? 'var(--accent)' : e.pattern === 'block' ? 'var(--bad)' : 'var(--muted)';
+        return `<div style="display:grid; grid-template-columns:7rem 5rem 5rem 5rem 5rem 1fr; gap:.2rem .55rem;">
+          <div>${tNy}</div>
+          <div style="color:${patColor}; font-weight:600;">${e.pattern}</div>
+          <div class="${sideCls}">${e.side.toUpperCase()}</div>
+          <div>${e.price ?? '—'}</div>
+          <div>${sizeDisp}</div>
+          <div style="color:var(--muted);">${ageDisp}</div>
+        </div>`;
+      }).join('');
+  }
+}
+refreshL23Extras();
+setInterval(refreshL23Extras, 3000);
 </script>
 </body>
 </html>
