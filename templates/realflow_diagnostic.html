@@ -354,32 +354,52 @@
   {# ── Level 2 / Level 3 — order book + iceberg events (always visible) ─#}
   <div class="card" id="l23-card" style="border-left:4px solid #fbbf24;">
     <h2>Level 2 / 3 — top of book &amp; iceberg events</h2>
-    <div style="display:grid; grid-template-columns: 1.4fr 1.4fr 1fr 1fr; gap:1rem; align-items:center;">
+
+    <!-- Mini DOM ladder + spread/imbalance side panel -->
+    <div style="display:grid; grid-template-columns: 1.6fr 1fr; gap:1.2rem; align-items:start;">
+
+      <!-- DOM ladder (visual bid | price | ask with proportional bars) -->
       <div>
-        <div class="kv-label">Best bid (Level 2)</div>
-        <div style="font-family:ui-monospace,monospace; margin-top:.25rem;">
-          <span id="l2-bid-px" style="color:var(--ok); font-size:1.4rem; font-weight:700;">—</span>
-          <span id="l2-bid-sz" style="color:var(--muted); font-size:.85rem; margin-left:.4rem;">×—</span>
+        <div class="kv-label" style="margin-bottom:.3rem;">DOM ladder (top of book)</div>
+        <div style="display:grid; grid-template-columns: 1fr 5rem 1fr; gap:.4rem; align-items:center; font-family:ui-monospace,monospace; font-size:.9rem;">
+          <!-- header -->
+          <div style="text-align:right; color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.04em;">bid size</div>
+          <div style="text-align:center; color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.04em;">price</div>
+          <div style="text-align:left; color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.04em;">ask size</div>
+          <!-- ask row (top — highest price) -->
+          <div></div>
+          <div id="l2-ask-px" style="text-align:center; color:var(--bad); font-weight:700; font-size:1.05rem;">—</div>
+          <div style="display:flex; align-items:center; gap:.4rem;">
+            <div id="l2-ask-bar" style="background:rgba(248,113,113,.35); border:1px solid var(--bad); height:1.2rem; width:0%; border-radius:0 3px 3px 0;"></div>
+            <span id="l2-ask-sz" style="color:var(--bad); font-weight:600;">—</span>
+          </div>
+          <!-- bid row (bottom — lowest price) -->
+          <div style="display:flex; align-items:center; justify-content:flex-end; gap:.4rem;">
+            <span id="l2-bid-sz" style="color:var(--ok); font-weight:600;">—</span>
+            <div id="l2-bid-bar" style="background:rgba(52,211,153,.35); border:1px solid var(--ok); height:1.2rem; width:0%; border-radius:3px 0 0 3px;"></div>
+          </div>
+          <div id="l2-bid-px" style="text-align:center; color:var(--ok); font-weight:700; font-size:1.05rem;">—</div>
+          <div></div>
         </div>
       </div>
-      <div>
-        <div class="kv-label">Best ask (Level 2)</div>
-        <div style="font-family:ui-monospace,monospace; margin-top:.25rem;">
-          <span id="l2-ask-px" style="color:var(--bad); font-size:1.4rem; font-weight:700;">—</span>
-          <span id="l2-ask-sz" style="color:var(--muted); font-size:.85rem; margin-left:.4rem;">×—</span>
+
+      <!-- Spread + imbalance compact -->
+      <div style="display:grid; grid-template-rows: 1fr 1fr; gap:.5rem;">
+        <div style="padding:.45rem .6rem; border:1px solid var(--border); border-radius:5px; background:var(--card2);">
+          <div class="kv-label">Spread</div>
+          <div style="display:flex; align-items:baseline; gap:.4rem; margin-top:.15rem;">
+            <span id="l2-spread" style="font-family:ui-monospace,monospace; font-size:1.3rem; font-weight:700;">—</span>
+            <span id="l2-spread-ticks" style="color:var(--muted); font-size:.78rem;">—</span>
+          </div>
+          <div id="l2-spread-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
         </div>
-      </div>
-      <div>
-        <div class="kv-label">Spread</div>
-        <div id="l2-spread" style="font-family:ui-monospace,monospace; font-size:1.1rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="l2-spread-sub" style="color:var(--muted); font-size:.7rem; margin-top:.15rem;">—</div>
-      </div>
-      <div>
-        <div class="kv-label">Imbalance (bid/ask sz)</div>
-        <div id="l2-imb" style="font-family:ui-monospace,monospace; font-size:1.05rem; font-weight:600; margin-top:.25rem;">—</div>
-        <div id="l2-imb-bar" style="display:flex; height:.6rem; border:1px solid var(--border); border-radius:3px; overflow:hidden; margin-top:.3rem;">
-          <div id="l2-imb-bid" style="background:var(--ok); width:50%;"></div>
-          <div id="l2-imb-ask" style="background:var(--bad); width:50%;"></div>
+        <div style="padding:.45rem .6rem; border:1px solid var(--border); border-radius:5px; background:var(--card2);">
+          <div class="kv-label">Book imbalance</div>
+          <div id="l2-imb" style="font-family:ui-monospace,monospace; font-size:.95rem; font-weight:600; margin-top:.15rem;">—</div>
+          <div id="l2-imb-bar" style="display:flex; height:.55rem; border:1px solid var(--border); border-radius:3px; overflow:hidden; margin-top:.3rem;">
+            <div id="l2-imb-bid" style="background:var(--ok); width:50%; transition:width .3s;"></div>
+            <div id="l2-imb-ask" style="background:var(--bad); width:50%; transition:width .3s;"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -447,7 +467,19 @@
       <div id="l3-clusters" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
     </div>
 
-    <!-- Combined tape patterns feed -->
+    <!-- Tape timeline strip (visual horizontal of last 30 events) -->
+    <div style="margin-top:.85rem;">
+      <div class="kv-label">Tape timeline — last 30 events (oldest → newest)</div>
+      <div id="l3-tape-strip" style="display:flex; gap:2px; margin-top:.4rem; height:1.4rem; align-items:stretch;"></div>
+      <div style="display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.25rem;">
+        <span><span style="display:inline-block; width:.6rem; height:.6rem; background:#fbbf24; border-radius:1px; vertical-align:middle;"></span> iceberg</span>
+        <span><span style="display:inline-block; width:.6rem; height:.6rem; background:#38bdf8; border-radius:1px; vertical-align:middle;"></span> sweep</span>
+        <span><span style="display:inline-block; width:.6rem; height:.6rem; background:#f87171; border-radius:1px; vertical-align:middle;"></span> block</span>
+        <span style="margin-left:auto;">tall = buy · short = sell</span>
+      </div>
+    </div>
+
+    <!-- Combined tape patterns feed (table) -->
     <div style="margin-top:.85rem;">
       <div class="kv-label">Tape patterns (sweep / block / iceberg) — last 12</div>
       <div id="l3-tape" style="font-family:ui-monospace,monospace; font-size:.78rem; margin-top:.3rem;">loading…</div>
@@ -2745,17 +2777,22 @@ async function refreshL23() {
     if (r2.ok) ev = (await r2.json()).events;
   } catch (e) { return; }
 
-  // L2
+  // L2 — DOM ladder
   if (q && q.bid && q.ask) {
     setCell('l2-bid-px', q.bid.toFixed(2));
-    setCell('l2-bid-sz', `×${q.bid_sz}`);
+    setCell('l2-bid-sz', `${q.bid_sz}`);
     setCell('l2-ask-px', q.ask.toFixed(2));
-    setCell('l2-ask-sz', `×${q.ask_sz}`);
+    setCell('l2-ask-sz', `${q.ask_sz}`);
     setCell('l2-spread', q.spread.toFixed(2));
+    const ticks = q.spread / 0.25;
+    setCell('l2-spread-ticks', `${ticks.toFixed(0)} tick${ticks === 1 ? '' : 's'}`);
     const ageS = q.ts ? Math.floor((Date.now() - new Date(q.ts).getTime()) / 1000) : null;
-    setCell('l2-spread-sub', ageS !== null ? `quote ${ageS}s old` : '—');
+    setCell('l2-spread-sub', ageS !== null ? `quote ${ageS}s old · 1 tick = $0.25` : '—');
 
     const bsz = q.bid_sz || 0, asz = q.ask_sz || 0;
+    const maxSz = Math.max(bsz, asz, 1);
+    document.getElementById('l2-bid-bar').style.width = `${(bsz / maxSz) * 100}%`;
+    document.getElementById('l2-ask-bar').style.width = `${(asz / maxSz) * 100}%`;
     const tot = bsz + asz;
     if (tot) {
       const bidPct = (bsz / tot * 100);
@@ -2769,10 +2806,13 @@ async function refreshL23() {
       document.getElementById('l2-imb-ask').style.width = `${askPct}%`;
     }
   } else {
-    setCell('l2-bid-px', '—'); setCell('l2-bid-sz', '×—');
-    setCell('l2-ask-px', '—'); setCell('l2-ask-sz', '×—');
-    setCell('l2-spread', '—'); setCell('l2-spread-sub', 'no quote yet');
+    setCell('l2-bid-px', '—'); setCell('l2-bid-sz', '—');
+    setCell('l2-ask-px', '—'); setCell('l2-ask-sz', '—');
+    setCell('l2-spread', '—'); setCell('l2-spread-ticks', '—');
+    setCell('l2-spread-sub', 'no quote yet');
     setCellHTML('l2-imb', '<span style="color:var(--muted);">—</span>');
+    document.getElementById('l2-bid-bar').style.width = '0%';
+    document.getElementById('l2-ask-bar').style.width = '0%';
   }
 
   // L3 iceberg events
@@ -2888,29 +2928,60 @@ async function refreshL23Extras() {
     else clusterMap[key].sell++;
     clusterMap[key].total++;
   });
-  const clusters = Object.values(clusterMap).sort((a, b) => b.total - a.total).slice(0, 5);
+  const clusters = Object.values(clusterMap).sort((a, b) => b.total - a.total).slice(0, 8);
   const cEl = document.getElementById('l3-clusters');
   if (!clusters.length) {
     cEl.innerHTML = '<div style="color:var(--muted);">No iceberg clusters yet.</div>';
   } else {
+    // Heatmap: sort clusters by price descending (price ladder)
+    const byPrice = [...clusters].sort((a, b) => b.price - a.price);
+    const maxTotal = Math.max(...byPrice.map(c => c.total));
     cEl.innerHTML = `
-      <div style="display:grid; grid-template-columns:7rem 4rem 4rem 4rem 1fr; gap:.2rem .55rem; color:var(--muted); font-size:.7rem; margin-bottom:.2rem;">
-        <div>price</div><div>buy</div><div>sell</div><div>total</div><div>distribution</div>
+      <div style="display:grid; grid-template-columns:6.5rem 1fr 4.5rem; gap:.3rem .6rem; color:var(--muted); font-size:.7rem; margin-bottom:.25rem;">
+        <div>price</div><div>activity (buy ▮ sell)</div><div style="text-align:right;">total</div>
       </div>
-      ` + clusters.map(c => {
+      ` + byPrice.map(c => {
         const buyPct = c.total ? c.buy / c.total * 100 : 0;
         const sellPct = c.total ? c.sell / c.total * 100 : 0;
-        return `<div style="display:grid; grid-template-columns:7rem 4rem 4rem 4rem 1fr; gap:.2rem .55rem; align-items:center;">
-          <div style="font-weight:600;">${c.price.toFixed(2)}</div>
-          <div class="delta-pos">${c.buy}</div>
-          <div class="delta-neg">${c.sell}</div>
-          <div>${c.total}</div>
-          <div style="display:flex; height:.5rem; border:1px solid var(--border); border-radius:2px; overflow:hidden;">
-            <div style="background:var(--ok); width:${buyPct}%;"></div>
-            <div style="background:var(--bad); width:${sellPct}%;"></div>
+        const intensity = c.total / maxTotal;
+        const barWidth = Math.max(8, intensity * 100);
+        const isLevel = (q && Math.abs(c.price - ((q.bid + q.ask) / 2)) < 0.5);
+        return `<div style="display:grid; grid-template-columns:6.5rem 1fr 4.5rem; gap:.3rem .6rem; align-items:center; padding:.18rem 0; ${isLevel ? 'background:rgba(251,191,36,.08);' : ''}">
+          <div style="font-family:ui-monospace,monospace; font-weight:600; font-size:.85rem; ${isLevel ? 'color:var(--accent);' : ''}">${c.price.toFixed(2)}${isLevel ? ' ←' : ''}</div>
+          <div style="display:flex; height:.85rem; width:${barWidth}%; border-radius:2px; overflow:hidden;">
+            <div style="background:var(--ok); width:${buyPct}%;" title="buy ${c.buy}"></div>
+            <div style="background:var(--bad); width:${sellPct}%;" title="sell ${c.sell}"></div>
+          </div>
+          <div style="text-align:right; font-family:ui-monospace,monospace; font-size:.78rem;">
+            <span class="delta-pos">${c.buy}</span><span style="color:var(--muted);">/</span><span class="delta-neg">${c.sell}</span>
           </div>
         </div>`;
       }).join('');
+  }
+
+  // Tape timeline strip (last 30 events as colored squares)
+  const stripEl = document.getElementById('l3-tape-strip');
+  if (stripEl) {
+    const last30 = tape.slice(-30);
+    if (!last30.length) {
+      stripEl.innerHTML = '<div style="color:var(--muted); font-size:.7rem;">no events yet</div>';
+    } else {
+      stripEl.innerHTML = last30.map(e => {
+        const color = e.pattern === 'iceberg' ? '#fbbf24'
+                    : e.pattern === 'sweep'   ? '#38bdf8'
+                    : e.pattern === 'block'   ? '#f87171' : '#94a3b8';
+        const heightPct = e.side === 'buy' ? 100 : 50;
+        const yOffset = e.side === 'buy' ? 0 : 50;
+        const ts = e.ts ? new Date(e.ts) : null;
+        const tNy = ts ? ts.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour12:false }) : '—';
+        const m = e.metrics || {};
+        const sizeDisp = m.size != null ? m.size : (m.count != null ? `c${m.count}` : '—');
+        const tip = `${e.pattern} ${e.side.toUpperCase()} @ ${e.price ?? '—'} sz/cnt=${sizeDisp} · ${tNy} NY`;
+        return `<div title="${tip}" style="flex:1; min-width:8px; max-width:18px; position:relative; cursor:pointer;">
+          <div style="position:absolute; bottom:0; left:0; right:0; background:${color}; height:${heightPct}%; border-radius:1px;"></div>
+        </div>`;
+      }).join('');
+    }
   }
 
   // ── Actionable signals ─────────────────────────────────────────────
