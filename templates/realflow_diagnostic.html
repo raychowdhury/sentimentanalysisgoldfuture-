@@ -3086,15 +3086,26 @@ async function refreshL23Extras() {
     svpByPrice[px] = (svpByPrice[px] || 0) + b.volume;
   });
 
-  // Active price set: iceberg/sweep/block + SVP>0 + bid + ask
+  // Active price set: all iceberg/sweep/block + bid/ask + top SVP prices
   const activePxs = new Set();
   overlayEvents.forEach(e => {
     const px = Math.round(e.price / TICK_SZ) * TICK_SZ;
     activePxs.add(px);
   });
-  Object.keys(svpByPrice).forEach(p => {
-    if ((svpByPrice[p] || 0) > 0) activePxs.add(Number(p));
-  });
+  // Only top-volume SVP prices (Value Area = top 70% of volume) to
+  // avoid scattering ladder across every 1m close price.
+  const svpEntries = Object.entries(svpByPrice).map(([p, v]) => [Number(p), v]);
+  const totalSvp = svpEntries.reduce((a, [_, v]) => a + v, 0);
+  if (totalSvp > 0) {
+    const sortedDesc = svpEntries.slice().sort((a, b) => b[1] - a[1]);
+    let cum = 0;
+    const target = totalSvp * 0.70;
+    for (const [px, v] of sortedDesc) {
+      activePxs.add(px);
+      cum += v;
+      if (cum >= target) break;
+    }
+  }
   if (q) {
     activePxs.add(Math.round(q.bid / TICK_SZ) * TICK_SZ);
     activePxs.add(Math.round(q.ask / TICK_SZ) * TICK_SZ);
