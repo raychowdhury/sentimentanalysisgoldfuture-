@@ -217,17 +217,6 @@
     .l23-divider   { width:100%; height:1px; background:linear-gradient(90deg, transparent, var(--border), transparent); margin:.85rem 0; }
     .l23-legend    { display:flex; gap:1rem; color:var(--muted); font-size:.65rem; margin-top:.4rem; align-items:center; flex-wrap:wrap; }
     .l23-legend .sw { display:inline-block; width:.7rem; height:.7rem; border-radius:1px; vertical-align:middle; margin-right:.2rem; }
-
-    /* Heatmap row hover crosshair */
-    .hm-row:hover { background:rgba(251,191,36,.06) !important; }
-    .hm-row:hover .hm-pxlabel { color:var(--accent); font-weight:700; }
-    /* 5-min vertical gridline */
-    .hm-cell.gridline { border-right:1px solid rgba(251,191,36,.15); }
-    /* POC marker */
-    .poc-star::after { content:"★"; color:var(--accent); margin-left:.2rem; font-size:.85rem; }
-    .va-high::before, .va-low::before { content:""; display:inline-block; width:.4rem; height:.4rem; border-radius:50%; background:var(--accent); margin-right:.3rem; vertical-align:middle; }
-    /* Aggressive flow strip cells */
-    .agg-cell { height:.7rem; border-radius:1px; }
   </style>
 </head>
 <body>
@@ -564,13 +553,10 @@
 
     <!-- Bookmap-style combined: heatmap (left) + price ladder profile (right) -->
     <div class="l23-section">
-      <div class="l23-h">Profile L · Heatmap (price × time) · Profile R</div>
-      <div class="l23-tile" style="padding:.7rem;">
-        <div style="display:grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.7fr) minmax(0, 0.85fr); gap:0; align-items:flex-start; overflow-x:auto;">
-          <div id="l3-profile-left"  style="overflow:hidden;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
-          <div id="l3-heatmap"       style="overflow:hidden; border-left:1px solid var(--border); border-right:1px solid var(--border); padding:0 .5rem;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
-          <div id="l3-profile-side"  style="overflow:hidden; padding-left:.5rem;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
-        </div>
+      <div class="l23-h">Heatmap · price × time   ·   profile · per-level metrics</div>
+      <div style="display:grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap:1rem; align-items:flex-start;">
+        <div id="l3-heatmap" class="l23-tile" style="padding:.7rem; overflow-x:auto;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
+        <div id="l3-profile-side" class="l23-tile" style="padding:.7rem; overflow-x:auto;"><span class="skeleton" style="width:80%; height:8rem; display:block;"></span></div>
       </div>
       <div class="l23-legend">
         <span><span class="sw" style="background:rgba(52,211,153,.75);"></span>iceberg buy</span>
@@ -3086,35 +3072,31 @@ async function refreshL23Extras() {
     svpByPrice[px] = (svpByPrice[px] || 0) + b.volume;
   });
 
-  // Active price set: all iceberg/sweep/block + bid/ask + top SVP prices
-  const activePxs = new Set();
+  // Combined min/max
+  let sharedMin = Infinity, sharedMax = -Infinity;
   overlayEvents.forEach(e => {
     const px = Math.round(e.price / TICK_SZ) * TICK_SZ;
-    activePxs.add(px);
+    if (px < sharedMin) sharedMin = px;
+    if (px > sharedMax) sharedMax = px;
   });
-  // Only top-volume SVP prices (Value Area = top 70% of volume) to
-  // avoid scattering ladder across every 1m close price.
-  const svpEntries = Object.entries(svpByPrice).map(([p, v]) => [Number(p), v]);
-  const totalSvp = svpEntries.reduce((a, [_, v]) => a + v, 0);
-  if (totalSvp > 0) {
-    const sortedDesc = svpEntries.slice().sort((a, b) => b[1] - a[1]);
-    let cum = 0;
-    const target = totalSvp * 0.70;
-    for (const [px, v] of sortedDesc) {
-      activePxs.add(px);
-      cum += v;
-      if (cum >= target) break;
-    }
-  }
+  Object.keys(svpByPrice).forEach(p => {
+    const v = Number(p);
+    if (v < sharedMin) sharedMin = v;
+    if (v > sharedMax) sharedMax = v;
+  });
   if (q) {
-    activePxs.add(Math.round(q.bid / TICK_SZ) * TICK_SZ);
-    activePxs.add(Math.round(q.ask / TICK_SZ) * TICK_SZ);
+    const midQ = (q.bid + q.ask) / 2;
+    if (midQ < sharedMin) sharedMin = midQ;
+    if (midQ > sharedMax) sharedMax = midQ;
   }
 
-  // Render only active prices — no ±1 tick padding. Bookmap-style:
-  // every visible row has data in at least one panel. Empty gaps
-  // between clusters are honest signal (no liquidity there).
-  let sharedPrices = Array.from(activePxs).sort((a, b) => b - a);
+  let sharedPrices = [];
+  if (isFinite(sharedMin) && isFinite(sharedMax)) {
+    sharedMin -= 0.50; sharedMax += 0.50;
+    for (let p = sharedMax; p >= sharedMin - 0.001; p -= TICK_SZ) {
+      sharedPrices.push(Math.round(p / TICK_SZ) * TICK_SZ);
+    }
+  }
 
   const sharedMid = q ? (q.bid + q.ask) / 2 : null;
   const midPx = sharedMid !== null ? Math.round(sharedMid / TICK_SZ) * TICK_SZ : null;
@@ -3148,25 +3130,13 @@ async function refreshL23Extras() {
         if (grid[px][idx] > maxCell) maxCell = grid[px][idx];
       });
 
-      const cellW = 16;
+      const cellW = 12;
       const cellH = ROW_H;
-      const labelW = 0; // outer profile panels carry the price axis; no in-heatmap labels
+      const labelW = 60;
 
-      // Aggressive flow strip — per-minute net sweep direction
-      const aggBuckets = new Array(bucketCount).fill(null).map(() => ({ buy:0, sell:0 }));
-      tape.forEach(e => {
-        if (e.pattern !== 'sweep' || e.price == null) return;
-        const t = new Date(e.ts).getTime();
-        if (t < cutoff) return;
-        const idx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
-        if (e.side === 'buy') aggBuckets[idx].buy++;
-        else aggBuckets[idx].sell++;
-      });
+      let html = `<div style="position:relative; display:inline-block; min-width:${labelW + bucketCount * (cellW + 1)}px; font-family:ui-monospace,monospace;">`;
 
-      let html = `<div style="position:relative; display:inline-block; min-width:${bucketCount * (cellW + 1)}px; font-family:ui-monospace,monospace;">`;
-
-      // Time labels header
-      html += `<div style="display:flex; gap:1px; height:${HEADER_H}px; align-items:center; font-size:.58rem; color:var(--muted);">`;
+      html += `<div style="display:flex; gap:1px; margin-left:${labelW}px; height:${HEADER_H}px; align-items:center; font-size:.58rem; color:var(--muted);">`;
       for (let i = 0; i < bucketCount; i++) {
         const minsAgo = bucketCount - i;
         const showLabel = (minsAgo % 5 === 0) || (i === bucketCount - 1);
@@ -3175,36 +3145,14 @@ async function refreshL23Extras() {
       }
       html += `</div>`;
 
-      // Aggressive flow strip (sweep buy vs sell per minute)
-      html += `<div style="display:flex; gap:1px; align-items:center; height:.9rem; margin-bottom:2px;">`;
-      const maxAgg = Math.max(1, ...aggBuckets.map(b => b.buy + b.sell));
-      for (let i = 0; i < bucketCount; i++) {
-        const ab = aggBuckets[i];
-        const tot = ab.buy + ab.sell;
-        let bg = 'rgba(255,255,255,0.02)';
-        if (tot > 0) {
-          const a = 0.30 + Math.min(1, tot / maxAgg) * 0.65;
-          const net = ab.buy - ab.sell;
-          if (net > 0) bg = `rgba(56,189,248,${a})`;
-          else if (net < 0) bg = `rgba(14,165,233,${a})`;
-          else bg = `rgba(148,163,184,${a})`;
-        }
-        const minsAgo = bucketCount - i;
-        const isGridline = (minsAgo % 5 === 0);
-        html += `<div title="t-${minsAgo}m · sweep buy=${ab.buy} sell=${ab.sell}" class="agg-cell${isGridline ? ' gridline' : ''}" style="width:${cellW}px; background:${bg};"></div>`;
-      }
-      html += `</div>`;
-      // Heatmap rows
       sharedPrices.forEach(px => {
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
-        // Heatmap row keeps transparent bg so iceberg cells remain visible.
-        // Spot mark for heatmap is the outline border via box-shadow.
-        const rowBg = 'transparent';
-        const rowExtra = isMid ? 'box-shadow:inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent);' : '';
+        const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
         const labelColor = isMid ? 'var(--accent)' : 'var(--muted)';
         const labelWeight = isMid ? '700' : '500';
 
-        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};${rowExtra}">`;
+        html += `<div style="display:flex; gap:1px; align-items:center; height:${cellH}px; background:${rowBg};">`;
+        html += `<div style="width:${labelW}px; text-align:right; padding-right:.3rem; font-size:.62rem; color:${labelColor}; font-weight:${labelWeight};">${px.toFixed(2)}${isMid ? ' ←' : ''}</div>`;
 
         for (let i = 0; i < bucketCount; i++) {
           const cnt = (grid[px] && grid[px][i]) || 0;
@@ -3218,9 +3166,7 @@ async function refreshL23Extras() {
             else bg = `rgba(251,191,36,${alpha})`;
             title += ` · iceberg buy=${sides.buy} sell=${sides.sell}`;
           }
-          const minsAgo = bucketCount - i;
-          const isGridline = (minsAgo % 5 === 0);
-          html += `<div title="${title}" class="hm-cell${isGridline ? ' gridline' : ''}" style="width:${cellW}px; height:${cellH}px; background:${bg}; border-radius:1px;"></div>`;
+          html += `<div title="${title}" style="width:${cellW}px; height:${cellH}px; background:${bg}; border-radius:1px;"></div>`;
         }
         html += `</div>`;
       });
@@ -3233,18 +3179,15 @@ async function refreshL23Extras() {
         if (rowIdx < 0) return;
         const t = new Date(e.ts).getTime();
         const colIdx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
-        const markerSz = e.pattern === 'block' ? 12 : 10;
-        // Heatmap header: time labels (HEADER_H) + agg strip (~16px) + 2px margin
-        const heatmapHeadOffset = HEADER_H + 18;
-        const x = labelW + colIdx * (cellW + 1) + cellW / 2 - markerSz / 2;
-        const y = heatmapHeadOffset + rowIdx * cellH + cellH / 2 - markerSz / 2;
+        const x = labelW + colIdx * (cellW + 1) + cellW / 2 - 4;
+        const y = HEADER_H + rowIdx * cellH + cellH / 2 - 4;
         let style = 'border-radius:50%;';
         if (e.pattern === 'sweep') {
           const c = e.side === 'buy' ? '#38bdf8' : '#0ea5e9';
-          style += `background:${c}; width:10px; height:10px; box-shadow:0 0 4px ${c}aa;`;
+          style += `background:${c}; width:8px; height:8px;`;
         } else if (e.pattern === 'block') {
           const c = e.side === 'buy' ? '#86efac' : '#f87171';
-          style += `background:${c}; width:12px; height:12px; border:1.5px solid #fff; box-shadow:0 0 6px ${c}cc;`;
+          style += `background:${c}; width:10px; height:10px; border:1px solid #fff;`;
         }
         const m = e.metrics || {};
         const sizeDisp = m.size != null ? m.size : (m.count != null ? `c${m.count}` : '—');
@@ -3257,65 +3200,6 @@ async function refreshL23Extras() {
     }
   }
 
-  // ── Left profile (price label + +/- delta + COB) ──
-  const profLeftEl = document.getElementById('l3-profile-left');
-  if (profLeftEl) {
-    if (!sharedPrices.length) {
-      profLeftEl.innerHTML = '<div style="color:var(--muted); font-size:.78rem;">No price-level data yet.</div>';
-    } else {
-      const maxIce = Math.max(1, ...Object.values(iceByPrice).map(v => v.buy + v.sell));
-      const pxW = 60;
-      const deltaW = 32;
-      const cobW = 90;
-      let html = `<div style="font-family:ui-monospace,monospace;">`;
-      // Header (matches heatmap: time labels HEADER_H + agg strip 18)
-      html += `<div style="display:flex; gap:.3rem; height:${HEADER_H}px; align-items:center; font-size:.58rem; color:var(--muted);">`;
-      html += `<div style="width:${cobW}px; text-align:center;">COB</div>`;
-      html += `<div style="width:${deltaW}px; text-align:center;">+/-</div>`;
-      html += `<div style="width:${pxW}px; text-align:right;">price</div>`;
-      html += `</div>`;
-      html += `<div style="height:18px;"></div>`;
-
-      sharedPrices.forEach(px => {
-        const ice = iceByPrice[px] || { buy:0, sell:0 };
-        const total = ice.buy + ice.sell;
-        const delta = ice.buy - ice.sell;
-        const hasActivity = total > 0;
-        const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
-        const rowBg = isMid ? 'var(--accent)' : 'transparent';
-
-        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${isMid ? 'var(--accent)' : rowBg};">`;
-
-        // COB split bar (saturated, full-bleed; only render bar segments when activity)
-        const buyW = total ? (ice.buy / maxIce) * (cobW / 2 - 2) : 0;
-        const sellW = total ? (ice.sell / maxIce) * (cobW / 2 - 2) : 0;
-        html += `<div style="display:flex; align-items:center; width:${cobW}px;">
-          <div style="display:flex; justify-content:flex-end; width:${cobW/2}px;">
-            ${ice.buy ? `<div title="buy ${ice.buy}" style="background:#10b981; height:11px; width:${buyW}px; border-radius:1px 0 0 1px;"></div>` : ''}
-          </div>
-          <div style="width:1px; background:${hasActivity ? 'var(--ink)' : 'transparent'}; height:13px;"></div>
-          <div style="display:flex; width:${cobW/2}px;">
-            ${ice.sell ? `<div title="sell ${ice.sell}" style="background:#ef4444; height:11px; width:${sellW}px; border-radius:0 1px 1px 0;"></div>` : ''}
-          </div>
-        </div>`;
-
-        // Delta — blank when no activity (bookmap style)
-        const dColor = delta > 0 ? '#10b981' : delta < 0 ? '#ef4444' : 'var(--muted)';
-        const dTxt = !hasActivity ? '' : (delta === 0 ? '0' : (delta > 0 ? '+' + delta : String(delta)));
-        html += `<div style="width:${deltaW}px; text-align:center; color:${dColor}; font-weight:700; font-size:.78rem;">${dTxt}</div>`;
-
-        // Price label
-        const pxColor = isMid ? '#0f172a' : (hasActivity ? 'var(--ink)' : 'var(--muted)');
-        const pxWeight = isMid ? '700' : (hasActivity ? '600' : '400');
-        html += `<div class="hm-pxlabel" style="width:${pxW}px; text-align:right; font-size:.7rem; color:${pxColor}; font-weight:${pxWeight};">${px.toFixed(2)}${isMid ? ' →' : ''}</div>`;
-
-        html += `</div>`;
-      });
-      html += `</div>`;
-      profLeftEl.innerHTML = html;
-    }
-  }
-
   // ── Side-by-side profile (shared price axis with heatmap) ──
   const profSideEl = document.getElementById('l3-profile-side');
   if (profSideEl) {
@@ -3324,66 +3208,51 @@ async function refreshL23Extras() {
     } else {
       const maxIce = Math.max(1, ...Object.values(iceByPrice).map(v => v.buy + v.sell));
       const maxSvp = Math.max(1, ...Object.values(svpByPrice));
-
-      // POC + VAH/VAL — Point Of Control & Value Area (70% of volume)
-      const totalVol = Object.values(svpByPrice).reduce((a, b) => a + b, 0);
-      const sortedByVol = [...sharedPrices]
-        .map(px => [px, svpByPrice[px] || 0])
-        .sort((a, b) => b[1] - a[1]);
-      const pocPx = sortedByVol.length && sortedByVol[0][1] > 0 ? sortedByVol[0][0] : null;
-      let valArea = new Set();
-      if (totalVol > 0) {
-        const target = totalVol * 0.70;
-        let cum = 0;
-        for (const [px, v] of sortedByVol) {
-          if (v <= 0) break;
-          valArea.add(px);
-          cum += v;
-          if (cum >= target) break;
-        }
-      }
-      const valPrices = Array.from(valArea).sort((a, b) => a - b);
-      const valLow = valPrices.length ? valPrices[0] : null;
-      const valHigh = valPrices.length ? valPrices[valPrices.length - 1] : null;
-
-      const pxW = 60;
-      const svpW = 140;
+      const cobW = 90;   // px
+      const svpW = 120;  // px
+      const deltaW = 36; // px
       let html = `<div style="font-family:ui-monospace,monospace;">`;
-      // Two-row header to match heatmap (time labels + agg strip = 32px)
+      // Header (matches heatmap header height)
       html += `<div style="display:flex; gap:.3rem; height:${HEADER_H}px; align-items:center; font-size:.58rem; color:var(--muted);">`;
-      html += `<div style="width:${pxW}px; text-align:left;">price</div>`;
-      html += `<div style="width:${svpW}px; text-align:center;">SVP · ★POC ▲▼VA</div>`;
+      html += `<div style="width:${deltaW}px; text-align:center;">+/-</div>`;
+      html += `<div style="width:${cobW}px; text-align:center;">COB</div>`;
+      html += `<div style="width:${svpW}px; text-align:center;">SVP</div>`;
       html += `</div>`;
-      // Filler matching heatmap aggressive strip
-      html += `<div style="height:18px;"></div>`;
 
       sharedPrices.forEach(px => {
+        const ice = iceByPrice[px] || { buy:0, sell:0 };
+        const total = ice.buy + ice.sell;
+        const delta = ice.buy - ice.sell;
         const svp = svpByPrice[px] || 0;
-        const hasVol = svp > 0;
         const isMid = midPx !== null && Math.abs(px - midPx) < 0.001;
-        const rowBg = isMid ? 'var(--accent)' : 'transparent';
+        const rowBg = isMid ? 'rgba(251,191,36,0.10)' : 'transparent';
 
-        html += `<div class="hm-row" data-px="${px.toFixed(2)}" style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${isMid ? 'var(--accent)' : rowBg};">`;
+        html += `<div style="display:flex; gap:.3rem; height:${ROW_H}px; align-items:center; background:${rowBg};">`;
 
-        // Price label
-        const pxColor = isMid ? '#0f172a' : (hasVol ? 'var(--ink)' : 'var(--muted)');
-        const pxWeight = isMid ? '700' : (hasVol ? '600' : '400');
-        html += `<div class="hm-pxlabel" style="width:${pxW}px; text-align:left; font-size:.7rem; color:${pxColor}; font-weight:${pxWeight};">${isMid ? '← ' : ''}${px.toFixed(2)}</div>`;
+        // Delta
+        const dColor = delta > 0 ? 'var(--ok)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
+        const dTxt = delta === 0 ? '·' : (delta > 0 ? '+' + delta : String(delta));
+        html += `<div style="width:${deltaW}px; text-align:center; color:${dColor}; font-weight:600; font-size:.7rem;">${dTxt}</div>`;
 
-        // SVP with POC ★ and VA ● markers
-        const sw = svp ? (svp / maxSvp) * (svpW - 50) : 0;
-        const sTxt = svp ? svp.toFixed(0) : '';
-        const isPOC = pocPx !== null && Math.abs(px - pocPx) < 0.001;
-        const isVAH = valHigh !== null && Math.abs(px - valHigh) < 0.001;
-        const isVAL = valLow !== null && Math.abs(px - valLow) < 0.001;
-        const inVA = valArea.has(px);
-        const barColor = isPOC ? 'rgba(251,191,36,.55)' : (inVA ? 'rgba(167,139,250,.55)' : 'rgba(167,139,250,.30)');
-        const barBorder = isPOC ? 'var(--accent)' : '#a78bfa';
-        const marker = isPOC ? '<span style="color:var(--accent);">★</span>' : (isVAH ? '<span style="color:var(--accent);">▲</span>' : (isVAL ? '<span style="color:var(--accent);">▼</span>' : ''));
+        // COB split
+        const buyW = total ? (ice.buy / maxIce) * (cobW / 2 - 2) : 0;
+        const sellW = total ? (ice.sell / maxIce) * (cobW / 2 - 2) : 0;
+        html += `<div style="display:flex; align-items:center; width:${cobW}px;">
+          <div style="display:flex; justify-content:flex-end; width:${cobW/2}px;">
+            <div title="buy ${ice.buy}" style="background:var(--ok); height:9px; width:${buyW}px; border-radius:1px 0 0 1px;"></div>
+          </div>
+          <div style="width:1px; background:var(--border); height:11px;"></div>
+          <div style="display:flex; width:${cobW/2}px;">
+            <div title="sell ${ice.sell}" style="background:var(--bad); height:9px; width:${sellW}px; border-radius:0 1px 1px 0;"></div>
+          </div>
+        </div>`;
+
+        // SVP
+        const sw = svp ? (svp / maxSvp) * (svpW - 32) : 0;
+        const sTxt = svp ? svp.toFixed(0) : '·';
         html += `<div style="display:flex; align-items:center; gap:.25rem; width:${svpW}px;">
-          <div title="vol ${svp.toFixed(0)}${isPOC ? ' · POC' : ''}${isVAH ? ' · VAH' : ''}${isVAL ? ' · VAL' : ''}" style="background:${barColor}; border:1px solid ${barBorder}; height:9px; width:${sw}px; border-radius:1px;"></div>
+          <div title="vol ${svp.toFixed(0)}" style="background:rgba(167,139,250,.4); border:1px solid #a78bfa; height:9px; width:${sw}px; border-radius:1px;"></div>
           <span style="color:${svp ? 'var(--ink)' : 'var(--muted)'}; font-size:.6rem;">${sTxt}</span>
-          <span style="font-size:.7rem; line-height:1;">${marker}</span>
         </div>`;
 
         html += `</div>`;

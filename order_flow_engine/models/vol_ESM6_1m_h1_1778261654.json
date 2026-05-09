@@ -1,0 +1,68 @@
+{
+  "version": "vol_ESM6_1m_h1_1778261654",
+  "symbol": "ESM6",
+  "timeframe": "1m",
+  "horizon": 1,
+  "rows_total": 479,
+  "feature_names": [
+    "rng_bps_lag1",
+    "rng_bps_lag2",
+    "rng_bps_lag5",
+    "rng_bps_lag20",
+    "abs_ret_lag1",
+    "abs_ret_lag5",
+    "rv20",
+    "rng_expand",
+    "vol_z",
+    "delta_ratio_lag1",
+    "cvd_z_lag1",
+    "hour_sin",
+    "hour_cos",
+    "dow"
+  ],
+  "quantiles": [
+    0.1,
+    0.5,
+    0.9
+  ],
+  "folds": [
+    {
+      "fold": 0,
+      "train_rows": 194,
+      "test_rows": 95,
+      "mae_bps": 1.8548809162665802,
+      "corr": 0.12690905821477258,
+      "band_cover": 0.3368421052631579,
+      "pinball_p10": 0.0713952849307161,
+      "pinball_p50": 0.22744344013286677,
+      "pinball_p90": 0.2161447521396022
+    },
+    {
+      "fold": 1,
+      "train_rows": 289,
+      "test_rows": 95,
+      "mae_bps": 1.059762553096787,
+      "corr": -0.10477089499986302,
+      "band_cover": 0.8315789473684211,
+      "pinball_p10": 0.0448119137595518,
+      "pinball_p50": 0.12076923288729714,
+      "pinball_p90": 0.06255025621565119
+    },
+    {
+      "fold": 2,
+      "train_rows": 384,
+      "test_rows": 95,
+      "mae_bps": 0.9366203571795231,
+      "corr": -0.02579632706559212,
+      "band_cover": 0.631578947368421,
+      "pinball_p10": 0.06571737341121499,
+      "pinball_p50": 0.13234510778705888,
+      "pinball_p90": 0.05363109837425748
+    }
+  ],
+  "fold_summary": {
+    "mae_bps_mean": 1.2837546088476302,
+    "corr_mean": -0.0012193879502275181,
+    "band_cover_mean": 0.6
+  }
+}

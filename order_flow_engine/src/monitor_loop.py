@@ -37,6 +37,7 @@ from pathlib import Path
 from order_flow_engine.src import realflow_compare as rfc
 from order_flow_engine.src import realflow_outcome_tracker as rot
 from order_flow_engine.src import realflow_r7_shadow as r7s
+from order_flow_engine.src import paper_sim_engine as psim
 
 
 _stop = False
@@ -96,6 +97,23 @@ def _step(symbol: str, tf: str) -> dict:
         }
     except Exception as e:
         rec["r7_shadow"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    try:
+        eng = psim.PaperSimEngine(out_dir=psim._forward_out_dir(), tf=tf)
+        ps = eng.incremental_pass(symbol, tf)
+        rec["paper_sim"] = {
+            "ok":                  True,
+            "skipped":             bool(ps.get("skipped", False)),
+            "reason":              ps.get("reason"),
+            "n_new_bars":          ps.get("n_new_bars"),
+            "n_new_fires":         ps.get("n_new_fires"),
+            "n_opened":            ps.get("n_opened"),
+            "trades_closed_total": ps.get("trades_closed_total"),
+            "equity_R_running":    ps.get("equity_R_running"),
+            "auto_pause_active":   ps.get("auto_pause_active"),
+        }
+    except Exception as e:
+        rec["paper_sim"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     rec["elapsed_s"] = round(time.time() - t0, 2)
     return rec
